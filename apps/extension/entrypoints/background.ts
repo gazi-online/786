@@ -53,18 +53,26 @@ export default defineBackground(() => {
       url: ['*://*.simplewallet.in/*', '*://*.egpayment.com/*', '*://localhost/*'],
     });
 
-    if (portalTabs.length > 0 && portalTabs[0]?.id) {
-      try {
-        const response = await chrome.tabs.sendMessage(portalTabs[0].id, {
-          type: 'TRIGGER_PARSE',
-        });
-        if (response && response.result) {
-          await handleParseResult(response.result, storage);
-          return;
+    // Sync all open portal tabs (simplewallet and egpayment)
+    let parsedAnyTab = false;
+    for (const tab of portalTabs) {
+      if (tab.id) {
+        try {
+          const response = await chrome.tabs.sendMessage(tab.id, {
+            type: 'TRIGGER_PARSE',
+          });
+          if (response && response.result) {
+            await handleParseResult(response.result, storage);
+            parsedAnyTab = true;
+          }
+        } catch {
+          // Tab might not be loaded yet or inactive
         }
-      } catch {
-        // Tab might not be loaded yet; fall back to same-origin fetch
       }
+    }
+
+    if (parsedAnyTab) {
+      return;
     }
 
     // Fallback: fetch directly if credentials allowed
@@ -154,7 +162,10 @@ export default defineBackground(() => {
 
         // Calculate today stats
         const totalAmount = payload.rows.reduce((sum, r) => sum + r.amountPaise, 0);
-        const recentRows = payload.rows.slice(0, 5).map((r) => {
+        const source = payload.rows[0]?.source || 'simplewallet';
+        const nowIso = new Date().toISOString();
+
+        const recentRows = payload.rows.slice(0, 6).map((r) => {
           const rawDigits = r.customerNo.replace(/\D/g, '');
           const last4 = rawDigits.slice(-4) || '0000';
           const masked = rawDigits.length >= 6
@@ -163,6 +174,7 @@ export default defineBackground(() => {
 
           return {
             txnId: r.txnId,
+            source: r.source,
             service: r.service,
             serviceName: r.serviceName,
             customerLast4: last4,
@@ -173,15 +185,25 @@ export default defineBackground(() => {
           };
         });
 
-        await setStorage({
+        const patch: Partial<StorageData> = {
           status: 'ok',
           errorMessage: null,
-          lastSyncTime: new Date().toISOString(),
+          lastSyncTime: nowIso,
           todayCount: payload.rows.length,
           todayAmountPaise: totalAmount,
           recentTransactions: recentRows,
           offlineQueue: [], // clear offline queue on successful ingest
-        });
+        };
+
+        if (source === 'simplewallet') {
+          patch.simplewalletLastSync = nowIso;
+          patch.simplewalletCount = payload.rows.length;
+        } else if (source === 'egpayment') {
+          patch.egpaymentLastSync = nowIso;
+          patch.egpaymentCount = payload.rows.length;
+        }
+
+        await setStorage(patch);
       } else if (res.status === 401) {
         // Token revoked
         await setStorage({

@@ -13,6 +13,12 @@ export interface StorageData {
   errorMessage: string | null;
   isPaused: boolean;
 
+  // Per-Portal status tracking
+  simplewalletLastSync: string | null;
+  egpaymentLastSync: string | null;
+  simplewalletCount: number;
+  egpaymentCount: number;
+
   // Preferences
   pollingIntervalMinutes: number; // default 2, min 1
   keepAliveMode: 'fetch' | 'reload';
@@ -22,6 +28,7 @@ export interface StorageData {
   todayAmountPaise: number;
   recentTransactions: Array<{
     txnId: string;
+    source?: 'simplewallet' | 'egpayment';
     service: string;
     serviceName: string;
     customerLast4: string;
@@ -44,6 +51,10 @@ export const DEFAULT_STORAGE: StorageData = {
   lastSyncTime: null,
   errorMessage: null,
   isPaused: false,
+  simplewalletLastSync: null,
+  egpaymentLastSync: null,
+  simplewalletCount: 0,
+  egpaymentCount: 0,
   pollingIntervalMinutes: 2,
   keepAliveMode: 'fetch',
   todayCount: 0,
