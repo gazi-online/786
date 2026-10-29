@@ -28,11 +28,8 @@ export interface MemoryDevice {
 
 // Global singletons across hot-reloads
 declare global {
-  // eslint-disable-next-line no-var
   var __memoryPairingCodes: Map<string, MemoryPairingCode> | undefined;
-  // eslint-disable-next-line no-var
   var __memoryDevices: Map<string, MemoryDevice> | undefined;
-  // eslint-disable-next-line no-var
   var __memoryTransactions: ApiTransaction[] | undefined;
 }
 
@@ -153,3 +150,4 @@ export function addMemoryTransactions(txns: ApiTransaction[]) {
 export function getMemoryTransactions(): ApiTransaction[] {
   return transactionsList;
 }
+

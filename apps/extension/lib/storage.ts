@@ -39,7 +39,7 @@ export const DEFAULT_STORAGE: StorageData = {
   deviceId: null,
   deviceToken: null,
   apiUrl: 'http://localhost:3000',
-  portalUrl: 'https://simplewallet.in',
+  portalUrl: 'https://simplewallet.in/web/MyTrans.aspx?ST=1&mID=824&PID=821',
   status: 'ok',
   lastSyncTime: null,
   errorMessage: null,

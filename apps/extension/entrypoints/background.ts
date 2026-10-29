@@ -48,9 +48,9 @@ export default defineBackground(() => {
       return;
     }
 
-    // Try finding open portal tabs first
+    // Try finding open portal tabs first (simplewallet or egpayment)
     const portalTabs = await chrome.tabs.query({
-      url: ['*://*.simplewallet.in/*', '*://localhost/*'],
+      url: ['*://*.simplewallet.in/*', '*://*.egpayment.com/*', '*://localhost/*'],
     });
 
     if (portalTabs.length > 0 && portalTabs[0]?.id) {

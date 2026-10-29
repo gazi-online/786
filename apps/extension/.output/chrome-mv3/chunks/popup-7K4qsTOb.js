@@ -1,4 +1,4 @@
-import{c as a,r as n,g as O,j as e,a as W}from"./createLucideIcon-BoABaqKS.js";/**
+import{c as a,r as n,g as O,j as e,a as W}from"./createLucideIcon-BPH2lnad.js";/**
  * @license lucide-react v1.64.0 - ISC
  *
  * This source code is licensed under the ISC license.

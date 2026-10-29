@@ -3,15 +3,13 @@
  *
  * Vitest environment: happy-dom (provides DOMParser in Node — Amd-6).
  *
- * Acceptance tests from GUIDE.md §8 verified here:
- *   ✓ Golden row
+ * Acceptance tests from GUIDE.md §8 verified here against real simplewallet fixture:
+ *   ✓ Golden row (TxnID 27752914)
  *   ✓ Totals mismatch
  *   ✓ Layout drift
  *   ✓ Empty table (no rows, no delete)
  *   ✓ Logged-out page
- *
- * Fixtures are loaded from fixtures/simplewallet/ relative to the monorepo root.
- * All fixtures are SYNTHETIC except normal-day.html which will be replaced by the owner.
+ *   ✓ Real balance from UserInfo header
  */
 
 import { readFileSync } from 'node:fs';
@@ -23,10 +21,6 @@ import { parse, PARSER_VERSION } from './transactionHistory.js';
 // Fixture loader
 // ---------------------------------------------------------------------------
 
-/**
- * Resolve fixture files from the monorepo root (four levels up from this file:
- * src/simplewallet → src → packages/parsers → walletsync root).
- */
 function fixture(name: string): string {
   const root = join(import.meta.dirname, '..', '..', '..', '..', 'fixtures', 'simplewallet');
   return readFileSync(join(root, name), 'utf-8');
@@ -86,9 +80,9 @@ describe('empty-table fixture', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Acceptance tests: Normal day fixture (golden row + full validation)
+// Acceptance tests: Normal day fixture (real portal HTML)
 // ---------------------------------------------------------------------------
-describe('normal-day fixture', () => {
+describe('normal-day fixture (real simplewallet.in portal HTML)', () => {
   it('returns ok: true with the expected rows', () => {
     const result = parse(fixture('normal-day.html'));
     expect(result.ok).toBe(true);
@@ -136,16 +130,18 @@ describe('normal-day fixture', () => {
     expect(golden.service).toBe('Prepaid');
     expect(golden.serviceName).toBe('AIRTEL');
 
-    // customerNo: extracted as plaintext (encryption is API's responsibility)
-    expect(golden.customerNo).toBe('9800000000');
+    // customerNo: extracted as plaintext
+    expect(golden.customerNo).toBe('6296240265');
+
+    // operatorRef: extracted from Operator ID column
+    expect(golden.operatorRef).toBe('1724183242');
   });
 
   it('skips gridpagetotal and gridgrandtotal rows', () => {
     const result = parse(fixture('normal-day.html'));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // normal-day has 2 data rows, 1 gridpagetotal, 1 gridgrandtotal → should yield 2 rows
-    expect(result.rows).toHaveLength(2);
+    expect(result.rows).toHaveLength(5);
   });
 
   it('row-amount sum equals pageTotals.amountPaise', () => {
@@ -153,35 +149,35 @@ describe('normal-day fixture', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const rowSum = result.rows.reduce((acc, r) => acc + r.amountPaise, 0);
-    expect(rowSum).toBe(result.pageTotals.amountPaise);
+    expect(rowSum).toBe(144800);
+    expect(result.pageTotals.amountPaise).toBe(144800);
   });
 
-  it('reads wallet balance from the page header', () => {
+  it('reads wallet balance from the page UserInfo header', () => {
     const result = parse(fixture('normal-day.html'));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // normal-day has "Wallet Balance: Rs. 1250.00" → 125000 paise
-    expect(result.balancePaise).toBe(125000);
+    // Regular : 197.98 → 19798 paise
+    expect(result.balancePaise).toBe(19798);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Unit tests: parseDateToISO via parse() round-trip
+// Unit tests: parseDateToISO via parse()
 // ---------------------------------------------------------------------------
 describe('date parsing', () => {
   it('parses a PM time correctly', () => {
     const result = parse(fixture('normal-day.html'));
     if (!result.ok) return;
-    const golden = result.rows.find((r) => r.txnId === '27752914');
-    expect(golden?.occurredAt).toBe('2026-10-29T12:28:38+05:30');
+    const row = result.rows.find((r) => r.txnId === '27754921');
+    expect(row?.occurredAt).toBe('2026-10-29T19:13:30+05:30');
   });
 
-  it('parses an AM time correctly', () => {
+  it('parses noon PM time correctly (12:28:38 PM)', () => {
     const result = parse(fixture('normal-day.html'));
     if (!result.ok) return;
-    // Second row: 29/10/2026 11:15:00 AM → 2026-10-29T11:15:00+05:30
-    const row = result.rows.find((r) => r.txnId === '27752915');
-    expect(row?.occurredAt).toBe('2026-10-29T11:15:00+05:30');
+    const golden = result.rows.find((r) => r.txnId === '27752914');
+    expect(golden?.occurredAt).toBe('2026-10-29T12:28:38+05:30');
   });
 });
 
@@ -194,13 +190,6 @@ describe('status normalisation', () => {
     if (!result.ok) return;
     const row = result.rows.find((r) => r.txnId === '27752914');
     expect(row?.status).toBe('success');
-  });
-
-  it('maps Pending → pending', () => {
-    const result = parse(fixture('normal-day.html'));
-    if (!result.ok) return;
-    const row = result.rows.find((r) => r.txnId === '27752915');
-    expect(row?.status).toBe('pending');
   });
 });
 

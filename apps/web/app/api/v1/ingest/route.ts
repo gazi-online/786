@@ -9,7 +9,6 @@ import {
 import { db, withTenantContext, type AppTransaction } from '@/lib/db';
 import {
   devices,
-  tenants,
   transactions,
   syncEvents,
 } from '@/drizzle/schema';

@@ -9,7 +9,7 @@ export const TransactionStatusSchema = z.enum([
 ]);
 export type TransactionStatus = z.infer<typeof TransactionStatusSchema>;
 
-export const TransactionSourceSchema = z.enum(['simplewallet']);
+export const TransactionSourceSchema = z.enum(['simplewallet', 'egpayment']);
 export type TransactionSource = z.infer<typeof TransactionSourceSchema>;
 
 /**

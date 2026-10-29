@@ -9,16 +9,16 @@
   <table id="gvList" border="1" cellpadding="4" cellspacing="0">
     <thead>
       <tr>
-        <th>SNo</th>
-        <th>TxnID</th>
-        <th>Date</th>
+        <th>Trn No</th>
         <th>Service</th>
-        <th>Operator</th>
+        <th>Service Name</th>
         <th>Customer No</th>
-        <th>Amount (Rs)</th>
-        <th>Disc (%)</th>
-        <th>Disc (Rs)</th>
+        <th>Transaction Date</th>
         <th>Status</th>
+        <th>Operator ID</th>
+        <th>Disc (%)</th>
+        <th>Amount</th>
+        <th>Disc (Rs)</th>
         <th>Receipt</th>
       </tr>
     </thead>
@@ -27,15 +27,11 @@
     </tbody>
     <tfoot>
       <tr class="gridgrandtotal">
-        <td colspan="6">Grand Total</td>
-        <td>0.00</td>
-        <td></td>
-        <td></td>
-        <td></td>
-        <td></td>
+        <td colspan="8">Grand Total : </td>
+        <td><span id="lblAmtGrandAmt">0.00</span></td>
+        <td><span id="lblDiscRsGrandAmt">0.00</span></td>
       </tr>
     </tfoot>
   </table>
 </body>
 </html>
-

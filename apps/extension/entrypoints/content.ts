@@ -3,8 +3,8 @@ import { parse } from '@walletsync/parsers';
 import type { ParseResult } from '@walletsync/contract';
 
 export default defineContentScript({
-  // Matches simplewallet domain by default (Amd-8: configurable/dynamic)
-  matches: ['*://*.simplewallet.in/*', '*://localhost/*'],
+  // Matches simplewallet and egpayment domains (Amd-8: multi-portal)
+  matches: ['*://*.simplewallet.in/*', '*://*.egpayment.com/*', '*://localhost/*'],
   runAt: 'document_idle',
   main() {
     // 1. Function to parse current document HTML

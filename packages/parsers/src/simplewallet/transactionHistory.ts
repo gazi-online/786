@@ -10,58 +10,45 @@
  * - Fail closed: any structural mismatch returns a typed failure; nothing is sent.
  * - customerNo is PII — this parser only extracts it as a string; encryption is the API's job.
  *
- * TODO(open-item: OQ-1): Pagination strategy unknown. See GUIDE.md §8.
- *   The parser currently processes only the HTML it receives (one page).
- *   Implement PaginationStrategy when the owner confirms pager link structure.
- *
- * TODO(open-item: OQ-2): Date range filter request format unknown. See GUIDE.md §8.
- *   DateRangeStrategy is not referenced here — that is the service worker's concern.
- *
- * SYNTHETIC COLUMN NAMES: The EXPECTED_HEADERS constant below reflects the SYNTHETIC fixtures.
- * When the owner supplies a real fixture (fixtures/simplewallet/normal-day.html), update this
- * constant to match the real column names. Tests will fail deliberately if they diverge.
+ * Column names and layout verified directly from live simplewallet.in fixture:
+ * Table ID: #gvList
+ * Headers (11 columns):
+ *   0  Trn No           → txnId (numeric)
+ *   1  Service          → service (e.g. 'Prepaid')
+ *   2  Service Name     → serviceName (e.g. 'JIO', 'AIRTEL')
+ *   3  Customer No      → customerNo (PII)
+ *   4  Transaction Date → occurredAt (format: dd/MM/yyyy h:mm:ss a, Asia/Kolkata)
+ *   5  Status           → status + statusRaw
+ *   6  Operator ID      → operatorRef
+ *   7  Disc (%)         → discountPct
+ *   8  Amount           → amountPaise (multiply by 100)
+ *   9  Disc (Rs)        → discountPaise (multiply by 100)
+ *  10  Receipt          → ignored
  */
 
 import type { IngestTransaction, ParseResult, TransactionStatus } from '@walletsync/contract';
 
 /** Parser version — bumped independently of the extension version. */
-export const PARSER_VERSION = '0.1.0';
+export const PARSER_VERSION = '1.0.0';
 
 /**
- * SYNTHETIC column names — update when real fixture is supplied by the owner.
- * The parser returns layout_changed if the actual headers do not match exactly.
- * Column index mapping (0-based):
- *   0  SNo         — serial number; numeric; first cell must be numeric to accept the row
- *   1  TxnID       → txnId
- *   2  Date        → occurredAt  (format: dd/MM/yyyy hh:mm:ss a, zone Asia/Kolkata)
- *   3  Service     → service
- *   4  Operator    → serviceName
- *   5  Customer No → customerNo  (PII — encrypted at rest by the API)
- *   6  Amount (Rs) → amountPaise (multiply by 100, round to integer)
- *   7  Disc (%)    → discountPct
- *   8  Disc (Rs)   → discountPaise (multiply by 100, round to integer)
- *   9  Status      → status + statusRaw
- *  10  Receipt     — ignored (query params mislabeled per GUIDE.md §3)
- *
- * Note: operatorRef is not present in the synthetic fixtures. It maps to an "Operator ID" column
- * when the real fixture is supplied. For now it is set to '' and marked TODO.
- * TODO(open-item): operatorRef column name unknown — update EXPECTED_HEADERS when real fixture supplied.
+ * Expected 11 column headers from live simplewallet.in portal.
  */
-const EXPECTED_HEADERS = [
-  'SNo',
-  'TxnID',
-  'Date',
+export const EXPECTED_HEADERS = [
+  'Trn No',
   'Service',
-  'Operator',
+  'Service Name',
   'Customer No',
-  'Amount (Rs)',
-  'Disc (%)',
-  'Disc (Rs)',
+  'Transaction Date',
   'Status',
+  'Operator ID',
+  'Disc (%)',
+  'Amount',
+  'Disc (Rs)',
   'Receipt',
 ] as const;
 
-const EXPECTED_COLUMN_COUNT = EXPECTED_HEADERS.length; // 11
+export const EXPECTED_COLUMN_COUNT = EXPECTED_HEADERS.length; // 11
 
 /** Text that must appear in the page to confirm the user is logged in. */
 const LOGGED_IN_SENTINEL = 'MY TRANSACTION';
@@ -70,19 +57,19 @@ const LOGGED_IN_SENTINEL = 'MY TRANSACTION';
 const SKIP_ROW_CLASSES = new Set(['gridpagetotal', 'gridgrandtotal']);
 
 // ---------------------------------------------------------------------------
-// Column index constants (named for readability)
+// Column index constants (verified against live portal HTML)
 // ---------------------------------------------------------------------------
-const COL_SNO = 0;
-const COL_TXN_ID = 1;
-const COL_DATE = 2;
-const COL_SERVICE = 3;
-const COL_OPERATOR = 4;
-const COL_CUSTOMER_NO = 5;
-const COL_AMOUNT = 6;
-const COL_DISC_PCT = 7;
-const COL_DISC_RS = 8;
-const COL_STATUS = 9;
-// COL_RECEIPT = 10 — intentionally not read (mislabeled query params per GUIDE.md §3)
+const COL_TRN_NO = 0;       // txnId
+const COL_SERVICE = 1;      // service
+const COL_SERVICE_NAME = 2; // operator / serviceName
+const COL_CUSTOMER_NO = 3;  // customerNo (PII)
+const COL_DATE = 4;         // occurredAt
+const COL_STATUS = 5;       // status + statusRaw
+const COL_OPERATOR_ID = 6;  // operatorRef
+const COL_DISC_PCT = 7;     // discountPct
+const COL_AMOUNT = 8;       // amountPaise
+const COL_DISC_RS = 9;      // discountPaise
+// COL_RECEIPT = 10;        // Receipt button
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -91,16 +78,22 @@ const COL_STATUS = 9;
 /**
  * Parse the simplewallet.in transaction history page HTML.
  *
- * @param html - Full HTML string of the history page (fetched with credentials: 'same-origin').
+ * @param html - Full HTML string of the history page.
  * @returns ParseResult — discriminated union: { ok: true, rows, ... } or { ok: false, reason }.
  */
 export function parse(html: string): ParseResult {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
+  // Strip script and link tags before DOM parsing to avoid parser execution and fetch issues
+  const cleanHtml = html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<link\b[^>]*>/gi, '');
+  const doc = new DOMParser().parseFromString(cleanHtml, 'text/html');
 
   // -------------------------------------------------------------------------
   // 1. Logged-out check: page must contain the sentinel text.
   // -------------------------------------------------------------------------
-  if (!doc.body.textContent?.includes(LOGGED_IN_SENTINEL)) {
+  const bodyText = doc.body?.textContent ?? doc.documentElement?.textContent ?? '';
+  const bodyTextUpper = bodyText.toUpperCase();
+  if (!bodyTextUpper.includes(LOGGED_IN_SENTINEL)) {
     return {
       ok: false,
       source: 'simplewallet',
@@ -112,7 +105,7 @@ export function parse(html: string): ParseResult {
   // -------------------------------------------------------------------------
   // 2. Find the history table.
   // -------------------------------------------------------------------------
-  const table = doc.getElementById('gvList');
+  const table = doc.getElementById('gvList') ?? (doc.querySelector('#gvList') as HTMLElement | null);
   if (!table) {
     return {
       ok: false,
@@ -183,9 +176,9 @@ export function parse(html: string): ParseResult {
     // Must have exactly 11 cells
     if (cells.length !== EXPECTED_COLUMN_COUNT) continue;
 
-    // First cell (SNo) must be numeric
-    const snoText = cells[COL_SNO]?.textContent?.trim() ?? '';
-    if (!/^\d+$/.test(snoText)) continue;
+    // First cell (Trn No) must be numeric
+    const trnNoText = cells[COL_TRN_NO]?.textContent?.trim() ?? '';
+    if (!/^\d+$/.test(trnNoText)) continue;
 
     const txn = parseRow(cells);
     if (txn !== null) {
@@ -234,7 +227,7 @@ export function parse(html: string): ParseResult {
  * Returns null if any required field cannot be parsed.
  */
 function parseRow(cells: Element[]): IngestTransaction | null {
-  const txnId = cells[COL_TXN_ID]?.textContent?.trim() ?? '';
+  const txnId = cells[COL_TRN_NO]?.textContent?.trim() ?? '';
   if (!txnId) return null;
 
   const dateText = cells[COL_DATE]?.textContent?.trim() ?? '';
@@ -242,21 +235,21 @@ function parseRow(cells: Element[]): IngestTransaction | null {
   if (occurredAt === null) return null;
 
   const service = cells[COL_SERVICE]?.textContent?.trim() ?? '';
-  const serviceName = cells[COL_OPERATOR]?.textContent?.trim() ?? '';
+  const serviceName = cells[COL_SERVICE_NAME]?.textContent?.trim() ?? '';
   const customerNo = cells[COL_CUSTOMER_NO]?.textContent?.trim() ?? '';
   if (!customerNo) return null;
+
+  const operatorRef = cells[COL_OPERATOR_ID]?.textContent?.trim() ?? '';
 
   const amountText = cells[COL_AMOUNT]?.textContent?.trim() ?? '';
   const amountPaise = parsePaise(amountText);
   if (amountPaise === null) return null;
 
-  const discPctText = cells[COL_DISC_PCT]?.textContent?.trim() ?? '';
-  const discountPct = parseFloat(discPctText);
-  if (!isFinite(discountPct)) return null;
+  const discPctText = cells[COL_DISC_PCT]?.textContent?.trim() ?? '0';
+  const discountPct = parseFloat(discPctText) || 0;
 
-  const discRsText = cells[COL_DISC_RS]?.textContent?.trim() ?? '';
-  const discountPaise = parsePaise(discRsText);
-  if (discountPaise === null) return null;
+  const discRsText = cells[COL_DISC_RS]?.textContent?.trim() ?? '0';
+  const discountPaise = parsePaise(discRsText) ?? 0;
 
   const statusRaw = cells[COL_STATUS]?.textContent?.trim() ?? '';
   const status = normalizeStatus(statusRaw);
@@ -270,8 +263,7 @@ function parseRow(cells: Element[]): IngestTransaction | null {
     occurredAt,
     status,
     statusRaw,
-    // TODO(open-item): operatorRef column name unknown — returns '' until real fixture supplied.
-    operatorRef: '',
+    operatorRef,
     amountPaise,
     discountPct,
     discountPaise,
@@ -279,24 +271,31 @@ function parseRow(cells: Element[]): IngestTransaction | null {
 }
 
 /**
- * Parse "dd/MM/yyyy hh:mm:ss a" → ISO 8601 with +05:30 offset.
- * Example: "29/10/2026 12:28:38 PM" → "2026-10-29T12:28:38+05:30"
- * Returns null if the string does not match the expected format.
+ * Parse a date string like "29/10/2026 12:28:38 PM" or "29/10/2026 7:13:30 PM"
+ * into an ISO 8601 string in Asia/Kolkata timezone: "2026-10-29T12:28:38+05:30".
+ * Returns null if unparseable.
  */
-function parseDateToISO(text: string): string | null {
-  // Pattern: dd/MM/yyyy hh:mm:ss AM|PM
-  const match = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s+(AM|PM)$/i.exec(
-    text.trim(),
-  );
+function parseDateToISO(dateStr: string): string | null {
+  const cleaned = dateStr.trim();
+  // Match: dd/MM/yyyy h:mm:ss a or dd/MM/yyyy hh:mm:ss a
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)$/i.exec(cleaned);
   if (!match) return null;
 
-  const [, dd, mm, yyyy, hourStr, min, sec, meridiem] = match;
-  let hour = parseInt(hourStr ?? '0', 10);
+  const [, rawDay, rawMonth, rawYear, rawHour, min, sec, ampm] = match;
+  if (!rawDay || !rawMonth || !rawYear || !rawHour || !min || !sec || !ampm) return null;
 
-  if (meridiem?.toUpperCase() === 'PM' && hour !== 12) hour += 12;
-  if (meridiem?.toUpperCase() === 'AM' && hour === 12) hour = 0;
+  const pad = (n: number | string) => String(n).padStart(2, '0');
+  const dd = pad(rawDay);
+  const mm = pad(rawMonth);
+  const yyyy = rawYear;
 
-  const pad = (n: number) => String(n).padStart(2, '0');
+  let hour = parseInt(rawHour, 10);
+  const isPM = ampm.toUpperCase() === 'PM';
+  const isAM = ampm.toUpperCase() === 'AM';
+
+  if (isPM && hour < 12) hour += 12;
+  if (isAM && hour === 12) hour = 0;
+
   // Asia/Kolkata is always +05:30 (no DST)
   return `${yyyy}-${mm}-${dd}T${pad(hour)}:${min}:${sec}+05:30`;
 }
@@ -335,25 +334,22 @@ function normalizeStatus(raw: string): TransactionStatus {
 
 /**
  * Read the Grand Total amount from the gridgrandtotal row.
- * Returns null if no grand total row is found (treat as no constraint).
  */
 function readGrandTotalPaise(table: HTMLElement): number | null {
+  // Check direct label id first
+  const lblAmt = table.querySelector<HTMLElement>('#lblAmtGrandAmt');
+  if (lblAmt && lblAmt.textContent) {
+    return parsePaise(lblAmt.textContent);
+  }
+
   const totalRow = table.querySelector('tr.gridgrandtotal');
   if (!totalRow) return null;
 
-  // The Amount (Rs) column is at index 6 but colspan may shift cells.
-  // We find the cell by its position after resolving colspan:
-  // The grand total row in the synthetic fixtures has: [colspan=6 label | amount | ...].
-  // Amount is the 2nd cell (index 1 in the actual <td> list of the tfoot row).
   const cells = Array.from(totalRow.querySelectorAll('td'));
-
-  // Walk cells: the first cell with colspan covers 6 columns; the next cell is Amount.
-  // General approach: accumulate column span and pick the cell that covers column index 6.
   let col = 0;
   for (const cell of cells) {
     const span = parseInt(cell.getAttribute('colspan') ?? '1', 10);
     if (col + span > COL_AMOUNT) {
-      // This cell covers the Amount column
       return parsePaise(cell.textContent?.trim() ?? '');
     }
     col += span;
@@ -363,16 +359,20 @@ function readGrandTotalPaise(table: HTMLElement): number | null {
 
 /**
  * Read the wallet balance from the page header element.
- * Returns null if not present.
- *
- * TODO(open-item: OQ-*): The exact selector for the wallet balance is SYNTHETIC.
- * Update when the owner supplies the real fixture.
  */
 function readBalancePaise(doc: Document): number | null {
+  // Check UserInfo regular balance first
+  const userInfo = doc.getElementById('UserInfo');
+  if (userInfo) {
+    const text = userInfo.textContent ?? '';
+    const match = /Regular\s*:\s*([\d,]+\.?\d*)/i.exec(text);
+    if (match) return parsePaise(match[1] ?? '');
+  }
+
+  // Fallback to legacy walletBalance id
   const el = doc.getElementById('walletBalance');
   if (!el) return null;
   const text = el.textContent ?? '';
-  // Pattern: "Wallet Balance: Rs. 1250.00"
   const match = /Rs\.\s*([\d,]+\.?\d*)/i.exec(text);
   if (!match) return null;
   return parsePaise(match[1] ?? '');

@@ -94,7 +94,7 @@ export class RazorpayBillingStub implements BillingProvider {
     };
   }
 
-  async createSubscription(customerId: string, planId: string): Promise<{ subscriptionId: string; paymentUrl: string }> {
+  async createSubscription(_customerId: string, _planId: string): Promise<{ subscriptionId: string; paymentUrl: string }> {
     // In production, calls https://api.razorpay.com/v1/subscriptions
     const subId = `sub_${Date.now()}`;
     return {
@@ -103,7 +103,7 @@ export class RazorpayBillingStub implements BillingProvider {
     };
   }
 
-  async cancelSubscription(subscriptionId: string): Promise<{ ok: boolean }> {
+  async cancelSubscription(_subscriptionId: string): Promise<{ ok: boolean }> {
     // In production, calls https://api.razorpay.com/v1/subscriptions/:id/cancel
     return { ok: true };
   }
