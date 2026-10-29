@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import type { ApiTransaction, IngestTransaction } from '@walletsync/contract';
+import type { ApiTransaction, IngestTransaction, TransactionSource } from '@walletsync/contract';
 import { AppLayout } from '@/components/AppLayout';
 import { useI18n } from '@/lib/i18n-context';
 import { formatPaise, formatKolkataDate } from '@/lib/i18n';
@@ -39,6 +39,7 @@ export default function DashboardPage() {
 
   // Filters
   const [search, setSearch] = useState('');
+  const [portalFilter, setPortalFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [serviceFilter, setServiceFilter] = useState('all');
 
@@ -104,7 +105,7 @@ export default function DashboardPage() {
                 id: r.txnId,
                 tenantId: '00000000-0000-0000-0000-000000000001',
                 txnId: r.txnId,
-                source: 'simplewallet' as const,
+                source: (r.source || 'simplewallet') as TransactionSource,
                 service: r.service,
                 serviceName: r.serviceName,
                 customerLast4: last4,
@@ -230,6 +231,7 @@ export default function DashboardPage() {
 
   // Filtered transactions
   const filtered = transactions.filter((t) => {
+    if (portalFilter !== 'all' && t.source !== portalFilter) return false;
     if (statusFilter !== 'all' && t.status !== statusFilter) return false;
     if (serviceFilter !== 'all' && t.service !== serviceFilter) return false;
     if (search.trim()) {
@@ -421,6 +423,16 @@ export default function DashboardPage() {
 
             {/* Quick Filters */}
             <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={portalFilter}
+                onChange={(e) => setPortalFilter(e.target.value)}
+                className="px-2.5 py-1.5 text-xs rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/30 text-blue-900 dark:text-blue-200 font-medium outline-hidden cursor-pointer"
+              >
+                <option value="all">{t.common.allPortals}</option>
+                <option value="simplewallet">SimpleWallet (simplewallet.in)</option>
+                <option value="egpayment">EG Payment (egpayment.com)</option>
+              </select>
+
               <div className="relative">
                 <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
                 <input
@@ -482,6 +494,7 @@ export default function DashboardPage() {
                   <thead className="bg-zinc-50 dark:bg-zinc-950/60 border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 font-medium">
                     <tr>
                       <th className="py-3 px-4">{t.common.txnId}</th>
+                      <th className="py-3 px-4">{t.common.portal}</th>
                       <th className="py-3 px-4">{t.common.service} / {t.common.operator}</th>
                       <th className="py-3 px-4">{t.common.customer}</th>
                       <th className="py-3 px-4">{t.common.status}</th>
@@ -504,6 +517,19 @@ export default function DashboardPage() {
                         >
                           <td className="py-3 px-4 font-mono font-medium text-zinc-900 dark:text-zinc-100">
                             {item.txnId}
+                          </td>
+                          <td className="py-3 px-4">
+                            {item.source === 'egpayment' ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 shadow-2xs">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                                <span>EG Payment</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-900/60 shadow-2xs">
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                                <span>SimpleWallet</span>
+                              </span>
+                            )}
                           </td>
                           <td className="py-3 px-4">
                             <span className="font-medium text-zinc-900 dark:text-zinc-100">

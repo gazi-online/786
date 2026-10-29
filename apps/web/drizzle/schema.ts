@@ -47,7 +47,7 @@ export const txnStatusEnum = pgEnum('txn_status', [
   'refunded',
   'unknown',
 ]);
-export const txnSourceEnum = pgEnum('txn_source', ['simplewallet']);
+export const txnSourceEnum = pgEnum('txn_source', ['simplewallet', 'egpayment']);
 
 // ---------------------------------------------------------------------------
 // tenants

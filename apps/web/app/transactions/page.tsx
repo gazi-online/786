@@ -29,6 +29,7 @@ export default function TransactionsPage() {
 
   // Filters
   const [search, setSearch] = useState('');
+  const [portal, setPortal] = useState('all');
   const [status, setStatus] = useState('all');
   const [service, setService] = useState('all');
   const [datePreset, setDatePreset] = useState('all');
@@ -39,13 +40,14 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     loadTransactions();
-  }, [status, service]);
+  }, [status, service, portal]);
 
   async function loadTransactions() {
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
+      if (portal !== 'all') params.set('source', portal);
       if (status !== 'all') params.set('status', status);
       if (service !== 'all') params.set('service', service);
       params.set('limit', '100');
@@ -170,6 +172,16 @@ export default function TransactionsPage() {
 
         <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0">
           <select
+            value={portal}
+            onChange={(e) => setPortal(e.target.value)}
+            className="px-3 py-2 text-xs rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/30 text-blue-900 dark:text-blue-200 font-medium outline-hidden cursor-pointer"
+          >
+            <option value="all">{t.common.allPortals}</option>
+            <option value="simplewallet">SimpleWallet (simplewallet.in)</option>
+            <option value="egpayment">EG Payment (egpayment.com)</option>
+          </select>
+
+          <select
             value={datePreset}
             onChange={(e) => setDatePreset(e.target.value)}
             className="px-3 py-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200 outline-hidden cursor-pointer"
@@ -253,6 +265,7 @@ export default function TransactionsPage() {
                 <thead className="bg-zinc-50 dark:bg-zinc-950/60 border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 font-medium">
                   <tr>
                     <th className="py-3 px-4">{t.common.txnId}</th>
+                    <th className="py-3 px-4">{t.common.portal}</th>
                     <th className="py-3 px-4">{t.common.service} / {t.common.operator}</th>
                     <th className="py-3 px-4">{t.common.customer}</th>
                     <th className="py-3 px-4">{t.common.status}</th>
@@ -273,6 +286,19 @@ export default function TransactionsPage() {
                       >
                         <td className="py-3.5 px-4 font-mono font-medium text-zinc-900 dark:text-zinc-100">
                           {item.txnId}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {item.source === 'egpayment' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 shadow-2xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                              <span>EG Payment</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-900/60 shadow-2xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                              <span>SimpleWallet</span>
+                            </span>
+                          )}
                         </td>
                         <td className="py-3.5 px-4">
                           <span className="font-medium text-zinc-900 dark:text-zinc-100">
@@ -344,9 +370,20 @@ export default function TransactionsPage() {
                   className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs space-y-2 cursor-pointer"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-                      {item.txnId}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                        {item.txnId}
+                      </span>
+                      {item.source === 'egpayment' ? (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                          EG Payment
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-800">
+                          SimpleWallet
+                        </span>
+                      )}
+                    </div>
                     <span
                       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
                         item.status === 'success'
@@ -411,6 +448,23 @@ export default function TransactionsPage() {
               >
                 <X className="w-5 h-5" />
               </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-800 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-zinc-500 font-medium">Source Website:</span>
+                {selectedTxn.source === 'egpayment' ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-bold text-[11px] bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    EG Payment (egpayment.com)
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-bold text-[11px] bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300 border border-blue-300 dark:border-blue-800">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                    SimpleWallet (simplewallet.in)
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4 text-xs">

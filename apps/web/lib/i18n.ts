@@ -39,6 +39,8 @@ export interface Translations {
     operator: string;
     customer: string;
     txnId: string;
+    portal: string;
+    allPortals: string;
     actions: string;
     next: string;
     back: string;
@@ -211,6 +213,8 @@ export const dictionaries: Record<Locale, Translations> = {
       operator: 'Operator',
       customer: 'Customer',
       txnId: 'Txn ID',
+      portal: 'Portal / Website',
+      allPortals: 'All Portals',
       actions: 'Actions',
       next: 'Next',
       back: 'Back',
@@ -382,6 +386,8 @@ export const dictionaries: Record<Locale, Translations> = {
       operator: 'অপারেটর',
       customer: 'গ্রাহক',
       txnId: 'ট্রানজ্যাকশন আইডি',
+      portal: 'পোর্টাল / ওয়েবসাইট',
+      allPortals: 'সকল পোর্টাল',
       actions: 'অ্যাকশন',
       next: 'পরবর্তী',
       back: 'পূর্ববর্তী',
@@ -553,6 +559,8 @@ export const dictionaries: Record<Locale, Translations> = {
       operator: 'ऑपरेटर',
       customer: 'ग्राहक',
       txnId: 'ट्रांजैक्शन आईडी',
+      portal: 'पोर्टल / वेबसाइट',
+      allPortals: 'सभी पोर्टल',
       actions: 'कार्रवाई',
       next: 'आगे',
       back: 'पीछे',

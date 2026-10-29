@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { transactions } from '@/drizzle/schema';
 import { desc, and, eq, or, ilike, lt } from 'drizzle-orm';
-import type { ApiTransaction, TransactionStatus } from '@walletsync/contract';
+import type { ApiTransaction, TransactionStatus, TransactionSource } from '@walletsync/contract';
 import { getMemoryTransactions } from '@/lib/memory-store';
 
 export async function GET(req: NextRequest) {
@@ -12,12 +12,16 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(Math.max(1, limitParam), 100);
     const cursor = searchParams.get('cursor');
     const status = searchParams.get('status');
+    const source = searchParams.get('source');
     const service = searchParams.get('service');
     const operator = searchParams.get('operator');
     const search = searchParams.get('search');
 
     const conditions = [];
 
+    if (source && source !== 'all') {
+      conditions.push(eq(transactions.source, source as TransactionSource));
+    }
     if (status) {
       conditions.push(eq(transactions.status, status as TransactionStatus));
     }
@@ -84,6 +88,9 @@ export async function GET(req: NextRequest) {
       const seen = new Set(formatted.map((f) => f.txnId));
       for (const m of memList) {
         if (!seen.has(m.txnId)) {
+          if (source && source !== 'all' && m.source !== source) continue;
+          if (status && status !== 'all' && m.status !== status) continue;
+          if (service && service !== 'all' && m.service !== service) continue;
           formatted.unshift(m);
           seen.add(m.txnId);
         }
