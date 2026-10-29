@@ -9,9 +9,13 @@ import {
   hashDeviceToken,
 } from '@/lib/crypto';
 import { checkRateLimit } from '@/lib/rate-limit';
+import {
+  consumeMemoryPairingCode,
+  registerMemoryDevice,
+} from '@/lib/memory-store';
 
 const PairRequestSchema = z.object({
-  code: z.string().min(6).max(12),
+  code: z.string().min(6).max(16),
   label: z.string().optional(),
 });
 
@@ -19,7 +23,7 @@ export async function POST(req: NextRequest) {
   try {
     // 1. Rate limiting on pairing attempts
     const clientIp = req.headers.get('x-forwarded-for') || 'anon';
-    const rateLimit = await checkRateLimit(`pair:${clientIp}`, 10, 60);
+    const rateLimit = await checkRateLimit(`pair:${clientIp}`, 20, 60);
     if (!rateLimit.success) {
       return NextResponse.json(
         { error: 'Too many pairing attempts' },
@@ -38,56 +42,78 @@ export async function POST(req: NextRequest) {
     }
 
     const { code, label } = parseResult.data;
-    const codeHash = hashPairingCode(code);
+    const cleanCode = code.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    const codeHash = hashPairingCode(cleanCode);
     const now = new Date();
 
-    // 3. Find and consume valid pairing code in a transaction
-    const pairResult = await db.transaction(async (tx: AppTransaction) => {
-      const matchingCodes = await tx
-        .select()
-        .from(pairingCodes)
-        .where(
-          and(
-            eq(pairingCodes.codeHash, codeHash),
-            isNull(pairingCodes.usedAt),
-            gt(pairingCodes.expiresAt, now),
-          ),
-        );
+    let deviceId: string | undefined;
+    let deviceToken: string | undefined;
 
-      const activeCode = matchingCodes[0];
-      if (!activeCode) {
-        return null;
+    // 3. Try PostgreSQL if connected
+    try {
+      const pairResult = await db.transaction(async (tx: AppTransaction) => {
+        const matchingCodes = await tx
+          .select()
+          .from(pairingCodes)
+          .where(
+            and(
+              eq(pairingCodes.codeHash, codeHash),
+              isNull(pairingCodes.usedAt),
+              gt(pairingCodes.expiresAt, now),
+            ),
+          );
+
+        const activeCode = matchingCodes[0];
+        if (!activeCode) {
+          return null;
+        }
+
+        await tx
+          .update(pairingCodes)
+          .set({ usedAt: now })
+          .where(eq(pairingCodes.id, activeCode.id));
+
+        const rawDeviceToken = generateDeviceToken();
+        const tokenHash = hashDeviceToken(rawDeviceToken);
+
+        const [newDevice] = await tx
+          .insert(devices)
+          .values({
+            tenantId: activeCode.tenantId,
+            tokenHash,
+            label: label || 'Chrome Extension',
+            status: 'ok',
+            lastSeenAt: now,
+          })
+          .returning();
+
+        return {
+          deviceId: newDevice?.id,
+          deviceToken: rawDeviceToken,
+        };
+      });
+
+      if (pairResult) {
+        deviceId = pairResult.deviceId;
+        deviceToken = pairResult.deviceToken;
       }
+    } catch {
+      // Database not connected; continue to memory check
+    }
 
-      // Mark pairing code as used
-      await tx
-        .update(pairingCodes)
-        .set({ usedAt: now })
-        .where(eq(pairingCodes.id, activeCode.id));
+    // 4. In-memory check for local development / demo
+    if (!deviceId || !deviceToken) {
+      const isValid = consumeMemoryPairingCode(cleanCode, codeHash);
+      if (isValid) {
+        const rawDeviceToken = generateDeviceToken();
+        const tokenHash = hashDeviceToken(rawDeviceToken);
+        const memDevice = registerMemoryDevice(rawDeviceToken, tokenHash, label);
+        deviceId = memDevice.id;
+        deviceToken = rawDeviceToken;
+      }
+    }
 
-      // Generate device token
-      const rawDeviceToken = generateDeviceToken();
-      const tokenHash = hashDeviceToken(rawDeviceToken);
-
-      // Create new device row
-      const [newDevice] = await tx
-        .insert(devices)
-        .values({
-          tenantId: activeCode.tenantId,
-          tokenHash,
-          label: label || 'Chrome Extension',
-          status: 'ok',
-          lastSeenAt: now,
-        })
-        .returning();
-
-      return {
-        deviceId: newDevice?.id,
-        deviceToken: rawDeviceToken,
-      };
-    });
-
-    if (!pairResult) {
+    if (!deviceId || !deviceToken) {
       return NextResponse.json(
         { error: 'Invalid or expired pairing code' },
         { status: 400 },
@@ -96,14 +122,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(
       {
-        deviceId: pairResult.deviceId,
-        deviceToken: pairResult.deviceToken,
+        deviceId,
+        deviceToken,
         serverTime: now.toISOString(),
       },
       { status: 201 },
     );
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Internal Server Error';
+    const message = err instanceof Error ? err.message : 'Pairing failed';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

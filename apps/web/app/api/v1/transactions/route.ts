@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { transactions } from '@/drizzle/schema';
 import { desc, and, eq, or, ilike, lt } from 'drizzle-orm';
 import type { ApiTransaction, TransactionStatus } from '@walletsync/contract';
+import { getMemoryTransactions } from '@/lib/memory-store';
 
 export async function GET(req: NextRequest) {
   try {
@@ -17,22 +18,15 @@ export async function GET(req: NextRequest) {
 
     const conditions = [];
 
-    // Filter by status
     if (status) {
       conditions.push(eq(transactions.status, status as TransactionStatus));
     }
-
-    // Filter by service
     if (service) {
       conditions.push(eq(transactions.service, service));
     }
-
-    // Filter by operator / serviceName
     if (operator) {
       conditions.push(eq(transactions.serviceName, operator));
     }
-
-    // Search by txnId or customerLast4
     if (search && search.trim()) {
       const q = search.trim();
       conditions.push(
@@ -42,52 +36,65 @@ export async function GET(req: NextRequest) {
         ),
       );
     }
-
-    // Cursor pagination by occurredAt
     if (cursor) {
       conditions.push(lt(transactions.occurredAt, new Date(cursor)));
     }
 
-    const rows = await db
-      .select()
-      .from(transactions)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(desc(transactions.occurredAt))
-      .limit(limit);
+    let formatted: ApiTransaction[] = [];
 
-    // Transform into ApiTransaction format (PII minimization: masked phone number)
-    const formatted: ApiTransaction[] = rows.map((r) => {
-      const last4 = r.customerLast4;
-      const masked = `••••••${last4}`;
+    try {
+      const rows = await db
+        .select()
+        .from(transactions)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(transactions.occurredAt))
+        .limit(limit);
 
-      return {
-        id: r.id,
-        tenantId: r.tenantId,
-        txnId: r.txnId,
-        source: r.source,
-        service: r.service,
-        serviceName: r.serviceName,
-        customerLast4: last4,
-        customerNoHash: r.customerNoHash,
-        customerNoMasked: masked,
-        occurredAt: r.occurredAt.toISOString(),
-        status: r.status,
-        statusRaw: r.statusRaw,
-        operatorRef: r.operatorRef,
-        amountPaise: r.amountPaise,
-        discountPct: parseFloat(r.discountPct) || 0,
-        discountPaise: r.discountPaise,
-        parserVersion: r.parserVersion,
-        createdAt: r.createdAt.toISOString(),
-        updatedAt: r.updatedAt.toISOString(),
-      };
-    });
+      formatted = rows.map((r) => {
+        const last4 = r.customerLast4;
+        const masked = `••••••${last4}`;
+        return {
+          id: r.id,
+          tenantId: r.tenantId,
+          txnId: r.txnId,
+          source: r.source,
+          service: r.service,
+          serviceName: r.serviceName,
+          customerLast4: last4,
+          customerNoHash: r.customerNoHash,
+          customerNoMasked: masked,
+          occurredAt: r.occurredAt.toISOString(),
+          status: r.status,
+          statusRaw: r.statusRaw,
+          operatorRef: r.operatorRef,
+          amountPaise: r.amountPaise,
+          discountPct: parseFloat(r.discountPct) || 0,
+          discountPaise: r.discountPaise,
+          parserVersion: r.parserVersion,
+          createdAt: r.createdAt.toISOString(),
+          updatedAt: r.updatedAt.toISOString(),
+        };
+      });
+    } catch {
+      // Merge memory transactions
+    }
+
+    const memList = getMemoryTransactions();
+    if (memList.length > 0) {
+      const seen = new Set(formatted.map((f) => f.txnId));
+      for (const m of memList) {
+        if (!seen.has(m.txnId)) {
+          formatted.unshift(m);
+          seen.add(m.txnId);
+        }
+      }
+    }
 
     const nextCursor =
-      rows.length === limit ? rows[rows.length - 1]?.occurredAt.toISOString() : null;
+      formatted.length === limit ? formatted[formatted.length - 1]?.occurredAt : null;
 
     return NextResponse.json({
-      items: formatted,
+      items: formatted.slice(0, limit),
       nextCursor,
       count: formatted.length,
     });

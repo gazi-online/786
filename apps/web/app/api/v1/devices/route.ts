@@ -4,28 +4,10 @@ import { devices, pairingCodes } from '@/drizzle/schema';
 import { desc } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import { hashPairingCode } from '@/lib/crypto';
-
-// In-memory fallback for local demo when DB is not connected
-const fallbackDevices = [
-  {
-    id: 'f81d4fae-7dec-11d0-a765-00a0c91e6bf6',
-    label: 'POS Counter 1 (Chrome)',
-    status: 'ok',
-    parserVersion: '1.0.0',
-    lastSeenAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
-    revokedAt: null,
-    createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'e71c3ebe-6cdb-10cf-9654-00a0c91e6bf5',
-    label: 'Back Office Terminal',
-    status: 'ok',
-    parserVersion: '1.0.0',
-    lastSeenAt: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-    revokedAt: null,
-    createdAt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-];
+import {
+  saveMemoryPairingCode,
+  listMemoryDevices,
+} from '@/lib/memory-store';
 
 export async function GET(_req: NextRequest) {
   try {
@@ -47,9 +29,33 @@ export async function GET(_req: NextRequest) {
       })),
     });
   } catch {
-    // Return realistic fallback devices when Postgres is not running locally
+    const memDevs = listMemoryDevices();
+    if (memDevs.length > 0) {
+      return NextResponse.json({
+        devices: memDevs.map((d) => ({
+          id: d.id,
+          label: d.label,
+          status: d.status,
+          parserVersion: d.parserVersion,
+          lastSeenAt: d.lastSeenAt.toISOString(),
+          revokedAt: d.revokedAt ? d.revokedAt.toISOString() : null,
+          createdAt: d.createdAt.toISOString(),
+        })),
+      });
+    }
+
     return NextResponse.json({
-      devices: fallbackDevices,
+      devices: [
+        {
+          id: 'f81d4fae-7dec-11d0-a765-00a0c91e6bf6',
+          label: 'POS Counter 1 (Chrome)',
+          status: 'ok',
+          parserVersion: '1.0.0',
+          lastSeenAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
+          revokedAt: null,
+          createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+        },
+      ],
     });
   }
 }
@@ -63,6 +69,9 @@ export async function POST(_req: NextRequest) {
     const codeHash = hashPairingCode(rawCode);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
+    // Save in memory store so extension pairing works immediately
+    saveMemoryPairingCode(rawCode, codeHash, expiresAt);
+
     const dummyTenantId = '00000000-0000-0000-0000-000000000001';
 
     try {
@@ -72,7 +81,7 @@ export async function POST(_req: NextRequest) {
         expiresAt,
       });
     } catch {
-      // In-memory code accepted if DB disconnected
+      // Handled via memory store
     }
 
     return NextResponse.json({

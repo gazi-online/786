@@ -95,3 +95,4 @@ WalletSync consists of three primary trust zones:
 2. **Field-Level Encryption:** The full customer number is encrypted at rest using AES-256-GCM (`lib/crypto.ts`) with an encryption key held in application environment variables, completely outside the database storage layer.
 3. **HMAC Indexing:** Search is facilitated via plaintext last-4 digits (`customer_last4`) and HMAC-SHA256 (`customer_no_hash`). The full plaintext number is never indexed or logged in plaintext.
 4. **Data Retention Policy:** Automated data retention policies allow retailers to set retention windows (6 to 36 months) with automatic purging.
+
