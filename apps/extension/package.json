@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
+    "zip": "wxt zip",
+    "package": "wxt zip",
     "lint": "eslint entrypoints",
     "typecheck": "tsc --noEmit",
     "test": "echo \"no unit tests yet — M3\""
