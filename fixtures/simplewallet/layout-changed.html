@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MY TRANSACTION — simplewallet.in (SYNTHETIC — layout changed)</title>
+</head>
+<body>
+  <h2>MY TRANSACTION</h2>
+  <!-- This table has WRONG column headers — "Receipt" renamed to "View" and extra "NewCol" added.
+       Parser should return ParseFailure { ok: false, reason: 'layout_changed' }. -->
+  <table id="gvList" border="1" cellpadding="4" cellspacing="0">
+    <thead>
+      <tr>
+        <th>SNo</th>
+        <th>TxnID</th>
+        <th>Date</th>
+        <th>Service</th>
+        <th>Operator</th>
+        <th>Customer No</th>
+        <th>Amount (Rs)</th>
+        <th>Disc (%)</th>
+        <th>Disc (Rs)</th>
+        <th>Status</th>
+        <th>View</th>
+        <th>NewCol</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- No data rows needed — parser should fail at column validation -->
+    </tbody>
+    <tfoot>
+      <tr class="gridgrandtotal">
+        <td colspan="6">Grand Total</td>
+        <td>0.00</td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+</body>
+</html>
+

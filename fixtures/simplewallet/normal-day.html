@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<!--
+  SYNTHETIC FIXTURE — replace with a real, sanitized export from simplewallet.in.
+  See fixtures/simplewallet/README.md for sanitization rules.
+  All mobile numbers here are FAKE (9800000000 / 9800000001). No real customer data.
+
+  Column headers in this file are SYNTHETIC. Update packages/parsers/src/simplewallet/transactionHistory.ts
+  (EXPECTED_HEADERS constant) when the owner supplies the real fixture.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MY TRANSACTION — simplewallet.in (SYNTHETIC)</title>
+</head>
+<body>
+  <h2>MY TRANSACTION</h2>
+  <!-- Wallet balance shown in the page header -->
+  <div id="walletBalance">Wallet Balance: Rs. 1250.00</div>
+
+  <table id="gvList" border="1" cellpadding="4" cellspacing="0">
+    <thead>
+      <tr>
+        <th>SNo</th>
+        <th>TxnID</th>
+        <th>Date</th>
+        <th>Service</th>
+        <th>Operator</th>
+        <th>Customer No</th>
+        <th>Amount (Rs)</th>
+        <th>Disc (%)</th>
+        <th>Disc (Rs)</th>
+        <th>Status</th>
+        <th>Receipt</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- Golden-row acceptance test: Prepaid / AIRTEL / 399.00 / 1.5% / 5.98 / Success at 29/10/2026 12:28:38 PM -->
+      <tr>
+        <td>1</td>
+        <td>27752914</td>
+        <td>29/10/2026 12:28:38 PM</td>
+        <td>Prepaid</td>
+        <td>AIRTEL</td>
+        <td>9800000000</td>
+        <td>399.00</td>
+        <td>1.5</td>
+        <td>5.98</td>
+        <td>Success</td>
+        <td><a href="/receipt?id=27752914&amp;ref=1724183242">View</a></td>
+      </tr>
+      <!-- Second row — pending status -->
+      <tr>
+        <td>2</td>
+        <td>27752915</td>
+        <td>29/10/2026 11:15:00 AM</td>
+        <td>Prepaid</td>
+        <td>JIO</td>
+        <td>9800000001</td>
+        <td>239.00</td>
+        <td>1.0</td>
+        <td>2.39</td>
+        <td>Pending</td>
+        <td><a href="/receipt?id=27752915&amp;ref=1724183243">View</a></td>
+      </tr>
+      <!-- Page subtotal row — must be skipped by parser -->
+      <tr class="gridpagetotal">
+        <td colspan="6">Page Total</td>
+        <td>638.00</td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <!-- Grand total row — must be skipped by parser but used for totals verification -->
+      <tr class="gridgrandtotal">
+        <td colspan="6">Grand Total</td>
+        <td>638.00</td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+</body>
+</html>

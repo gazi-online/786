@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fafafa;
+  --foreground: #09090b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #09090b;
+    --foreground: #fafafa;
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+}
+
+/* Tabular figures for all financial amounts (GUIDE.md §6) */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 1.2s highlight on newly synced live transactions (GUIDE.md §6) */
+@keyframes row-highlight {
+  0% {
+    background-color: rgba(59, 130, 246, 0.25);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.animate-row-highlight {
+  animation: row-highlight 1.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-row-highlight {
+    animation: none;
+  }
+}

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MY TRANSACTION — simplewallet.in (SYNTHETIC — totals mismatch)</title>
+</head>
+<body>
+  <h2>MY TRANSACTION</h2>
+  <!-- SYNTHETIC DATA ONLY. Mobile number 9800000000 is fake (not a real customer). -->
+  <!-- Grand Total is 100.00 but actual sum of rows is 399.00 — deliberate mismatch.
+       Parser should return ParseFailure { ok: false, reason: 'totals_mismatch' }. -->
+  <table id="gvList" border="1" cellpadding="4" cellspacing="0">
+    <thead>
+      <tr>
+        <th>SNo</th>
+        <th>TxnID</th>
+        <th>Date</th>
+        <th>Service</th>
+        <th>Operator</th>
+        <th>Customer No</th>
+        <th>Amount (Rs)</th>
+        <th>Disc (%)</th>
+        <th>Disc (Rs)</th>
+        <th>Status</th>
+        <th>Receipt</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>10000001</td>
+        <td>29/10/2026 12:28:38 PM</td>
+        <td>Prepaid</td>
+        <td>AIRTEL</td>
+        <td>9800000000</td>
+        <td>399.00</td>
+        <td>1.5</td>
+        <td>5.98</td>
+        <td>Success</td>
+        <td>View</td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr class="gridgrandtotal">
+        <!-- Grand Total is WRONG: 100.00 instead of 399.00 -->
+        <td colspan="6">Grand Total</td>
+        <td>100.00</td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+</body>
+</html>
+

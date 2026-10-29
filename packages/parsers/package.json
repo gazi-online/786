@@ -1,0 +1,26 @@
+{
+  "name": "@walletsync/parsers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@walletsync/contract": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.0",
+    "happy-dom": "^15.0.0",
+    "typescript": "^5.5.0"
+  }
+}
+
