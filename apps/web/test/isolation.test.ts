@@ -25,8 +25,13 @@ describe('M2 Cross-Tenant Isolation (Amd-1)', () => {
     }
 
     if (!isConnected) {
+      if (process.env.CI === 'true') {
+        throw new Error(
+          'FATAL: Live database connection required in CI environment (CI=true), but DATABASE_URL is missing or connection failed.',
+        );
+      }
       console.warn(
-        'PostgreSQL database not connected at test time. Configure DATABASE_URL in .env.local to run live RLS queries against Supabase / Postgres.',
+        'PostgreSQL database not connected at local test time. Configure DATABASE_URL in .env.local to run live RLS queries against Supabase / Postgres.',
       );
       expect(true).toBe(true);
       return;

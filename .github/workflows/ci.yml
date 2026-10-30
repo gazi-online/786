@@ -2,13 +2,33 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, master]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, master]
 
 jobs:
   ci:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: walletsync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      CI: 'true'
+      DATABASE_URL: 'postgres://walletsync_app:app_password@localhost:5432/walletsync_test'
+      DATABASE_OWNER_URL: 'postgres://postgres:postgrespassword@localhost:5432/walletsync_test'
+
     steps:
       - uses: actions/checkout@v4
 
@@ -24,6 +44,26 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Setup Database Roles & Migrations
+        run: |
+          # 1. Run migrations as owner
+          psql "postgres://postgres:postgrespassword@localhost:5432/walletsync_test" -f apps/web/drizzle/0001_rls.sql
+          
+          # 2. Create non-owner runtime role without BYPASSRLS
+          psql "postgres://postgres:postgrespassword@localhost:5432/walletsync_test" -c "
+            DO \$\$
+            BEGIN
+              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'walletsync_app') THEN
+                CREATE ROLE walletsync_app WITH LOGIN PASSWORD 'app_password' NOBYPASSRLS;
+              END IF;
+            END
+            \$\$;
+            GRANT CONNECT ON DATABASE walletsync_test TO walletsync_app;
+            GRANT USAGE ON SCHEMA public TO walletsync_app;
+            GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO walletsync_app;
+            ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO walletsync_app;
+          "
+
       - name: Lint
         run: pnpm run lint
 
@@ -33,6 +73,10 @@ jobs:
       - name: Scan PII and Secrets
         run: pnpm run scan:pii
 
+      - name: Build Extension (for Manifest Audit)
+        run: |
+          cd apps/extension
+          pnpm run build
+
       - name: Test
         run: pnpm run test
-
