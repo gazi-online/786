@@ -30,6 +30,9 @@ jobs:
       - name: Type check
         run: pnpm run typecheck
 
+      - name: Scan PII and Secrets
+        run: pnpm run scan:pii
+
       - name: Test
         run: pnpm run test
 
