@@ -5,6 +5,7 @@ import type { ApiTransaction } from '@walletsync/contract';
 import { AppLayout } from '@/components/AppLayout';
 import { useI18n } from '@/lib/i18n-context';
 import { formatPaise, formatKolkataDate } from '@/lib/i18n';
+import { getClientCache, setClientCache } from '@/lib/client-cache';
 import {
   Search,
   Download,
@@ -38,12 +39,27 @@ export default function TransactionsPage() {
   const [selectedTxn, setSelectedTxn] = useState<ApiTransaction | null>(null);
   const [revealedNumbers, setRevealedNumbers] = useState<Record<string, string>>({});
 
+  // Device-adaptive mobile pagination
+  const [mobileLimit, setMobileLimit] = useState(25);
+
+  const cacheKey = `txns_${portal}_${status}_${service}`;
+
   useEffect(() => {
+    // 0ms instant display from memory/session cache
+    const cached = getClientCache<ApiTransaction[]>(cacheKey);
+    if (cached && cached.length > 0) {
+      setItems(cached);
+      setLoading(false);
+    }
     loadTransactions();
   }, [status, service, portal]);
 
   async function loadTransactions() {
-    setLoading(true);
+    // Only show skeleton if we have no cached items
+    const cached = getClientCache<ApiTransaction[]>(cacheKey);
+    if (!cached || cached.length === 0) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const params = new URLSearchParams();
@@ -53,9 +69,15 @@ export default function TransactionsPage() {
       params.set('limit', '100');
 
       const res = await fetch(`/api/v1/transactions?${params.toString()}`);
+      if (res.status === 304) {
+        // Not modified — keep current data
+        return;
+      }
       if (!res.ok) throw new Error('Failed to fetch transaction records');
       const data = await res.json();
-      setItems(data.items || []);
+      const newItems: ApiTransaction[] = data.items || [];
+      setItems(newItems);
+      setClientCache(cacheKey, newItems);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error fetching data');
     } finally {
@@ -361,7 +383,7 @@ export default function TransactionsPage() {
 
           {/* Mobile Cards (< 640px) */}
           <div className="sm:hidden space-y-3">
-            {filtered.map((item) => {
+            {filtered.slice(0, mobileLimit).map((item) => {
               const isRevealed = Boolean(revealedNumbers[item.id]);
               return (
                 <div
@@ -419,6 +441,15 @@ export default function TransactionsPage() {
                 </div>
               );
             })}
+
+            {filtered.length > mobileLimit && (
+              <button
+                onClick={() => setMobileLimit((prev) => prev + 25)}
+                className="w-full py-2.5 px-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-semibold text-blue-600 dark:text-blue-400 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-800 transition"
+              >
+                Load More ({filtered.length - mobileLimit} remaining)
+              </button>
+            )}
           </div>
         </div>
       )}

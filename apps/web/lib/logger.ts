@@ -10,7 +10,7 @@
 // Defensive redaction patterns as backstop
 const REDACTION_PATTERNS = [
   // Bearer / Device tokens
-  { regex: /Bearer\s+([A-Za-z0-9_\-\.]{10,})/gi, replacement: 'Bearer [REDACTED_TOKEN]' },
+  { regex: /Bearer\s+([A-Za-z0-9_\-.]{10,})/gi, replacement: 'Bearer [REDACTED_TOKEN]' },
   { regex: /ws_dev_[0-9a-f]{32,}/gi, replacement: '[REDACTED_DEVICE_TOKEN]' },
   { regex: /[0-9a-f]{64}/gi, replacement: '[REDACTED_64HEX]' },
   // Indian 10-digit mobile numbers: starts with 6, 7, 8, or 9
@@ -23,11 +23,11 @@ const REDACTION_PATTERNS = [
 
 export function redactSensitiveText(input: string): string {
   let output = input;
-  for (const { regex, replacement } of REDACTION_PATTERNS) {
-    if (typeof replacement === 'function') {
-      output = output.replace(regex, replacement as any);
+  for (const item of REDACTION_PATTERNS) {
+    if (typeof item.replacement === 'function') {
+      output = output.replace(item.regex, item.replacement as (substring: string, ...args: string[]) => string);
     } else {
-      output = output.replace(regex, replacement);
+      output = output.replace(item.regex, item.replacement);
     }
   }
   return output;

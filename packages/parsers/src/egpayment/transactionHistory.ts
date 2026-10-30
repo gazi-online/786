@@ -100,9 +100,9 @@ export function parseEgPayment(html: string): ParseResult {
 
   for (const anchor of cardAnchors) {
     const href = anchor.getAttribute('href') || '';
-    const hrefMatch = href.match(/\/transaction_receipt\/([0-9a-zA-Z]+)/);
     const orderIdMatch = anchor.textContent?.match(/Order ID:\s*([0-9a-zA-Z]+)/i);
-    const txnId = hrefMatch?.[1] || orderIdMatch?.[1];
+    const hrefMatch = href.match(/\/transaction_receipt\/([0-9a-zA-Z]+)/);
+    const txnId = orderIdMatch?.[1] || hrefMatch?.[1];
     if (!txnId) continue;
 
     // Amount in h3 with ₹

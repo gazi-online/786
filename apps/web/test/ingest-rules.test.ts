@@ -71,7 +71,7 @@ describe('M2 Ingest Rules & Status Transitions (GUIDE.md §3)', () => {
           source: 'simplewallet',
           service: 'Prepaid',
           serviceName: 'AIRTEL',
-          customerNo: '9800000000',
+          customerNo: '9990000000',
           occurredAt: '2026-10-29T12:28:38+05:30',
           status: 'success',
           statusRaw: 'Success',

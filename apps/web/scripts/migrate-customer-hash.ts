@@ -98,3 +98,4 @@ export function migrateRecordInMemory(
 
   return { customerNo: newCiphertext, customerNoHash: newHash, status: 'migrated' };
 }
+

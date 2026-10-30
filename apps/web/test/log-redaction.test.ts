@@ -5,10 +5,10 @@ import { db } from '@/lib/db';
 describe('Step 4 Hardening: Allowlist Logging & PII Redaction Tests', () => {
   describe('Redaction backstop', () => {
     it('redacts Indian 10-digit mobile numbers from log strings', () => {
-      const log = 'Customer failed payment for mobile 9876543210 and 8123456789';
+      const log = 'Customer failed payment for mobile 9990003210 and 9990006789';
       const redacted = redactSensitiveText(log);
-      expect(redacted).not.toContain('9876543210');
-      expect(redacted).not.toContain('8123456789');
+      expect(redacted).not.toContain('9990003210');
+      expect(redacted).not.toContain('9990006789');
       expect(redacted).toContain('[REDACTED_PHONE]');
     });
 
@@ -22,10 +22,10 @@ describe('Step 4 Hardening: Allowlist Logging & PII Redaction Tests', () => {
     });
 
     it('redacts Cookie headers and customerNo fields from raw strings', () => {
-      const rawBody = '{"customerNo": "9876543210", "amount": 500}';
+      const rawBody = '{"customerNo": "9990003210", "amount": 500}';
       const rawCookie = 'cookie: sb-auth-token=secret12345; session=abc';
 
-      expect(redactSensitiveText(rawBody)).not.toContain('9876543210');
+      expect(redactSensitiveText(rawBody)).not.toContain('9990003210');
       expect(redactSensitiveText(rawCookie)).not.toContain('secret12345');
     });
   });
@@ -51,14 +51,15 @@ describe('Step 4 Hardening: Allowlist Logging & PII Redaction Tests', () => {
     });
 
     it('sanitizes unhandled error messages and error traces', () => {
-      const errorWithPii = new Error('Database query failed for mobile number 9876543210');
+      const errorWithPii = new Error('Database query failed for mobile number 9990003210');
       const safeLog = formatSafeLog('ERROR', errorWithPii.message, {
         errorName: errorWithPii.name,
         route: '/api/v1/transactions',
       });
 
-      expect(safeLog).not.toContain('9876543210');
+      expect(safeLog).not.toContain('9990003210');
       expect(safeLog).toContain('[REDACTED_PHONE]');
     });
   });
 });
+

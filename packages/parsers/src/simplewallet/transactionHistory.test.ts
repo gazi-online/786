@@ -131,7 +131,7 @@ describe('normal-day fixture (real simplewallet.in portal HTML)', () => {
     expect(golden.serviceName).toBe('AIRTEL');
 
     // customerNo: extracted as plaintext
-    expect(golden.customerNo).toBe('6296240265');
+    expect(golden.customerNo).toBe('9990000010');
 
     // operatorRef: extracted from Operator ID column
     expect(golden.operatorRef).toBe('1724183242');

@@ -27,12 +27,12 @@ describe('EG Payment Parser - transactionHistory', () => {
     expect(row1.txnId).toBe('26302230312056');
     expect(row1.source).toBe('egpayment');
     expect(row1.serviceName).toBe('Vi');
-    expect(row1.customerNo).toBe('8348828920');
+    expect(row1.customerNo).toBe('9990000012');
     expect(row1.amountPaise).toBe(34900); // ₹349.00
     expect(row1.discountPaise).toBe(698); // ₹6.98
     expect(row1.discountPct).toBe(2);
     expect(row1.status).toBe('success');
-    expect(row1.operatorRef).toBe('UER2610291400440066');
+    expect(row1.operatorRef).toBe('UER0000000001');
     expect(row1.occurredAt).toBe('2026-10-29T14:00:00+05:30');
 
     // Test multi-service classification
