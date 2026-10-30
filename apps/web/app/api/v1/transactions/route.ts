@@ -4,6 +4,7 @@ import { transactions } from '@/drizzle/schema';
 import { desc, and, eq, or, ilike, lt } from 'drizzle-orm';
 import type { ApiTransaction, TransactionStatus, TransactionSource } from '@walletsync/contract';
 import { getMemoryTransactions } from '@/lib/memory-store';
+import { computeTenantScopedETag } from '@/lib/etag';
 
 export async function GET(req: NextRequest) {
   try {
@@ -100,16 +101,33 @@ export async function GET(req: NextRequest) {
       formatted.length === limit ? formatted[formatted.length - 1]?.occurredAt : null;
 
     const itemsToReturn = formatted.slice(0, limit);
-    const etagSeed = `${itemsToReturn.length}-${itemsToReturn[0]?.txnId || 'empty'}-${itemsToReturn[0]?.updatedAt || '0'}`;
-    const etag = `W/"${Buffer.from(etagSeed).toString('base64')}"`;
+
+    // Compute max(updatedAt) across the filtered result set
+    let maxUpdatedAt = '0';
+    for (const item of itemsToReturn) {
+      if (item.updatedAt > maxUpdatedAt) {
+        maxUpdatedAt = item.updatedAt;
+      }
+    }
+
+    const tenantId = itemsToReturn[0]?.tenantId || '00000000-0000-0000-0000-000000000001';
+    const etag = computeTenantScopedETag({
+      tenantId,
+      count: itemsToReturn.length,
+      maxUpdatedAt,
+      queryParams: { limit, cursor, status, source, service, operator, search },
+    });
+
+    const headers: Record<string, string> = {
+      ETag: etag,
+      'Cache-Control': 'private, no-cache, stale-while-revalidate=10',
+      Vary: 'Cookie, Authorization',
+    };
 
     if (req.headers.get('if-none-match') === etag) {
       return new NextResponse(null, {
         status: 304,
-        headers: {
-          ETag: etag,
-          'Cache-Control': 'private, no-cache, stale-while-revalidate=10',
-        },
+        headers,
       });
     }
 
@@ -120,10 +138,7 @@ export async function GET(req: NextRequest) {
         count: formatted.length,
       },
       {
-        headers: {
-          ETag: etag,
-          'Cache-Control': 'private, no-cache, stale-while-revalidate=10',
-        },
+        headers,
       },
     );
   } catch (err: unknown) {
