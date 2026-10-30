@@ -24,7 +24,7 @@ export async function POST(
     // Decrypt full customer mobile number (PII)
     let plaintextCustomerNo = '';
     try {
-      plaintextCustomerNo = decryptCustomerNo(txn.customerNo);
+      plaintextCustomerNo = decryptCustomerNo(txn.customerNo, txn.tenantId);
     } catch {
       return NextResponse.json(
         { error: 'Failed to decrypt customer number' },

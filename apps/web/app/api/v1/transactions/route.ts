@@ -65,7 +65,6 @@ export async function GET(req: NextRequest) {
           service: r.service,
           serviceName: r.serviceName,
           customerLast4: last4,
-          customerNoHash: r.customerNoHash,
           customerNoMasked: masked,
           occurredAt: r.occurredAt.toISOString(),
           status: r.status,
@@ -100,11 +99,33 @@ export async function GET(req: NextRequest) {
     const nextCursor =
       formatted.length === limit ? formatted[formatted.length - 1]?.occurredAt : null;
 
-    return NextResponse.json({
-      items: formatted.slice(0, limit),
-      nextCursor,
-      count: formatted.length,
-    });
+    const itemsToReturn = formatted.slice(0, limit);
+    const etagSeed = `${itemsToReturn.length}-${itemsToReturn[0]?.txnId || 'empty'}-${itemsToReturn[0]?.updatedAt || '0'}`;
+    const etag = `W/"${Buffer.from(etagSeed).toString('base64')}"`;
+
+    if (req.headers.get('if-none-match') === etag) {
+      return new NextResponse(null, {
+        status: 304,
+        headers: {
+          ETag: etag,
+          'Cache-Control': 'private, no-cache, stale-while-revalidate=10',
+        },
+      });
+    }
+
+    return NextResponse.json(
+      {
+        items: itemsToReturn,
+        nextCursor,
+        count: formatted.length,
+      },
+      {
+        headers: {
+          ETag: etag,
+          'Cache-Control': 'private, no-cache, stale-while-revalidate=10',
+        },
+      },
+    );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to fetch transactions';
     return NextResponse.json({ error: message }, { status: 500 });

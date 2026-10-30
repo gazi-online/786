@@ -177,7 +177,7 @@ export async function POST(req: NextRequest) {
         const existing = existingRows[0];
 
         if (!existing) {
-          const encryptedCustomerNo = encryptCustomerNo(row.customerNo);
+          const encryptedCustomerNo = encryptCustomerNo(row.customerNo, device!.tenantId);
           const customerLast4 = extractCustomerLast4(row.customerNo);
           const customerNoHash = hashCustomerNo(row.customerNo);
 
@@ -268,7 +268,6 @@ export async function POST(req: NextRequest) {
         service: row.service,
         serviceName: row.serviceName,
         customerLast4: last4,
-        customerNoHash: hashCustomerNo(row.customerNo),
         customerNoMasked: `••••••${last4}`,
         occurredAt: row.occurredAt,
         status: row.status,

@@ -5,6 +5,7 @@ import type { ApiTransaction, IngestTransaction, TransactionSource } from '@wall
 import { AppLayout } from '@/components/AppLayout';
 import { useI18n } from '@/lib/i18n-context';
 import { formatPaise, formatKolkataDate } from '@/lib/i18n';
+import { getClientCache, setClientCache } from '@/lib/client-cache';
 import {
   CheckCircle2,
   Clock,
@@ -56,21 +57,33 @@ export default function DashboardPage() {
   const [pairingCode, setPairingCode] = useState('SYNC-7489');
   const [copiedCode, setCopiedCode] = useState(false);
 
-  // 1. Initial data fetch
+  // 1. Initial data fetch with instant 0ms client-side cache
   useEffect(() => {
+    const cached = getClientCache<ApiTransaction[]>('dashboard_txns');
+    if (cached && cached.length > 0) {
+      setTransactions(cached);
+      setLoading(false);
+      setLastSyncTime(cached[0]?.occurredAt || null);
+    }
     fetchTransactions();
   }, []);
 
   async function fetchTransactions() {
-    setLoading(true);
+    const cached = getClientCache<ApiTransaction[]>('dashboard_txns');
+    if (!cached || cached.length === 0) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const res = await fetch('/api/v1/transactions?limit=100');
+      if (res.status === 304) return;
       if (!res.ok) throw new Error('Failed to load transactions');
       const data = await res.json();
-      setTransactions(data.items || []);
-      if (data.items?.length > 0) {
-        setLastSyncTime(data.items[0].occurredAt);
+      const items: ApiTransaction[] = data.items || [];
+      setTransactions(items);
+      setClientCache('dashboard_txns', items);
+      if (items.length > 0) {
+        setLastSyncTime(items[0]?.occurredAt || null);
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error fetching data');
@@ -109,7 +122,6 @@ export default function DashboardPage() {
                 service: r.service,
                 serviceName: r.serviceName,
                 customerLast4: last4,
-                customerNoHash: 'live-hash',
                 customerNoMasked: `••••••${last4}`,
                 occurredAt: r.occurredAt,
                 status: r.status,

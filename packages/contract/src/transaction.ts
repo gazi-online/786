@@ -37,7 +37,7 @@ export type IngestTransaction = z.infer<typeof IngestTransactionSchema>;
 /**
  * Transaction shape returned FROM the API TO the web app.
  * customerNo is never returned in plaintext — only the masked form and last4.
- * customerNoHash is included so the UI can detect duplicates client-side without decryption.
+ * customerNoHash is strictly kept internal/server-side and NOT returned in public API responses.
  */
 export const ApiTransactionSchema = z.object({
   id: z.string().uuid(), // DB row UUID
@@ -48,9 +48,7 @@ export const ApiTransactionSchema = z.object({
   serviceName: z.string(),
   /** Last 4 digits of the customer number, stored plaintext for search. */
   customerLast4: z.string().length(4).regex(/^\d{4}$/),
-  /** HMAC of the full customer number for exact lookup without decryption. */
-  customerNoHash: z.string().min(1),
-  /** Masked display form, e.g. "98••••1234". Never the raw number. */
+  /** Masked display form, e.g. "••••••1234". Never the raw number or hash. */
   customerNoMasked: z.string().min(1),
   occurredAt: z.string().datetime({ offset: true }),
   status: TransactionStatusSchema,

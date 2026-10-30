@@ -1,53 +1,80 @@
 import crypto from 'node:crypto';
 
-// Configuration keys loaded from environment variables
-const ENCRYPTION_KEY = process.env.CUSTOMER_NO_ENCRYPTION_KEY || 'default-dev-encryption-key-32b!'; // 32 bytes for aes-256
-const HMAC_SECRET = process.env.CUSTOMER_NO_HMAC_SECRET || 'default-dev-hmac-secret-for-customer-no';
+// Configuration keys and Key IDs loaded from environment variables
+// Separate keys for AES encryption and HMAC hashing
+const ENCRYPTION_KEY = process.env.CUSTOMER_NO_ENCRYPTION_KEY || 'default-dev-encryption-key-32b!';
+export const CURRENT_ENCRYPTION_KEY_ID = process.env.CUSTOMER_NO_KEY_ID || 'v1';
 
-/**
- * Ensures the encryption key is exactly 32 bytes (256 bits).
- */
-function getNormalizedKey(): Buffer {
-  return crypto.createHash('sha256').update(ENCRYPTION_KEY).digest();
-}
+const HMAC_SECRET = process.env.CUSTOMER_NO_HMAC_SECRET || 'default-dev-hmac-secret-for-customer-no';
+export const CURRENT_HMAC_KEY_ID = process.env.CUSTOMER_NO_HMAC_KEY_ID || 'h1';
+
+// Key registry supporting key rotation
+const ENCRYPTION_KEYS: Record<string, Buffer> = {
+  [CURRENT_ENCRYPTION_KEY_ID]: crypto.createHash('sha256').update(ENCRYPTION_KEY).digest(),
+};
+
+const HMAC_SECRETS: Record<string, string> = {
+  [CURRENT_HMAC_KEY_ID]: HMAC_SECRET,
+};
 
 /**
  * Encrypt customer mobile number using AES-256-GCM.
- * Output format: `<iv_hex>:<authTag_hex>:<ciphertext_hex>`
+ * Output format: `version:iv:tag:ciphertext`
+ * - Unique random 96-bit IV (12 bytes) per encryption.
+ * - Authenticated Additional Data (AAD) bound to tenantId (and keyId).
  */
-export function encryptCustomerNo(customerNo: string): string {
-  const iv = crypto.randomBytes(12); // standard 96-bit IV for GCM
-  const cipher = crypto.createCipheriv('aes-256-gcm', getNormalizedKey(), iv);
+export function encryptCustomerNo(customerNo: string, tenantId?: string, keyId: string = CURRENT_ENCRYPTION_KEY_ID): string {
+  const key = ENCRYPTION_KEYS[keyId] || crypto.createHash('sha256').update(ENCRYPTION_KEY).digest();
+  const iv = crypto.randomBytes(12); // standard 96-bit IV for AES-GCM
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+
+  // Bind tenantId as AAD if provided
+  if (tenantId) {
+    cipher.setAAD(Buffer.from(`tenant:${tenantId}:key:${keyId}`, 'utf8'));
+  }
 
   let encrypted = cipher.update(customerNo, 'utf8', 'hex');
   encrypted += cipher.final('hex');
 
   const authTag = cipher.getAuthTag().toString('hex');
-  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+  return `${keyId}:${iv.toString('hex')}:${authTag}:${encrypted}`;
 }
 
 /**
  * Decrypt customer mobile number using AES-256-GCM.
+ * Handles both new format: `version:iv:tag:ciphertext`
+ * and legacy 3-part format: `iv:tag:ciphertext` (for backward compatibility).
  */
-export function decryptCustomerNo(encryptedData: string): string {
+export function decryptCustomerNo(encryptedData: string, tenantId?: string): string {
   const parts = encryptedData.split(':');
-  if (parts.length !== 3) {
-    throw new Error('Invalid encrypted customerNo format');
+  
+  if (parts.length === 4) {
+    // New format: version:iv:tag:ciphertext
+    const [keyId, ivHex, authTagHex, ciphertextHex] = parts as [string, string, string, string];
+    const key = ENCRYPTION_KEYS[keyId] || crypto.createHash('sha256').update(ENCRYPTION_KEY).digest();
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+    
+    if (tenantId) {
+      decipher.setAAD(Buffer.from(`tenant:${tenantId}:key:${keyId}`, 'utf8'));
+    }
+    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+
+    let decrypted = decipher.update(ciphertextHex, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } else if (parts.length === 3) {
+    // Legacy format: iv:tag:ciphertext
+    const [ivHex, authTagHex, ciphertextHex] = parts as [string, string, string];
+    const key = crypto.createHash('sha256').update(ENCRYPTION_KEY).digest();
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+
+    let decrypted = decipher.update(ciphertextHex, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
   }
 
-  const [ivHex, authTagHex, ciphertextHex] = parts as [string, string, string];
-  const decipher = crypto.createDecipheriv(
-    'aes-256-gcm',
-    getNormalizedKey(),
-    Buffer.from(ivHex, 'hex'),
-  );
-
-  decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
-
-  let decrypted = decipher.update(ciphertextHex, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-
-  return decrypted;
+  throw new Error('Invalid encrypted customerNo format');
 }
 
 /**
@@ -63,9 +90,11 @@ export function extractCustomerLast4(customerNo: string): string {
 
 /**
  * Generates HMAC-SHA256 hash of the customer number for exact lookups without decryption.
+ * Uses dedicated HMAC secret separate from the AES key.
  */
-export function hashCustomerNo(customerNo: string): string {
-  return crypto.createHmac('sha256', HMAC_SECRET).update(customerNo.trim()).digest('hex');
+export function hashCustomerNo(customerNo: string, keyId: string = CURRENT_HMAC_KEY_ID): string {
+  const secret = HMAC_SECRETS[keyId] || HMAC_SECRET;
+  return crypto.createHmac('sha256', secret).update(customerNo.trim()).digest('hex');
 }
 
 /**
@@ -88,4 +117,3 @@ export function hashPairingCode(code: string): string {
 export function generateDeviceToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }
-

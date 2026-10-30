@@ -7,18 +7,53 @@ import {
   hashDeviceToken,
   hashPairingCode,
   generateDeviceToken,
+  CURRENT_ENCRYPTION_KEY_ID,
+  CURRENT_HMAC_KEY_ID,
 } from '@/lib/crypto';
 
 describe('crypto utilities (PII minimization & token security)', () => {
-  it('encrypts and decrypts customer phone number with AES-256-GCM', () => {
+  it('encrypts and decrypts with format version:iv:tag:ciphertext and tenant AAD binding', () => {
     const mobile = '9876543210';
-    const encrypted = encryptCustomerNo(mobile);
+    const tenantId = '00000000-0000-0000-0000-000000000001';
+    const encrypted = encryptCustomerNo(mobile, tenantId);
 
     expect(encrypted).not.toBe(mobile);
-    expect(encrypted.split(':')).toHaveLength(3);
+    const parts = encrypted.split(':');
+    expect(parts).toHaveLength(4);
+    expect(parts[0]).toBe(CURRENT_ENCRYPTION_KEY_ID);
+    // 96-bit IV = 12 bytes = 24 hex chars
+    expect(parts[1]).toHaveLength(24);
+    // 128-bit Auth Tag = 16 bytes = 32 hex chars
+    expect(parts[2]).toHaveLength(32);
 
-    const decrypted = decryptCustomerNo(encrypted);
+    // Decrypts successfully with matching tenantId AAD
+    const decrypted = decryptCustomerNo(encrypted, tenantId);
     expect(decrypted).toBe(mobile);
+
+    // Tampered tenantId AAD fails authentication
+    expect(() => decryptCustomerNo(encrypted, 'different-tenant-id')).toThrow();
+  });
+
+  it('supports backward compatibility for legacy 3-part ciphertext without AAD', () => {
+    // legacy format: iv:tag:ciphertext
+    const mobile = '9876543210';
+    const encrypted = encryptCustomerNo(mobile); // without tenant AAD
+    const parts = encrypted.split(':');
+    const legacyEncrypted = `${parts[1]}:${parts[2]}:${parts[3]}`;
+
+    const decrypted = decryptCustomerNo(legacyEncrypted);
+    expect(decrypted).toBe(mobile);
+  });
+
+  it('generates unique random 96-bit IVs for each encryption', () => {
+    const mobile = '9876543210';
+    const enc1 = encryptCustomerNo(mobile);
+    const enc2 = encryptCustomerNo(mobile);
+
+    expect(enc1).not.toBe(enc2);
+    const iv1 = enc1.split(':')[1];
+    const iv2 = enc2.split(':')[1];
+    expect(iv1).not.toBe(iv2);
   });
 
   it('extracts exactly 4 digits for customerLast4', () => {
