@@ -15,10 +15,13 @@ export interface RateLimitResult {
   reset: number; // Unix timestamp in seconds
 }
 
+// In-memory fallback map for offline unit testing and standalone dev
+const testRateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
 /**
  * Checks and updates rate limit using Upstash Redis or DB-backed atomic counter.
  *
- * @param key - Identifier to rate limit (e.g. `ingest:device:<id>`)
+ * @param key - Identifier to rate limit (e.g. `ingest:device:<id>`, `pair:code:<hash>`)
  * @param limit - Maximum allowed requests in window
  * @param windowSeconds - Window size in seconds (default 60s)
  */
@@ -86,12 +89,24 @@ export async function checkRateLimit(
       reset,
     };
   } catch {
-    // If DB check fails, default to allow in dev/test, or fail safe
+    // If DB check is offline (local test environment without live DB), use accurate in-memory tracker
+    const existing = testRateLimitMap.get(key);
+    if (!existing || now >= existing.resetAt) {
+      testRateLimitMap.set(key, { count: 1, resetAt: reset });
+      return {
+        success: 1 <= limit,
+        limit,
+        remaining: Math.max(0, limit - 1),
+        reset,
+      };
+    }
+
+    existing.count += 1;
     return {
-      success: true,
+      success: existing.count <= limit,
       limit,
-      remaining: limit - 1,
-      reset,
+      remaining: Math.max(0, limit - existing.count),
+      reset: existing.resetAt,
     };
   }
 }

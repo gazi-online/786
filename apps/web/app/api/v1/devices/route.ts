@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { devices, pairingCodes } from '@/drizzle/schema';
 import { desc } from 'drizzle-orm';
-import crypto from 'node:crypto';
 import { hashPairingCode } from '@/lib/crypto';
+import { generateUnambiguousPairingCode } from '@/lib/pairing-code';
 import {
   saveMemoryPairingCode,
   listMemoryDevices,
@@ -65,7 +65,7 @@ export async function GET(_req: NextRequest) {
  */
 export async function POST(_req: NextRequest) {
   try {
-    const rawCode = crypto.randomBytes(4).toString('hex').toUpperCase();
+    const { clean: rawCode, formatted } = generateUnambiguousPairingCode();
     const codeHash = hashPairingCode(rawCode);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
@@ -85,7 +85,7 @@ export async function POST(_req: NextRequest) {
     }
 
     return NextResponse.json({
-      code: rawCode,
+      code: formatted,
       expiresAt: expiresAt.toISOString(),
     });
   } catch (err: unknown) {

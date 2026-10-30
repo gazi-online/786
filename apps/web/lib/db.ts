@@ -54,16 +54,16 @@ export type AppTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 /**
  * Execute a callback within a transaction where `app.current_tenant_id` is explicitly set.
- * Crucial for device-token endpoints (Amd-1) where no Supabase Auth JWT is present,
- * ensuring RLS isolation applies even when executing as the app's runtime DB role.
+ * Uses parameterized set_config('app.current_tenant_id', $1, true)
+ * Fully compatible with transaction-level connection poolers (e.g. Supabase Supavisor / PgBouncer).
  */
 export async function withTenantContext<T>(
   tenantId: string,
   fn: (tx: AppTransaction) => Promise<T>,
 ): Promise<T> {
   return await db.transaction(async (tx) => {
-    // Set local configuration variable scoped to this transaction
-    await tx.execute(sql`SET LOCAL app.current_tenant_id = ${tenantId}`);
+    // Set local configuration variable scoped strictly to this transaction (is_local = true)
+    await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
     return await fn(tx);
   });
 }

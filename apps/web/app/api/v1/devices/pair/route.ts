@@ -21,12 +21,12 @@ const PairRequestSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    // 1. Rate limiting on pairing attempts
+    // 1. Rate limiting on pairing attempts per IP and per code in shared store
     const clientIp = req.headers.get('x-forwarded-for') || 'anon';
-    const rateLimit = await checkRateLimit(`pair:${clientIp}`, 20, 60);
-    if (!rateLimit.success) {
+    const ipRateLimit = await checkRateLimit(`pair:ip:${clientIp}`, 10, 60);
+    if (!ipRateLimit.success) {
       return NextResponse.json(
-        { error: 'Too many pairing attempts' },
+        { error: 'Too many pairing attempts from this IP' },
         { status: 429, headers: { 'Retry-After': '60' } },
       );
     }
@@ -45,6 +45,15 @@ export async function POST(req: NextRequest) {
     const cleanCode = code.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
     const codeHash = hashPairingCode(cleanCode);
     const now = new Date();
+
+    // Rate limit per code (lock code after 5 failed attempts)
+    const codeRateLimit = await checkRateLimit(`pair:code:${codeHash}`, 5, 600);
+    if (!codeRateLimit.success) {
+      return NextResponse.json(
+        { error: 'Pairing code is locked due to too many failed attempts' },
+        { status: 429, headers: { 'Retry-After': '600' } },
+      );
+    }
 
     let deviceId: string | undefined;
     let deviceToken: string | undefined;
