@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, master]
+  pull_request:
+    branches: [main, develop, master]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: walletsync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      CI: 'true'
+      DATABASE_URL: 'postgres://walletsync_app:app_password@localhost:5432/walletsync_test'
+      DATABASE_OWNER_URL: 'postgres://postgres:postgrespassword@localhost:5432/walletsync_test'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+
+      - name: Setup Database Roles & Migrations
+        run: |
+          set -euo pipefail
+          
+          # 1. Auth shim as owner
+          psql -v ON_ERROR_STOP=1 -X "$DATABASE_OWNER_URL" -f apps/web/drizzle/0000_auth_shim.sql
+          
+          # 2. Create non-owner runtime role BEFORE running schema and RLS migrations that grant privileges to it
+          psql -v ON_ERROR_STOP=1 -X "$DATABASE_OWNER_URL" -c "
+            DO \$\$
+            BEGIN
+              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'walletsync_app') THEN
+                CREATE ROLE walletsync_app WITH LOGIN PASSWORD 'app_password' NOBYPASSRLS;
+              END IF;
+            END
+            \$\$;
+            GRANT CONNECT ON DATABASE walletsync_test TO walletsync_app;
+            GRANT USAGE ON SCHEMA public TO walletsync_app;
+          "
+          
+          # 3. Schema migration as owner
+          psql -v ON_ERROR_STOP=1 -X "$DATABASE_OWNER_URL" -f apps/web/drizzle/0000_schema.sql
+          
+          # 4. RLS and security functions migration as owner
+          psql -v ON_ERROR_STOP=1 -X "$DATABASE_OWNER_URL" -f apps/web/drizzle/0001_rls.sql
+          
+          # 5. Runtime table privileges for non-owner role
+          psql -v ON_ERROR_STOP=1 -X "$DATABASE_OWNER_URL" -c "
+            GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO walletsync_app;
+            ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO walletsync_app;
+          "
+
+      - name: Lint
+        run: |
+          set -euo pipefail
+          pnpm run lint
+
+      - name: Type check
+        run: |
+          set -euo pipefail
+          pnpm run typecheck
+
+      - name: Scan PII and Secrets
+        run: |
+          set -euo pipefail
+          pnpm run scan:pii
+
+      - name: Build Monorepo (Web and Extension)
+        run: |
+          set -euo pipefail
+          pnpm run build
+
+      - name: Run Parser and Contract Tests
+        run: |
+          set -euo pipefail
+          pnpm --filter @walletsync/contract test
+          pnpm --filter @walletsync/parsers test
+
+      - name: Run Web & DB Tests with JSON Audit (Enforce 0 Skipped, 0 Failed)
+        run: |
+          set -euo pipefail
+          pnpm --filter @walletsync/web run test:ci
+          node scripts/check-ci-test-results.mjs apps/web/test-results.json
