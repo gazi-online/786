@@ -31,8 +31,8 @@ async function run() {
     deviceId: '00000000-0000-0000-0000-000000000002',
     parserVersion: '1.0.0',
     capturedAt: new Date().toISOString(),
-    balancePaise: swRes.balancePaise ?? 19798,
-    pageTotals: swRes.pageTotals ?? { amountPaise: 144800 },
+    balancePaise: swRes.balancePaise ?? 50000,
+    pageTotals: swRes.pageTotals ?? { amountPaise: 150000 },
     rows: swRes.rows.map((t) => ({
       source: 'simplewallet',
       txnId: t.txnId,
@@ -74,7 +74,7 @@ async function run() {
     parserVersion: '1.0.0',
     capturedAt: new Date().toISOString(),
     balancePaise: egRes.balancePaise ?? null,
-    pageTotals: egRes.pageTotals ?? { amountPaise: 1364700 },
+    pageTotals: egRes.pageTotals ?? { amountPaise: 1775000 },
     rows: egRes.rows.map((t) => ({
       source: 'egpayment',
       txnId: t.txnId,

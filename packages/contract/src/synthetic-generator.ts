@@ -62,3 +62,130 @@ export const SYNTHETIC_NAME_REGEX = /^Demo Merchant \d+$/;
 export function isSyntheticName(name: string): boolean {
   return SYNTHETIC_NAME_REGEX.test(name.trim());
 }
+
+// ---------------------------------------------------------------------------
+// Synthetic Dates & Timestamps
+// Reserved synthetic date: 2025-01-01 (formatted 01/01/2025 in portal fixtures)
+// ---------------------------------------------------------------------------
+export const SYNTHETIC_DATE_STR = '01/01/2025';
+export const SYNTHETIC_ISO_DATE_PREFIX = '2025-01-01';
+export const SYNTHETIC_DATE_REGEX = /^01\/01\/2025$/;
+export const SYNTHETIC_ISO_DATE_REGEX = /^2025-01-01T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|\+05:30)$/;
+
+export function generateSyntheticSimpleWalletDate(index: number): string {
+  if (index === 1) return '01/01/2025 07:15:00 PM';
+  if (index === 5) return '01/01/2025 12:00:00 PM';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `01/01/2025 01:${pad(index * 10)}:00 PM`;
+}
+
+export function generateSyntheticEgPaymentDate(index: number): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const minute = pad(index);
+  return `01/01/2025, 10:${minute} AM`;
+}
+
+export function generateSyntheticIsoDate(index: number, source: 'simplewallet' | 'egpayment' = 'simplewallet'): string {
+  if (source === 'simplewallet') {
+    if (index === 1) return '2025-01-01T19:15:00+05:30';
+    if (index === 5) return '2025-01-01T12:00:00+05:30';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `2025-01-01T13:${pad(index * 10)}:00+05:30`;
+  }
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `2025-01-01T10:${pad(index)}:00+05:30`;
+}
+
+export function isSyntheticTimestamp(dateStr: string): boolean {
+  const trimmed = dateStr.trim();
+  return (
+    trimmed.startsWith('01/01/2025') ||
+    trimmed.startsWith('2025-01-01')
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Synthetic Amounts & Totals
+// Documented generator formulas for amounts, discounts, balances, and totals
+// ---------------------------------------------------------------------------
+export interface SyntheticAmountRow {
+  amountRupees: string;
+  amountPaise: number;
+  discountPct: number;
+  discountRupees: string;
+  discountPaise: number;
+}
+
+export function generateSyntheticSimpleWalletRow(index: number): SyntheticAmountRow {
+  const amountRupeesNum = index * 100; // 100, 200, 300, 400, 500
+  const discountPct = 1.5;
+  const discountRupeesNum = (amountRupeesNum * discountPct) / 100; // 1.50, 3.00, 4.50, 6.00, 7.50
+  return {
+    amountRupees: amountRupeesNum.toFixed(2),
+    amountPaise: Math.round(amountRupeesNum * 100),
+    discountPct,
+    discountRupees: discountRupeesNum.toFixed(2),
+    discountPaise: Math.round(discountRupeesNum * 100),
+  };
+}
+
+export function generateSyntheticEgPaymentRow(index: number): SyntheticAmountRow {
+  const amountRupeesNum = 100 + index * 10; // 110, 120, ..., 600
+  const discountPct = 2.0;
+  const discountRupeesNum = (amountRupeesNum * discountPct) / 100; // 2.20, 2.40, ..., 12.00
+  return {
+    amountRupees: amountRupeesNum.toFixed(2),
+    amountPaise: Math.round(amountRupeesNum * 100),
+    discountPct,
+    discountRupees: discountRupeesNum.toFixed(2),
+    discountPaise: Math.round(discountRupeesNum * 100),
+  };
+}
+
+export const SYNTHETIC_BALANCES = {
+  walletRupees: '500.00',
+  walletPaise: 50000,
+};
+
+export const SYNTHETIC_SIMPLEWALLET_TOTALS = {
+  amountRupees: '1500.00',
+  amountPaise: 150000,
+  discountRupees: '22.50',
+  discountPaise: 2250,
+};
+
+export const SYNTHETIC_EGPAYMENT_TOTALS = {
+  amountRupees: '17750.00',
+  amountPaise: 1775000,
+  discountRupees: '355.00',
+  discountPaise: 35500,
+};
+
+// All synthetic amount numbers allowed in fixtures
+export const ALLOWED_SYNTHETIC_AMOUNTS = new Set<string>([
+  '0.00', '0',
+  '50.00', '50', // mismatch test total
+  '100.00', '100', // card test amount
+  '1500.00', // SW grand total
+  '22.50', // SW grand discount
+  '500.00', // SW balance
+  '17750.00', '17,750.00', // EG page total
+  '355.00', // EG page comm total
+]);
+
+// Populate generator rows
+for (let i = 1; i <= 5; i++) {
+  const sw = generateSyntheticSimpleWalletRow(i);
+  ALLOWED_SYNTHETIC_AMOUNTS.add(sw.amountRupees);
+  ALLOWED_SYNTHETIC_AMOUNTS.add(sw.discountRupees);
+}
+for (let i = 1; i <= 50; i++) {
+  const eg = generateSyntheticEgPaymentRow(i);
+  ALLOWED_SYNTHETIC_AMOUNTS.add(eg.amountRupees);
+  ALLOWED_SYNTHETIC_AMOUNTS.add(eg.discountRupees);
+}
+
+export function isSyntheticAmount(amount: string | number): boolean {
+  const clean = String(amount).replace(/[₹,\s]/g, '');
+  return ALLOWED_SYNTHETIC_AMOUNTS.has(clean);
+}

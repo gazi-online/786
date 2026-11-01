@@ -20,7 +20,7 @@ describe('EG Payment Parser - transactionHistory', () => {
     expect(result.source).toBe('egpayment');
     expect(result.parserVersion).toBe(PARSER_VERSION);
     expect(result.rows.length).toBe(50);
-    expect(result.pageTotals.amountPaise).toBe(1364700); // ₹13,647.00
+    expect(result.pageTotals.amountPaise).toBe(1775000); // Synthetic page total
 
     // Test golden row 1: Order ID 55500000000001
     const row1 = result.rows[0]!;
@@ -28,12 +28,12 @@ describe('EG Payment Parser - transactionHistory', () => {
     expect(row1.source).toBe('egpayment');
     expect(row1.serviceName).toBe('Vi');
     expect(row1.customerNo).toBe('5000000012');
-    expect(row1.amountPaise).toBe(34900); // ₹349.00
-    expect(row1.discountPaise).toBe(698); // ₹6.98
+    expect(row1.amountPaise).toBe(11000);
+    expect(row1.discountPaise).toBe(220);
     expect(row1.discountPct).toBe(2);
     expect(row1.status).toBe('success');
     expect(row1.operatorRef).toBe('OPR0000000001');
-    expect(row1.occurredAt).toBe('2026-10-29T14:00:00+05:30');
+    expect(row1.occurredAt).toBe('2025-01-01T10:01:00+05:30');
 
     // Test multi-service classification
     const dthRow = result.rows.find((r) => r.serviceName === 'VIDEOCON DTH TV' || r.serviceName === 'TATA PLAY');
@@ -77,7 +77,7 @@ describe('EG Payment Parser - transactionHistory', () => {
             <div class="wallet-card-form"><div class="row">
               <div class="walletHistoryFooter">${orderIdEl}<h3 class="right">₹100</h3></div>
               <div class="walletHistoryData"><div class="left"><h3>Vi</h3><span>5000000001</span></div><p class="right"><button class="btn btn-success">SUCCESS</button></p></div>
-              <div class="walletHistoryFooter"><h4 class="left">Operator Ref : OPR0000000001</h4><h4 class="right">10/29/2026, 02:00 PM</h4></div>
+              <div class="walletHistoryFooter"><h4 class="left">Operator Ref : OPR0000000001</h4><h4 class="right">01/01/2025, 10:00 AM</h4></div>
             </div></div>
           </a>
         </div>

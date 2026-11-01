@@ -20,6 +20,37 @@ const rootDir = path.resolve(__dirname, '..');
 
 const SYNTHETIC_PHONE_REGEX = /^5\d{9}$/;
 
+const ALLOWED_SYNTHETIC_AMOUNTS = new Set([
+  '0.00', '0',
+  '50.00', '50', // mismatch test total
+  '100.00', '100', // card test amount
+  '1500.00', // SW grand total
+  '22.50', // SW grand discount
+  '500.00', // SW balance
+  '17750.00', '17,750.00', // EG page total
+  '355.00', // EG page comm total
+]);
+
+// SW rows 1..5: amount = 100 * i, disc = 1.50 * i
+for (let i = 1; i <= 5; i++) {
+  ALLOWED_SYNTHETIC_AMOUNTS.add((i * 100).toFixed(2));
+  ALLOWED_SYNTHETIC_AMOUNTS.add(String(i * 100));
+  ALLOWED_SYNTHETIC_AMOUNTS.add((i * 1.5).toFixed(2));
+}
+
+// EG Payment rows 1..50: amount = 100 + i * 10, comm = (100 + i * 10) * 0.02
+for (let i = 1; i <= 50; i++) {
+  const amt = 100 + i * 10;
+  ALLOWED_SYNTHETIC_AMOUNTS.add(amt.toFixed(2));
+  ALLOWED_SYNTHETIC_AMOUNTS.add(String(amt));
+  ALLOWED_SYNTHETIC_AMOUNTS.add((amt * 0.02).toFixed(2));
+}
+
+export function isSyntheticAmount(val) {
+  const clean = String(val).replace(/[₹,\s]/g, '').trim();
+  return ALLOWED_SYNTHETIC_AMOUNTS.has(clean);
+}
+
 const IGNORED_DIRS = new Set([
   'node_modules',
   '.git',
@@ -146,6 +177,72 @@ export function scanContent(content, filePath = 'mock-file.txt') {
         const decoded = decodeURIComponent(receivedByMatch[1]).trim();
         if (!/^Demo Merchant \d+$/.test(decoded)) {
           fileViolations.push({ file: filePath, line: lineNum, rule: 'Non-allowlisted merchant name in receipt link' });
+        }
+      }
+
+      // Whitelist check: Dates in fixtures must strictly match synthetic date 01/01/2025 or 2025-01-01
+      const slashDateRegex = /\b(\d{1,2}\/\d{1,2}\/\d{4})\b/g;
+      let dm;
+      while ((dm = slashDateRegex.exec(lineText)) !== null) {
+        if (dm[1] !== '01/01/2025') {
+          fileViolations.push({ file: filePath, line: lineNum, rule: 'Non-allowlisted date/timestamp in fixture' });
+        }
+      }
+      const isoDateRegex = /\b(\d{4}-\d{2}-\d{2})\b/g;
+      let idm;
+      while ((idm = isoDateRegex.exec(lineText)) !== null) {
+        if (idm[1] !== '2025-01-01') {
+          fileViolations.push({ file: filePath, line: lineNum, rule: 'Non-allowlisted date/timestamp in fixture' });
+        }
+      }
+
+      // Whitelist check: Amounts in fixtures must strictly come from the synthetic generator
+      const spanAmtMatch = /<span id="lbl(?:Amt|DiscRs)(?:GrandAmt|PageAmt)?">\s*([^<]+)\s*<\/span>/i.exec(lineText);
+      if (spanAmtMatch) {
+        if (!isSyntheticAmount(spanAmtMatch[1])) {
+          fileViolations.push({ file: filePath, line: lineNum, rule: 'Non-allowlisted amount in fixture' });
+        }
+      }
+
+      const tdAmtMatch = /<td align="left">\s*([0-9.]+)\s*<\/td>/i.exec(lineText);
+      if (tdAmtMatch) {
+        if (!isSyntheticAmount(tdAmtMatch[1])) {
+          fileViolations.push({ file: filePath, line: lineNum, rule: 'Non-allowlisted amount in fixture' });
+        }
+      }
+
+      const amntParamMatch = /\bAmnt=([0-9.]+)/i.exec(lineText);
+      if (amntParamMatch) {
+        if (!isSyntheticAmount(amntParamMatch[1])) {
+          fileViolations.push({ file: filePath, line: lineNum, rule: 'Non-allowlisted amount in fixture' });
+        }
+      }
+
+      const balanceMatch = /Regular\s*:\s*([0-9,.]+)/i.exec(lineText);
+      if (balanceMatch) {
+        if (!isSyntheticAmount(balanceMatch[1])) {
+          fileViolations.push({ file: filePath, line: lineNum, rule: 'Non-allowlisted amount in fixture' });
+        }
+      }
+
+      const egAmtMatch = /<h3[^>]*>\s*₹\s*([0-9,.]+)\s*<\/h3>/i.exec(lineText);
+      if (egAmtMatch) {
+        if (!isSyntheticAmount(egAmtMatch[1])) {
+          fileViolations.push({ file: filePath, line: lineNum, rule: 'Non-allowlisted amount in fixture' });
+        }
+      }
+
+      const egCommMatch = /Comm:\s*₹?\s*([0-9,.]+)/i.exec(lineText);
+      if (egCommMatch) {
+        if (!isSyntheticAmount(egCommMatch[1])) {
+          fileViolations.push({ file: filePath, line: lineNum, rule: 'Non-allowlisted amount in fixture' });
+        }
+      }
+
+      const egBalanceMatch = /<span id="walletBalance">\s*([0-9,.]+)\s*<\/span>/i.exec(lineText);
+      if (egBalanceMatch) {
+        if (!isSyntheticAmount(egBalanceMatch[1])) {
+          fileViolations.push({ file: filePath, line: lineNum, rule: 'Non-allowlisted amount in fixture' });
         }
       }
     }

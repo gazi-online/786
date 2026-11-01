@@ -67,5 +67,37 @@ describe('Step 2 Hardening: PII & Secrets Scanner Allowlist Test', () => {
     expect(violations.length).toBeGreaterThan(0);
     expect(violations.some((v: ScannerViolation) => v.rule.includes('Real Indian mobile number pattern'))).toBe(true);
   });
+
+  it('passes on valid synthetic amounts, dates, and timestamps in fixture context', () => {
+    const fixtureContent = [
+      '<td>01/01/2025 07:15:00 PM</td>',
+      '<td align="left">100.00</td>',
+      '<span id="lblAmtGrandAmt">1500.00</span>',
+      'Regular : 500.00',
+      '<h3 class="right">₹110.00</h3>',
+      '<h4>Comm: ₹2.20</h4>',
+      '<h4 class="right">01/01/2025, 10:01 AM</h4>',
+      'defaults: 2025-01-01',
+    ].join('\n');
+
+    const violations: ScannerViolation[] = scanContent(fixtureContent, 'fixtures/simplewallet/test.html');
+    expect(violations.length).toBe(0);
+  });
+
+  it('fails with violation when a fixture contains a non-generator amount', () => {
+    // Deliberate non-generator amount (e.g. 999.99 or 349.00)
+    const badAmountFixture = '<td align="left">999.99</td>';
+    const violations: ScannerViolation[] = scanContent(badAmountFixture, 'fixtures/simplewallet/test.html');
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations.some((v: ScannerViolation) => v.rule.includes('Non-allowlisted amount in fixture'))).toBe(true);
+  });
+
+  it('fails with violation when a fixture contains a non-generator date or timestamp', () => {
+    // Deliberate non-generator date (e.g. 15/08/2026 or 2026-08-15)
+    const badDateFixture = '<td>15/08/2026 12:00:00 PM</td>';
+    const violations: ScannerViolation[] = scanContent(badDateFixture, 'fixtures/simplewallet/test.html');
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations.some((v: ScannerViolation) => v.rule.includes('Non-allowlisted date/timestamp in fixture'))).toBe(true);
+  });
 });
 

@@ -105,17 +105,17 @@ describe('normal-day fixture (real simplewallet.in portal HTML)', () => {
     expect(golden).toBeDefined();
     if (!golden) return;
 
-    // amountPaise: 399.00 → 39900
-    expect(golden.amountPaise).toBe(39900);
+    // amountPaise: 500.00 → 50000
+    expect(golden.amountPaise).toBe(50000);
 
-    // discountPaise: 5.98 → 598
-    expect(golden.discountPaise).toBe(598);
+    // discountPaise: 7.50 → 750
+    expect(golden.discountPaise).toBe(750);
 
     // discountPct: 1.5
     expect(golden.discountPct).toBe(1.5);
 
-    // occurredAt: "29/10/2026 12:28:38 PM" → "2026-10-29T12:28:38+05:30"
-    expect(golden.occurredAt).toBe('2026-10-29T12:28:38+05:30');
+    // occurredAt: "01/01/2025 12:00:00 PM" → "2025-01-01T12:00:00+05:30"
+    expect(golden.occurredAt).toBe('2025-01-01T12:00:00+05:30');
 
     // status: "Success" → "success"
     expect(golden.status).toBe('success');
@@ -149,16 +149,16 @@ describe('normal-day fixture (real simplewallet.in portal HTML)', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const rowSum = result.rows.reduce((acc, r) => acc + r.amountPaise, 0);
-    expect(rowSum).toBe(144800);
-    expect(result.pageTotals.amountPaise).toBe(144800);
+    expect(rowSum).toBe(150000);
+    expect(result.pageTotals.amountPaise).toBe(150000);
   });
 
   it('reads wallet balance from the page UserInfo header', () => {
     const result = parse(fixture('normal-day.html'));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // Regular : 197.98 → 19798 paise
-    expect(result.balancePaise).toBe(19798);
+    // Regular : 500.00 → 50000 paise
+    expect(result.balancePaise).toBe(50000);
   });
 });
 
@@ -170,14 +170,14 @@ describe('date parsing', () => {
     const result = parse(fixture('normal-day.html'));
     if (!result.ok) return;
     const row = result.rows.find((r) => r.txnId === '55000001');
-    expect(row?.occurredAt).toBe('2026-10-29T19:13:30+05:30');
+    expect(row?.occurredAt).toBe('2025-01-01T19:15:00+05:30');
   });
 
-  it('parses noon PM time correctly (12:28:38 PM)', () => {
+  it('parses noon PM time correctly (12:00:00 PM)', () => {
     const result = parse(fixture('normal-day.html'));
     if (!result.ok) return;
     const golden = result.rows.find((r) => r.txnId === '55000005');
-    expect(golden?.occurredAt).toBe('2026-10-29T12:28:38+05:30');
+    expect(golden?.occurredAt).toBe('2025-01-01T12:00:00+05:30');
   });
 });
 
@@ -197,18 +197,18 @@ describe('status normalisation', () => {
 // Unit tests: paise conversion
 // ---------------------------------------------------------------------------
 describe('paise conversion', () => {
-  it('converts 399.00 to 39900 paise', () => {
+  it('converts 500.00 to 50000 paise', () => {
     const result = parse(fixture('normal-day.html'));
     if (!result.ok) return;
     const row = result.rows.find((r) => r.txnId === '55000005');
-    expect(row?.amountPaise).toBe(39900);
+    expect(row?.amountPaise).toBe(50000);
   });
 
-  it('converts 5.98 to 598 paise', () => {
+  it('converts 7.50 to 750 paise', () => {
     const result = parse(fixture('normal-day.html'));
     if (!result.ok) return;
     const row = result.rows.find((r) => r.txnId === '55000005');
-    expect(row?.discountPaise).toBe(598);
+    expect(row?.discountPaise).toBe(750);
   });
 });
 
