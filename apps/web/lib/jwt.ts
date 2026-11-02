@@ -174,3 +174,27 @@ export class JwksVerifier implements JwtVerifier {
   }
 }
 
+/**
+ * Sign a valid session JWT with HS256 for local/demo login
+ */
+export function signSessionJwt(
+  payload: Partial<JwtClaims> & { sub: string },
+  secret: string,
+  issuer = '',
+  audience = '',
+): string {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+  const now = Math.floor(Date.now() / 1000);
+  const fullPayload: JwtClaims = {
+    exp: now + 7 * 24 * 3600, // 7 days
+    ...(issuer ? { iss: issuer } : {}),
+    ...(audience ? { aud: audience } : {}),
+    ...payload,
+  };
+  const encodedPayload = Buffer.from(JSON.stringify(fullPayload)).toString('base64url');
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+  const signature = crypto.createHmac('sha256', secret).update(signingInput).digest('base64url');
+  return `${signingInput}.${signature}`;
+}
+

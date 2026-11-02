@@ -19,33 +19,39 @@ export default function SignInPage() {
     setLoading(true);
 
     try {
-      const supabase = getSupabaseBrowserClient();
+      let token: string | undefined;
 
-      // 1. Authenticate with Supabase Auth
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      // 1. Try Supabase Auth if configured with a real domain
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const { data, error: authError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
 
-      if (authError) {
-        setError(authError.message);
-        setLoading(false);
-        return;
+        if (authError && !authError.message?.includes('Failed to fetch')) {
+          setError(authError.message);
+          setLoading(false);
+          return;
+        }
+
+        token = data?.session?.access_token;
+      } catch {
+        // Fallback to direct backend credentials auth
       }
 
-      const token = data.session?.access_token;
-      if (!token) {
-        setError('Authentication succeeded but session token was not returned.');
-        setLoading(false);
-        return;
+      // 2. Resolve tenant context & establish signed session cookie
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
       }
 
-      // 2. Resolve tenant context & verify tenant membership under RLS
       const res = await fetch('/api/v1/auth/signin', {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
+        body: JSON.stringify({ email, password }),
       });
 
       let json: { error?: string } = {};
@@ -56,14 +62,15 @@ export default function SignInPage() {
       }
 
       if (!res.ok) {
-        setError(json.error || `Failed to authenticate tenant context (${res.status})`);
+        setError(json.error || `Failed to authenticate (${res.status})`);
         setLoading(false);
         return;
       }
 
       const searchParams = new URLSearchParams(window.location.search);
-      const nextPath = searchParams.get('next') || '/transactions';
+      const nextPath = searchParams.get('next') || '/';
       router.push(nextPath);
+      router.refresh();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'An unexpected error occurred';
       setError(msg);
