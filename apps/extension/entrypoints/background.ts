@@ -273,6 +273,20 @@ export default defineBackground(() => {
         return true;
       }
 
+      if (message?.type === 'UNPAIR_DEVICE') {
+        setStorage({
+          deviceId: null,
+          deviceToken: null,
+          status: 'logged_out',
+          errorMessage: null,
+        }).then(() => {
+          chrome.action.setBadgeText({ text: '!' });
+          chrome.action.setBadgeBackgroundColor({ color: '#f59e0b' });
+          sendResponse({ success: true });
+        });
+        return true;
+      }
+
       if (message?.type === 'SYNC_NOW') {
         triggerSyncCycle().then(() => sendResponse({ success: true }));
         return true;

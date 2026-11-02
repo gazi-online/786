@@ -23,6 +23,9 @@ import {
   Sliders,
   Shield,
   Activity,
+  X,
+  Unlink,
+  KeyRound,
 } from 'lucide-react';
 
 const SIMPLEWALLET_URL = 'https://simplewallet.in/web/MyTrans.aspx?ST=1&mID=824&PID=821';
@@ -44,6 +47,7 @@ export default function App() {
   const [showConfig, setShowConfig] = useState(false);
   const [isPairing, setIsPairing] = useState(false);
   const [pairError, setPairError] = useState<string | null>(null);
+  const [showPairModal, setShowPairModal] = useState(false);
 
   // Sync animation states
   const [isSyncing, setIsSyncing] = useState(false);
@@ -87,8 +91,8 @@ export default function App() {
     }
   }
 
-  async function handlePair(e: React.FormEvent) {
-    e.preventDefault();
+  async function handlePair(e?: React.FormEvent) {
+    if (e) e.preventDefault();
     if (!pairingCode.trim()) return;
 
     setIsPairing(true);
@@ -99,6 +103,8 @@ export default function App() {
       (res: { success?: boolean; error?: string } | undefined) => {
         setIsPairing(false);
         if (res && res.success) {
+          setShowPairModal(false);
+          setPairingCode('');
           loadData();
           checkOpenTabs();
         } else {
@@ -106,6 +112,16 @@ export default function App() {
         }
       },
     );
+  }
+
+  async function handleUnpair() {
+    if (!confirm('Are you sure you want to disconnect this terminal from the dashboard?')) {
+      return;
+    }
+    chrome.runtime.sendMessage({ type: 'UNPAIR_DEVICE' }, () => {
+      loadData();
+      setShowPairModal(false);
+    });
   }
 
   async function handleSyncNow() {
@@ -352,8 +368,17 @@ export default function App() {
             </div>
           </div>
 
-          {/* Overall Health Pill */}
+          {/* Action & Health Pills */}
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowPairModal(true)}
+              title="Pair or update connection with Web Dashboard"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border border-blue-500/30 transition-all cursor-pointer active:scale-95 shadow-sm shadow-blue-500/10"
+            >
+              <LinkIcon className="w-3 h-3 text-blue-400" />
+              <span>Pair Code</span>
+            </button>
+
             {data.isPaused ? (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-zinc-800/80 text-zinc-300 border border-zinc-700">
                 <Pause className="w-3 h-3" /> Paused
@@ -705,6 +730,79 @@ export default function App() {
         {/* ==================================================== */}
         {activeTab === 'security' && (
           <div className="space-y-3 animate-in fade-in duration-200 text-xs">
+            {/* Dashboard Pairing Connection Input Section */}
+            <div className="p-3.5 rounded-2xl bg-gradient-to-b from-blue-950/40 to-white/[0.02] border border-blue-500/25 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-blue-600/20 flex items-center justify-center">
+                    <LinkIcon className="w-3.5 h-3.5 text-blue-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-[11px]">Dashboard Terminal Pairing</h3>
+                    <p className="text-[10px] text-zinc-400">Connect extension with web account</p>
+                  </div>
+                </div>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
+                    data.deviceId && data.deviceToken
+                      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                      : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                  }`}
+                >
+                  {data.deviceId && data.deviceToken ? 'Paired' : 'Not Paired'}
+                </span>
+              </div>
+
+              {/* Pairing Code Input Form */}
+              <form onSubmit={handlePair} className="space-y-2 pt-1">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    maxLength={8}
+                    placeholder="8-CHAR CODE (e.g. 2468ACFH)"
+                    value={pairingCode}
+                    onChange={(e) => setPairingCode(e.target.value.toUpperCase())}
+                    className="flex-1 px-3 py-2 bg-black/60 border border-white/10 rounded-xl text-center text-xs font-mono tracking-widest text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase font-bold"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isPairing || !pairingCode.trim()}
+                    className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white rounded-xl text-[11px] font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-md shadow-blue-600/25"
+                  >
+                    {isPairing ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5" />
+                    )}
+                    <span>{data.deviceId ? 'Update' : 'Pair'}</span>
+                  </button>
+                </div>
+
+                {pairError && (
+                  <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-[10px] text-red-300 flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                    <span>{pairError}</span>
+                  </div>
+                )}
+
+                {data.deviceId && (
+                  <div className="flex justify-between items-center pt-1.5">
+                    <span className="text-[10px] text-zinc-400">
+                      ID: <span className="font-mono text-zinc-300">{data.deviceId.slice(0, 16)}...</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleUnpair}
+                      className="text-[10px] text-red-400 hover:text-red-300 font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Unlink className="w-3 h-3" />
+                      <span>Disconnect</span>
+                    </button>
+                  </div>
+                )}
+              </form>
+            </div>
+
             {/* Terminal Card */}
             <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] space-y-2.5">
               <div className="flex items-center justify-between">
@@ -819,6 +917,100 @@ export default function App() {
           <ExternalLink className="w-3 h-3" />
         </button>
       </div>
+
+      {/* ==================================================== */}
+      {/* PAIRING MODAL OVERLAY */}
+      {/* ==================================================== */}
+      {showPairModal && (
+        <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col justify-end animate-in fade-in duration-200">
+          <div className="p-5 bg-[#0E1017] border-t border-white/10 rounded-t-3xl shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-white/[0.08]">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+                  <KeyRound className="w-4 h-4 text-blue-400" />
+                </div>
+                <h2 className="text-sm font-bold text-white">Dashboard Terminal Pairing</h2>
+              </div>
+              <button
+                onClick={() => setShowPairModal(false)}
+                className="p-1 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-300 leading-relaxed">
+              Generate an 8-character pairing code in your web dashboard under <strong>Terminals / Devices</strong> and enter it below.
+            </p>
+
+            <form onSubmit={handlePair} className="space-y-3">
+              <div>
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1.5">
+                  Pairing Code (8 Characters)
+                </label>
+                <input
+                  type="text"
+                  maxLength={8}
+                  placeholder="e.g. 2468ACFH"
+                  value={pairingCode}
+                  onChange={(e) => setPairingCode(e.target.value.toUpperCase())}
+                  className="w-full px-3 py-2.5 bg-black/60 border border-white/15 rounded-xl text-center text-lg font-mono tracking-widest text-white placeholder-zinc-700 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase font-black"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
+                  Backend API URL
+                </label>
+                <input
+                  type="text"
+                  value={pairingApiUrl}
+                  onChange={(e) => setPairingApiUrl(e.target.value)}
+                  className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-xl text-xs font-mono text-zinc-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {pairError && (
+                <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span>{pairError}</span>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                {data.deviceId && (
+                  <button
+                    type="button"
+                    onClick={handleUnpair}
+                    className="py-2.5 px-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-300 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Unlink className="w-3.5 h-3.5" />
+                    <span>Disconnect</span>
+                  </button>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isPairing || !pairingCode.trim()}
+                  className="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold tracking-wide uppercase shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isPairing ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Pairing Terminal...
+                    </>
+                  ) : (
+                    <>
+                      <LinkIcon className="w-3.5 h-3.5" />
+                      Connect Terminal
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
