@@ -2,11 +2,9 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { ShieldCheck, Mail, Lock, AlertCircle, ArrowRight, Loader2 } from 'lucide-react';
 
 export default function SignInPage() {
-  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);

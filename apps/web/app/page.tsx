@@ -226,7 +226,9 @@ export default function DashboardPage() {
       if (savedCode && !activePairingCodeRef.current) {
         activePairingCodeRef.current = savedCode;
       }
-    } catch {}
+    } catch {
+      // ignore storage errors
+    }
 
     const timer = setInterval(async () => {
       if (!active) return;
@@ -243,7 +245,9 @@ export default function DashboardPage() {
               activePairingCodeRef.current = null;
               try {
                 localStorage.removeItem('ws_pending_pair_code');
-              } catch {}
+              } catch {
+                // ignore
+              }
               triggerDevicePairedSuccess(data.deviceId, data.label);
               return;
             }
@@ -272,7 +276,9 @@ export default function DashboardPage() {
               activePairingCodeRef.current = null;
               try {
                 localStorage.removeItem('ws_pending_pair_code');
-              } catch {}
+              } catch {
+                // ignore
+              }
               triggerDevicePairedSuccess(brandNew.id, brandNew.label);
             }
           }
@@ -340,7 +346,9 @@ export default function DashboardPage() {
         activePairingCodeRef.current = code;
         try {
           localStorage.setItem('ws_pending_pair_code', code);
-        } catch {}
+        } catch {
+          // ignore storage error
+        }
       }
     } catch {
       // fallback
