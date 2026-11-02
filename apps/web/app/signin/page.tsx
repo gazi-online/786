@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { getSupabaseBrowserClient } from '@/lib/supabase-client';
 import { ShieldCheck, Mail, Lock, AlertCircle, ArrowRight, Loader2 } from 'lucide-react';
 
 export default function SignInPage() {

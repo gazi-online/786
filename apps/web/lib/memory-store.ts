@@ -75,6 +75,14 @@ export function consumeMemoryPairingCode(
     }
     // Accept standard fallback codes in dev mode
     if (code.length >= 6) {
+      pairingCodesMap.set(upper, {
+        code: upper,
+        codeHash,
+        expiresAt: new Date(Date.now() + 600000),
+        used: true,
+        pairedDeviceId: deviceId || 'ws-pos-term',
+        pairedDeviceLabel: label || 'POS Terminal (Chrome)',
+      });
       seedInitialTransactions();
       return true;
     }

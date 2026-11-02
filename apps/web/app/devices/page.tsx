@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { AppLayout } from '@/components/AppLayout';
 import { useI18n } from '@/lib/i18n-context';
 import { formatKolkataDate } from '@/lib/i18n';
@@ -50,6 +50,9 @@ export default function DevicesPage() {
   const [pairingCode, setPairingCode] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [generatingCode, setGeneratingCode] = useState(false);
+  const activePairingCodeRef = useRef<string | null>(null);
+  const seenDeviceIdsRef = useRef<Set<string>>(new Set());
+  const lastNotifiedDeviceIdRef = useRef<string | null>(null);
 
   // Real-time Device Paired Notification State
   const [pairedDeviceToast, setPairedDeviceToast] = useState<{
@@ -103,24 +106,67 @@ export default function DevicesPage() {
     };
   }, []);
 
-  // Active polling while pairing modal is open
+  // Continuous pairing detector: polls pending code (even if modal is closed) + detects any newly connected device
   useEffect(() => {
-    if (!showPairModal || !pairingCode) return;
     let active = true;
 
+    try {
+      const savedCode = localStorage.getItem('ws_pending_pair_code');
+      if (savedCode && !activePairingCodeRef.current) {
+        activePairingCodeRef.current = savedCode;
+      }
+    } catch {}
+
     const timer = setInterval(async () => {
+      if (!active) return;
+
+      const codeToCheck = activePairingCodeRef.current || (showPairModal ? pairingCode : null);
+
+      if (codeToCheck) {
+        try {
+          const res = await fetch(`/api/v1/devices?code=${encodeURIComponent(codeToCheck)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.paired && active) {
+              activePairingCodeRef.current = null;
+              try {
+                localStorage.removeItem('ws_pending_pair_code');
+              } catch {}
+              triggerDevicePairedSuccess(data.deviceId, data.label);
+              return;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // Delta check on devices
       try {
-        const res = await fetch(`/api/v1/devices?code=${encodeURIComponent(pairingCode)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.paired && active) {
-            triggerDevicePairedSuccess(data.deviceId, data.label);
+        const dRes = await fetch('/api/v1/devices');
+        if (dRes.ok) {
+          const dData = await dRes.json();
+          const devList: DeviceItem[] = dData.devices || [];
+
+          if (seenDeviceIdsRef.current.size === 0 && devList.length > 0) {
+            devList.forEach((d) => seenDeviceIdsRef.current.add(d.id));
+          } else if (devList.length > 0) {
+            const brandNew = devList.find((d) => !seenDeviceIdsRef.current.has(d.id));
+            if (brandNew && brandNew.id !== lastNotifiedDeviceIdRef.current) {
+              seenDeviceIdsRef.current.add(brandNew.id);
+              lastNotifiedDeviceIdRef.current = brandNew.id;
+              activePairingCodeRef.current = null;
+              try {
+                localStorage.removeItem('ws_pending_pair_code');
+              } catch {}
+              triggerDevicePairedSuccess(brandNew.id, brandNew.label);
+            }
           }
         }
       } catch {
         // ignore
       }
-    }, 1200);
+    }, 1500);
 
     return () => {
       active = false;
@@ -158,7 +204,12 @@ export default function DevicesPage() {
       const res = await fetch('/api/v1/devices', { method: 'POST' });
       if (res.ok) {
         const json = await res.json();
-        setPairingCode(json.code);
+        const code = json.code || '';
+        setPairingCode(code);
+        activePairingCodeRef.current = code;
+        try {
+          localStorage.setItem('ws_pending_pair_code', code);
+        } catch {}
         setShowPairModal(true);
       }
     } catch {

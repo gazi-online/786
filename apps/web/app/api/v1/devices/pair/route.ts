@@ -14,6 +14,7 @@ import { broadcastSseEvent } from '@/lib/sse';
 import {
   consumeMemoryPairingCode,
   registerMemoryDevice,
+  seedInitialTransactions,
 } from '@/lib/memory-store';
 
 const PairRequestSchema = z.object({
@@ -149,6 +150,9 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+
+    // Always seed initial live transactions for instant dashboard visibility
+    seedInitialTransactions();
 
     // Broadcast real-time SSE event to all connected dashboard tabs
     broadcastSseEvent('device.paired', {

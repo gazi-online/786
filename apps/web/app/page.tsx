@@ -60,6 +60,9 @@ export default function DashboardPage() {
   const [showPairModal, setShowPairModal] = useState(false);
   const [pairingCode, setPairingCode] = useState('SYNC-7489');
   const [copiedCode, setCopiedCode] = useState(false);
+  const activePairingCodeRef = useRef<string | null>(null);
+  const seenDeviceIdsRef = useRef<Set<string>>(new Set());
+  const lastNotifiedDeviceIdRef = useRef<string | null>(null);
 
   // Real-time Device Paired Notification State
   const [pairedDeviceToast, setPairedDeviceToast] = useState<{
@@ -213,24 +216,71 @@ export default function DashboardPage() {
     }, 2000);
   }
 
-  // Active polling while pairing modal is open to auto-detect pairing completion instantly
+  // Continuous pairing detector: polls pending code (even if modal is closed) + detects any newly connected device
   useEffect(() => {
-    if (!showPairModal || !pairingCode) return;
     let active = true;
 
+    // Restore pending code on mount if available
+    try {
+      const savedCode = localStorage.getItem('ws_pending_pair_code');
+      if (savedCode && !activePairingCodeRef.current) {
+        activePairingCodeRef.current = savedCode;
+      }
+    } catch {}
+
     const timer = setInterval(async () => {
+      if (!active) return;
+
+      const codeToCheck = activePairingCodeRef.current || (showPairModal ? pairingCode : null);
+
+      // 1. Check specific code status if a pairing code was generated
+      if (codeToCheck) {
+        try {
+          const res = await fetch(`/api/v1/devices?code=${encodeURIComponent(codeToCheck)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.paired && active) {
+              activePairingCodeRef.current = null;
+              try {
+                localStorage.removeItem('ws_pending_pair_code');
+              } catch {}
+              triggerDevicePairedSuccess(data.deviceId, data.label);
+              return;
+            }
+          }
+        } catch {
+          // ignore network glitches
+        }
+      }
+
+      // 2. Continuous fallback: check device list delta
       try {
-        const res = await fetch(`/api/v1/devices?code=${encodeURIComponent(pairingCode)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.paired && active) {
-            triggerDevicePairedSuccess(data.deviceId, data.label);
+        const dRes = await fetch('/api/v1/devices');
+        if (dRes.ok) {
+          const dData = await dRes.json();
+          const devList: Array<{ id: string; label: string; createdAt: string }> = dData.devices || [];
+
+          if (seenDeviceIdsRef.current.size === 0 && devList.length > 0) {
+            // Initial seed of known devices on first load
+            devList.forEach((d) => seenDeviceIdsRef.current.add(d.id));
+          } else if (devList.length > 0) {
+            // Find any brand new device not seen yet
+            const brandNew = devList.find((d) => !seenDeviceIdsRef.current.has(d.id));
+            if (brandNew && brandNew.id !== lastNotifiedDeviceIdRef.current) {
+              seenDeviceIdsRef.current.add(brandNew.id);
+              lastNotifiedDeviceIdRef.current = brandNew.id;
+              activePairingCodeRef.current = null;
+              try {
+                localStorage.removeItem('ws_pending_pair_code');
+              } catch {}
+              triggerDevicePairedSuccess(brandNew.id, brandNew.label);
+            }
           }
         }
       } catch {
-        // ignore polling failures
+        // ignore
       }
-    }, 1200);
+    }, 1500);
 
     return () => {
       active = false;
@@ -285,7 +335,12 @@ export default function DashboardPage() {
       const res = await fetch('/api/v1/devices', { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
-        setPairingCode(data.code || 'SYNC-7489');
+        const code = data.code || 'SYNC-7489';
+        setPairingCode(code);
+        activePairingCodeRef.current = code;
+        try {
+          localStorage.setItem('ws_pending_pair_code', code);
+        } catch {}
       }
     } catch {
       // fallback
