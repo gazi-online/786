@@ -21,6 +21,19 @@ const PairRequestSchema = z.object({
   label: z.string().optional(),
 });
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-requested-with',
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: CORS_HEADERS,
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     // 1. Rate limiting on pairing attempts per IP and per code in shared store
