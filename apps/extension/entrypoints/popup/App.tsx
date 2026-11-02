@@ -103,12 +103,18 @@ export default function App() {
     if (e) e.preventDefault();
     if (!pairingCode.trim()) return;
 
+    const cleanCode = pairingCode.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (cleanCode.length !== 8) {
+      setPairError('Pairing code must be 8 characters (e.g. M4WH-PYTK)');
+      return;
+    }
+
     const cleanUrl = pairingApiUrl.trim().replace(/\/+$/, '');
     setIsPairing(true);
     setPairError(null);
 
     chrome.runtime.sendMessage(
-      { type: 'PAIR_DEVICE', code: pairingCode, apiUrl: cleanUrl },
+      { type: 'PAIR_DEVICE', code: cleanCode, apiUrl: cleanUrl },
       (res: { success?: boolean; error?: string } | undefined) => {
         setIsPairing(false);
         if (res && res.success) {
@@ -787,8 +793,8 @@ export default function App() {
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      maxLength={8}
-                      placeholder="e.g. 2468ACFH"
+                      maxLength={12}
+                      placeholder="e.g. M4WH-PYTK"
                       value={pairingCode}
                       onChange={(e) => setPairingCode(e.target.value.toUpperCase())}
                       style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
@@ -1067,8 +1073,8 @@ export default function App() {
                 </label>
                 <input
                   type="text"
-                  maxLength={8}
-                  placeholder="e.g. 2468ACFH"
+                  maxLength={12}
+                  placeholder="e.g. M4WH-PYTK"
                   value={pairingCode}
                   onChange={(e) => setPairingCode(e.target.value.toUpperCase())}
                   style={{ backgroundColor: '#07080c', color: '#f4f4f5', colorScheme: 'dark' }}

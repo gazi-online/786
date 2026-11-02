@@ -6,7 +6,7 @@ const isDev = process.env.NODE_ENV !== 'production';
 // Build-time API origin configuration (read from WALLETSYNC_API_ORIGIN)
 const rawApiOrigin =
   process.env.WALLETSYNC_API_ORIGIN ||
-  (isDev ? 'http://localhost:3000/*' : 'https://api.walletsync.example.com/*');
+  (isDev ? 'http://localhost:3000/*' : 'https://walletsync-seven.vercel.app/*');
 const apiOrigin = rawApiOrigin.endsWith('/*') ? rawApiOrigin : `${rawApiOrigin.replace(/\/+$/, '')}/*`;
 
 // HARD RULE (Amd-6 & Round 10):

@@ -143,8 +143,8 @@ export default function App() {
           <div className="flex gap-2">
             <input
               type="text"
-              maxLength={8}
-              placeholder="ENTER 8-CHAR CODE (e.g. 2468ACFH)"
+              maxLength={12}
+              placeholder="ENTER 8-CHAR CODE (e.g. M4WH-PYTK)"
               value={pairingCode}
               onChange={(e) => setPairingCode(e.target.value.toUpperCase())}
               style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}

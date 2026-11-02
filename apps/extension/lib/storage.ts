@@ -51,7 +51,7 @@ export interface StorageData {
 export const DEFAULT_STORAGE: StorageData = {
   deviceId: null,
   deviceToken: null,
-  apiUrl: 'https://api.walletsync.example.com',
+  apiUrl: 'https://walletsync-seven.vercel.app',
   portalUrl: 'https://simplewallet.in/web/MyTrans.aspx?ST=1&mID=824&PID=821',
   status: 'ok',
   lastSyncTime: null,

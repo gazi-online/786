@@ -313,12 +313,13 @@ export default defineBackground(() => {
   async function handlePairing(code: string, customApiUrl?: string) {
     const storage = await getStorage();
     const apiUrl = (customApiUrl || storage.apiUrl || '').trim().replace(/\/+$/, '');
+    const cleanCode = code.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 
     try {
       const res = await fetch(`${apiUrl}/api/v1/devices/pair`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code.trim().toUpperCase() }),
+        body: JSON.stringify({ code: cleanCode }),
       });
 
       const data = await res.json();
