@@ -21,7 +21,7 @@ export default defineContentScript({
       return parse(html);
     }
 
-    // Helper for non-intrusive floating toast notifications
+    // Helper for billion-dollar floating HUD pill notifications
     function showNotification(text: string, type: 'info' | 'success' = 'info') {
       try {
         let toast = document.getElementById('walletsync-portal-toast');
@@ -29,41 +29,83 @@ export default defineContentScript({
           toast = document.createElement('div');
           toast.id = 'walletsync-portal-toast';
           toast.style.position = 'fixed';
-          toast.style.bottom = '24px';
-          toast.style.right = '24px';
-          toast.style.padding = '10px 18px';
-          toast.style.borderRadius = '10px';
+          toast.style.bottom = '28px';
+          toast.style.right = '28px';
+          toast.style.padding = '12px 20px';
+          toast.style.borderRadius = '16px';
           toast.style.fontSize = '12px';
           toast.style.fontWeight = '600';
-          toast.style.fontFamily = 'system-ui, -apple-system, sans-serif';
-          toast.style.zIndex = '999999';
-          toast.style.boxShadow = '0 10px 25px rgba(0,0,0,0.2)';
-          toast.style.transition = 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
+          toast.style.fontFamily = "'Inter', system-ui, -apple-system, sans-serif";
+          toast.style.zIndex = '2147483647';
+          toast.style.boxShadow = '0 20px 40px -10px rgba(0, 0, 0, 0.7), 0 0 25px rgba(59, 130, 246, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.15)';
+          toast.style.backdropFilter = 'blur(24px) saturate(190%)';
+          toast.style.setProperty('-webkit-backdrop-filter', 'blur(24px) saturate(190%)');
+          toast.style.transition = 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
           toast.style.display = 'flex';
           toast.style.alignItems = 'center';
-          toast.style.gap = '8px';
+          toast.style.gap = '12px';
+          toast.style.cursor = 'default';
+          toast.style.userSelect = 'none';
+
+          // Inject pulse keyframe style once if not present
+          if (!document.getElementById('walletsync-hud-styles')) {
+            const style = document.createElement('style');
+            style.id = 'walletsync-hud-styles';
+            style.textContent = `
+              @keyframes ws-beacon {
+                0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+                70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+                100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+              }
+              @keyframes ws-beacon-emerald {
+                0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.8); }
+                70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+                100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+              }
+              @keyframes ws-shimmer {
+                0% { background-position: -200% 0; }
+                100% { background-position: 200% 0; }
+              }
+            `;
+            document.head.appendChild(style);
+          }
+
           document.body.appendChild(toast);
         }
 
-        if (type === 'success') {
-          toast.style.backgroundColor = '#059669';
-          toast.style.color = '#ffffff';
-          toast.style.border = '1px solid #10b981';
-        } else {
-          toast.style.backgroundColor = '#1e40af';
-          toast.style.color = '#ffffff';
-          toast.style.border = '1px solid #3b82f6';
-        }
-        toast.textContent = text;
+        const isSuccess = type === 'success';
+        const beaconAnimation = isSuccess ? 'ws-beacon-emerald 2s infinite' : 'ws-beacon 2s infinite';
+        const beaconColor = isSuccess ? '#10b981' : '#3b82f6';
+        const accentBorder = isSuccess ? 'rgba(16, 185, 129, 0.45)' : 'rgba(59, 130, 246, 0.45)';
+
+        toast.style.background = 'linear-gradient(135deg, rgba(13, 16, 23, 0.94) 0%, rgba(9, 10, 15, 0.98) 100%)';
+        toast.style.border = `1px solid ${accentBorder}`;
+        toast.style.color = '#ffffff';
+
+        toast.innerHTML = `
+          <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 18px; height: 18px;">
+            <div style="position: absolute; width: 10px; height: 10px; border-radius: 9999px; background: ${beaconColor}; animation: ${beaconAnimation};"></div>
+            <div style="width: 6px; height: 6px; border-radius: 9999px; background: #ffffff;"></div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 1px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-family: monospace; font-size: 9px; font-weight: 800; letter-spacing: 0.1em; color: ${beaconColor}; text-transform: uppercase;">WALLETSYNC PRO</span>
+              <span style="font-size: 9px; opacity: 0.5;">•</span>
+              <span style="font-size: 10px; opacity: 0.75; font-weight: 500;">LIVE DUAL SYNC</span>
+            </div>
+            <div style="font-size: 12px; font-weight: 600; color: #f4f4f5; letter-spacing: -0.01em;">${text}</div>
+          </div>
+        `;
+
         toast.style.opacity = '1';
-        toast.style.transform = 'translateY(0)';
+        toast.style.transform = 'translateY(0) scale(1)';
 
         setTimeout(() => {
           if (toast) {
             toast.style.opacity = '0';
-            toast.style.transform = 'translateY(10px)';
+            toast.style.transform = 'translateY(16px) scale(0.95)';
           }
-        }, 3500);
+        }, 3800);
       } catch {
         // Ignore DOM toast creation errors
       }
