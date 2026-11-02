@@ -51,9 +51,82 @@ export default function DevicesPage() {
   const [copiedCode, setCopiedCode] = useState(false);
   const [generatingCode, setGeneratingCode] = useState(false);
 
+  // Real-time Device Paired Notification State
+  const [pairedDeviceToast, setPairedDeviceToast] = useState<{
+    show: boolean;
+    deviceId: string;
+    label: string;
+    time: string;
+  } | null>(null);
+
   useEffect(() => {
     loadData();
   }, []);
+
+  function triggerDevicePairedSuccess(deviceId?: string, label?: string) {
+    setShowPairModal(false);
+    const time = new Date().toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    setPairedDeviceToast({
+      show: true,
+      deviceId: deviceId || 'ws-pos-term',
+      label: label || 'POS Terminal (Chrome)',
+      time,
+    });
+    loadData();
+  }
+
+  // SSE setup for real-time device pairing detection
+  useEffect(() => {
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource('/api/v1/stream');
+      eventSource.addEventListener('device.paired', (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          triggerDevicePairedSuccess(data.deviceId, data.label);
+        } catch {
+          triggerDevicePairedSuccess('ws-pos-term', 'POS Terminal (Chrome)');
+        }
+      });
+      eventSource.addEventListener('transaction.updated', () => {
+        loadData();
+      });
+    } catch {
+      // fallback to polling
+    }
+    return () => {
+      eventSource?.close();
+    };
+  }, []);
+
+  // Active polling while pairing modal is open
+  useEffect(() => {
+    if (!showPairModal || !pairingCode) return;
+    let active = true;
+
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/v1/devices?code=${encodeURIComponent(pairingCode)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.paired && active) {
+            triggerDevicePairedSuccess(data.deviceId, data.label);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }, 1200);
+
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [showPairModal, pairingCode]);
 
   async function loadData() {
     setLoading(true);
@@ -385,6 +458,78 @@ export default function DevicesPage() {
                 className="px-4 py-2 text-xs font-semibold rounded-lg bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-300 dark:hover:bg-zinc-700"
               >
                 {t.common.close}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Terminal Paired / Device Connected High-Tech Modal Popup */}
+      {pairedDeviceToast?.show && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-in fade-in zoom-in-95 duration-200"
+        >
+          <div className="w-full max-w-md bg-[#0B0D13] border border-emerald-500/40 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-zinc-100">
+            {/* Top Emerald Ambient Glow */}
+            <div className="absolute -top-14 -left-14 w-36 h-36 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute -top-14 -right-14 w-36 h-36 bg-blue-500/15 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="flex items-start justify-between relative z-10">
+              <div className="flex items-center gap-3">
+                <div className="relative flex items-center justify-center w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                  <span className="absolute w-4 h-4 rounded-full bg-emerald-500 animate-ping opacity-75" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      Terminal Paired
+                    </span>
+                    <span className="text-[11px] text-zinc-400 font-mono">{pairedDeviceToast.time}</span>
+                  </div>
+                  <h3 className="text-base font-semibold text-zinc-50 mt-1">
+                    Device Successfully Connected!
+                  </h3>
+                </div>
+              </div>
+              <button
+                onClick={() => setPairedDeviceToast(null)}
+                className="text-zinc-400 hover:text-zinc-100 p-1 rounded-lg hover:bg-zinc-800/60 transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-300 mt-3 leading-relaxed">
+              Your WalletSync Chrome Extension is now linked with your web dashboard. Live terminal status has been refreshed automatically.
+            </p>
+
+            <div className="mt-4 p-3.5 rounded-xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between text-xs font-mono">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[10px] uppercase text-zinc-500 tracking-wider font-semibold">Terminal Label</span>
+                <span className="text-zinc-200 font-medium">{pairedDeviceToast.label}</span>
+              </div>
+              <div className="flex flex-col gap-0.5 items-end">
+                <span className="text-[10px] uppercase text-zinc-500 tracking-wider font-semibold">Status</span>
+                <span className="text-emerald-400 flex items-center gap-1.5 font-semibold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  ONLINE • OK
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center gap-3">
+              <button
+                onClick={() => {
+                  setPairedDeviceToast(null);
+                  loadData();
+                }}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs tracking-wide transition-all shadow-lg shadow-emerald-950/40 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Check className="w-3.5 h-3.5" />
+                Acknowledge & View Terminals
               </button>
             </div>
           </div>

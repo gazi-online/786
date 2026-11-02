@@ -1,19 +1,61 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { devices, pairingCodes } from '@/drizzle/schema';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, and } from 'drizzle-orm';
 import { hashPairingCode } from '@/lib/crypto';
 import { generateUnambiguousPairingCode } from '@/lib/pairing-code';
 import { getTenantSession, canPerformAction } from '@/lib/auth';
 import {
   saveMemoryPairingCode,
   listMemoryDevices,
+  getMemoryPairingStatus,
 } from '@/lib/memory-store';
 
 export async function GET(req: NextRequest) {
   const session = await getTenantSession(req);
   if (!session) {
     return NextResponse.json({ error: 'Unauthorized: Authentication required' }, { status: 401 });
+  }
+
+  // Check pairing code claim status if requested
+  const codeParam = req.nextUrl.searchParams.get('code');
+  if (codeParam) {
+    const clean = codeParam.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    const codeHash = hashPairingCode(clean);
+
+    try {
+      const matchingCodes = await db
+        .select()
+        .from(pairingCodes)
+        .where(and(eq(pairingCodes.tenantId, session.tenant.id), eq(pairingCodes.codeHash, codeHash)));
+      const found = matchingCodes[0];
+      if (found && found.usedAt) {
+        const recentDevices = await db
+          .select()
+          .from(devices)
+          .where(eq(devices.tenantId, session.tenant.id))
+          .orderBy(desc(devices.createdAt))
+          .limit(1);
+        return NextResponse.json({
+          paired: true,
+          deviceId: recentDevices[0]?.id || 'terminal-db',
+          label: recentDevices[0]?.label || 'POS Terminal (Chrome)',
+        });
+      }
+    } catch {
+      // Database not available; fallback to memory store
+    }
+
+    const memStatus = getMemoryPairingStatus(clean);
+    if (memStatus.paired) {
+      return NextResponse.json({
+        paired: true,
+        deviceId: memStatus.deviceId || 'terminal-mem',
+        label: memStatus.label || 'POS Terminal (Chrome)',
+      });
+    }
+
+    return NextResponse.json({ paired: false });
   }
 
   try {

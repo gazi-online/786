@@ -10,6 +10,7 @@ import {
 } from '@/lib/crypto';
 import { isUnambiguousCode } from '@/lib/pairing-code';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { broadcastSseEvent } from '@/lib/sse';
 import {
   consumeMemoryPairingCode,
   registerMemoryDevice,
@@ -119,11 +120,11 @@ export async function POST(req: NextRequest) {
 
     // 4. In-memory check for local development / demo
     if (!deviceId || !deviceToken) {
-      const isValid = consumeMemoryPairingCode(cleanCode, codeHash);
+      const rawDeviceToken = generateDeviceToken();
+      const tokenHash = hashDeviceToken(rawDeviceToken);
+      const memDevice = registerMemoryDevice(rawDeviceToken, tokenHash, label);
+      const isValid = consumeMemoryPairingCode(cleanCode, codeHash, memDevice.id, label || 'POS Terminal (Chrome)');
       if (isValid) {
-        const rawDeviceToken = generateDeviceToken();
-        const tokenHash = hashDeviceToken(rawDeviceToken);
-        const memDevice = registerMemoryDevice(rawDeviceToken, tokenHash, label);
         deviceId = memDevice.id;
         deviceToken = rawDeviceToken;
       }
@@ -135,6 +136,19 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+
+    // Broadcast real-time SSE event to all connected dashboard tabs
+    broadcastSseEvent('device.paired', {
+      deviceId,
+      label: label || 'POS Terminal (Chrome)',
+      serverTime: now.toISOString(),
+    });
+
+    // Also notify transaction update so dashboard immediately fetches latest stream
+    broadcastSseEvent('transaction.updated', {
+      reason: 'device_paired',
+      serverTime: now.toISOString(),
+    });
 
     return NextResponse.json(
       {
