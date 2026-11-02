@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   getStorage,
+  DEFAULT_STORAGE,
   type StorageData,
 } from '../../lib/storage';
 import {
@@ -39,7 +40,7 @@ export default function App() {
 
   // Pairing State
   const [pairingCode, setPairingCode] = useState('');
-  const [pairingApiUrl, setPairingApiUrl] = useState('http://localhost:3000');
+  const [pairingApiUrl, setPairingApiUrl] = useState(DEFAULT_STORAGE.apiUrl);
   const [showConfig, setShowConfig] = useState(false);
   const [isPairing, setIsPairing] = useState(false);
   const [pairError, setPairError] = useState<string | null>(null);
@@ -64,10 +65,14 @@ export default function App() {
 
   async function checkOpenTabs() {
     try {
-      const swTabs = await chrome.tabs.query({ url: '*://*.simplewallet.in/*' });
+      const swTabs = await chrome.tabs.query({
+        url: ['*://simplewallet.in/*', '*://*.simplewallet.in/*'],
+      });
       setSwTabOpen(swTabs.length > 0);
 
-      const egTabs = await chrome.tabs.query({ url: '*://*.egpayment.com/*' });
+      const egTabs = await chrome.tabs.query({
+        url: ['*://egpayment.com/*', '*://*.egpayment.com/*'],
+      });
       setEgTabOpen(egTabs.length > 0);
     } catch {
       // Chrome tabs API fallback
@@ -734,10 +739,10 @@ export default function App() {
             <div className="p-3.5 rounded-2xl bg-gradient-to-br from-blue-950/30 to-indigo-950/20 border border-blue-500/20 space-y-2">
               <div className="flex items-center gap-2 text-blue-300 font-bold">
                 <ShieldCheck className="w-4 h-4 text-blue-400" />
-                <span>Strict Read-Only Guarantee</span>
+                <span>read-only except one search-button click, see ADR</span>
               </div>
               <p className="text-[11px] text-zinc-300 leading-relaxed">
-                This extension strictly reads transaction tables. It has zero capability to trigger
+                This extension is read-only except one search-button click, see ADR. It has zero capability to trigger
                 recharges, enter payments, or click action buttons on your portals.
               </p>
               <div className="flex items-center gap-3 pt-1 text-[10px] text-blue-300 font-medium">

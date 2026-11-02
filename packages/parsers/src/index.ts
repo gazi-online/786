@@ -6,6 +6,21 @@ export { parseSimpleWallet, SW_VERSION };
 export { parseEgPayment, EG_VERSION };
 export const PARSER_VERSION = '1.0.0';
 
+// Auto-click engine for SimpleWallet (ADR 005)
+export {
+  verifySimpleWalletFingerprint,
+  attemptAutoClick,
+  MIN_AUTO_CLICK_INTERVAL_SECONDS,
+  EXACT_EXPECTED_BUTTON_ID,
+  EXACT_EXPECTED_PATH,
+  EXPECTED_SENTINEL_TEXT,
+  EXPECTED_FORM_ID,
+  type FingerprintResult,
+  type FingerprintFailureReason,
+  type AutoClickOptions,
+  type AutoClickExecutionResult,
+} from './simplewallet/autoClick.js';
+
 /**
  * Unified parser entrypoint with auto-detection.
  * Inspects document indicators to dispatch to the correct portal connector.

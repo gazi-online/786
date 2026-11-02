@@ -56,7 +56,7 @@ WalletSync consists of three primary trust zones:
 
 ### Threat 2: Malicious or Cloned Extension
 * **Scenario:** A rogue third party clones the extension package or attempts to modify code to execute automated actions (e.g., auto-recharge, balance transfer).
-* **Impact:** Potential violation of the strictly read-only guarantee.
+* **Impact:** Potential violation of the read-only except one search-button click, see ADR.
 * **Mitigations:**
   1. **Hard Product Boundary:** Zero recharge, payment, transfer, or submit code exists in any package. Code linter and static verification guarantee no identifier starts with `recharge`, `pay`, or `submit`.
   2. **Zero Credential Permission:** The extension manifest does **not** request `cookies` permission. It cannot read session cookies (`.ASPXAUTH`, `ASP.NET_SessionId`) or passwords.

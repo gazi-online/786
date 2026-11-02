@@ -24,19 +24,34 @@ const passed = json.numPassedTests ?? 0;
 const failed = json.numFailedTests ?? 0;
 const pending = json.numPendingTests ?? 0;
 const skipped = json.numTodoTests ? json.numTodoTests + pending : pending;
+const numSkippedTests = json.numSkippedTests ?? skipped;
+const numFailedTests = json.numFailedTests ?? failed;
 
 const skippedTests = [];
 const failedTests = [];
+const dbPassedTests = [];
+
+const dbTestFiles = new Set([
+  'isolation.test.ts',
+  'pairing-security.test.ts',
+  'role-permissions.test.ts',
+  'ci-db-requirement.test.ts',
+  'db-role-security.test.ts',
+]);
 
 if (Array.isArray(json.testResults)) {
   for (const suite of json.testResults) {
     const file = path.basename(suite.name || 'unknown');
+    const isDbSuite = dbTestFiles.has(file);
+
     if (Array.isArray(suite.assertionResults)) {
       for (const t of suite.assertionResults) {
         if (t.status === 'skipped' || t.status === 'pending' || t.status === 'todo') {
           skippedTests.push(`[${file}] ${t.fullName || t.title}`);
         } else if (t.status === 'failed') {
           failedTests.push(`[${file}] ${t.fullName || t.title}`);
+        } else if (t.status === 'passed' && isDbSuite) {
+          dbPassedTests.push(`[${file}] ${t.fullName || t.title}`);
         }
       }
     }
@@ -46,11 +61,22 @@ if (Array.isArray(json.testResults)) {
 console.log('====================================================');
 console.log('           CI TEST VERIFICATION SUMMARY             ');
 console.log('====================================================');
-console.log(`Total:   ${total}`);
-console.log(`Passed:  ${passed}`);
-console.log(`Failed:  ${failed}`);
-console.log(`Skipped: ${skipped}`);
+console.log(`Total Tests:    ${total}`);
+console.log(`Passed Tests:   ${passed}`);
+console.log(`Failed Tests:   ${failed}`);
+console.log(`Skipped Tests:  ${skipped}`);
+console.log(`numSkippedTests: ${numSkippedTests}`);
+console.log(`numFailedTests:  ${numFailedTests}`);
 console.log('====================================================');
+
+console.log('\n--- Database Tests Executed in CI ---');
+if (dbPassedTests.length > 0) {
+  for (const name of dbPassedTests) {
+    console.log(`  ✓ ${name}`);
+  }
+} else {
+  console.log('  (No DB tests recorded as passed)');
+}
 
 if (skippedTests.length > 0) {
   console.error('\nERROR: The following tests were SKIPPED in CI:');
@@ -67,10 +93,10 @@ if (failedTests.length > 0) {
   }
 }
 
-if (skipped > 0 || failed > 0) {
+if (numSkippedTests > 0 || numFailedTests > 0 || skipped > 0 || failed > 0) {
+  console.error('\nFAILURE: CI requires 0 skipped and 0 failed tests (numSkippedTests === 0 && numFailedTests === 0).');
   process.exit(1);
 }
 
-console.log('✓ All tests executed and passed with 0 skipped tests.');
+console.log('\n✓ All tests executed and passed with 0 skipped tests.');
 process.exit(0);
-

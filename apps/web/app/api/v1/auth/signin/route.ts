@@ -32,11 +32,25 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     ok: true,
     user: session.user,
     tenant: session.tenant,
     role: session.role,
   });
+
+  const authHeader = req.headers.get('authorization');
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    response.cookies.set('sb-auth-token', token, {
+      path: '/',
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7,
+    });
+  }
+
+  return response;
 }
 

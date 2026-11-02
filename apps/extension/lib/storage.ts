@@ -1,5 +1,7 @@
 import type { DeviceStatus, IngestRequest, IngestTransaction } from '@walletsync/contract';
 
+export const MIN_AUTO_CLICK_INTERVAL_SECONDS = 60;
+
 export interface StorageData {
   // Device & API configuration
   deviceId: string | null;
@@ -23,6 +25,10 @@ export interface StorageData {
   pollingIntervalMinutes: number; // default 2, min 1
   keepAliveMode: 'fetch' | 'reload';
 
+  // Auto-click setting (Round 10: defaults to safest option, capped minimum)
+  autoClickEnabled: boolean; // default: false (safest option)
+  autoClickIntervalSeconds: number; // default: 120, minimum: 60
+
   // Metrics for popup display
   todayCount: number;
   todayAmountPaise: number;
@@ -45,7 +51,7 @@ export interface StorageData {
 export const DEFAULT_STORAGE: StorageData = {
   deviceId: null,
   deviceToken: null,
-  apiUrl: 'http://localhost:3000',
+  apiUrl: 'https://api.walletsync.example.com',
   portalUrl: 'https://simplewallet.in/web/MyTrans.aspx?ST=1&mID=824&PID=821',
   status: 'ok',
   lastSyncTime: null,
@@ -57,6 +63,8 @@ export const DEFAULT_STORAGE: StorageData = {
   egpaymentCount: 0,
   pollingIntervalMinutes: 2,
   keepAliveMode: 'fetch',
+  autoClickEnabled: false, // Safest default: off until merchant explicitly enables it
+  autoClickIntervalSeconds: 120, // Capped at MIN_AUTO_CLICK_INTERVAL_SECONDS (60s)
   todayCount: 0,
   todayAmountPaise: 0,
   recentTransactions: [],
@@ -71,4 +79,3 @@ export async function getStorage(): Promise<StorageData> {
 export async function setStorage(data: Partial<StorageData>): Promise<void> {
   await chrome.storage.local.set(data);
 }
-

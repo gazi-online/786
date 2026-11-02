@@ -39,9 +39,12 @@ CREATE TABLE IF NOT EXISTS tenants (
   name text NOT NULL,
   plan plan NOT NULL DEFAULT 'free',
   status tenant_status NOT NULL DEFAULT 'active',
+  retention_months smallint NOT NULL DEFAULT 24,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS retention_months smallint NOT NULL DEFAULT 24;
 
 CREATE TABLE IF NOT EXISTS memberships (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

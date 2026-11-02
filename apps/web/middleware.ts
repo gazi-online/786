@@ -9,6 +9,7 @@ export function middleware(req: NextRequest) {
 
   // Protected application routes
   const isProtectedRoute =
+    pathname === '/' ||
     pathname.startsWith('/transactions') ||
     pathname.startsWith('/devices') ||
     pathname.startsWith('/settings') ||
@@ -40,6 +41,7 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
+    '/',
     '/transactions/:path*',
     '/devices/:path*',
     '/settings/:path*',

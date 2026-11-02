@@ -97,5 +97,40 @@ describe('Step 1 Hardening: Hash and Encryption & Public API Security', () => {
     expect('customerNoHash' in ApiTransactionSchema.shape).toBe(false);
     expect('customerNo' in ApiTransactionSchema.shape).toBe(false);
   });
+
+  describe('Round 10: Blind Index HMAC Key Configuration & Separation', () => {
+    it('requires separate CUSTOMER_SEARCH_HMAC_KEY in production', async () => {
+      const { validateCryptoConfig } = await import('@/lib/crypto');
+      const origEnv = { ...process.env };
+      try {
+        (process.env as Record<string, string | undefined>).NODE_ENV = 'production';
+        process.env.CUSTOMER_NO_ENCRYPTION_KEY = 'secret-encryption-key-32-chars!!';
+        delete process.env.CUSTOMER_SEARCH_HMAC_KEY;
+        delete process.env.CUSTOMER_NO_HMAC_SECRET;
+
+        expect(() => validateCryptoConfig()).toThrow(
+          /FATAL: CUSTOMER_SEARCH_HMAC_KEY is required in production/,
+        );
+      } finally {
+        process.env = origEnv;
+      }
+    });
+
+    it('rejects identical encryption and HMAC keys in production (enforces key separation)', async () => {
+      const { validateCryptoConfig } = await import('@/lib/crypto');
+      const origEnv = { ...process.env };
+      try {
+        (process.env as Record<string, string | undefined>).NODE_ENV = 'production';
+        process.env.CUSTOMER_NO_ENCRYPTION_KEY = 'same-key-used-for-both-purposes';
+        process.env.CUSTOMER_SEARCH_HMAC_KEY = 'same-key-used-for-both-purposes';
+
+        expect(() => validateCryptoConfig()).toThrow(
+          /FATAL: Cryptographic key separation violation/,
+        );
+      } finally {
+        process.env = origEnv;
+      }
+    });
+  });
 });
 

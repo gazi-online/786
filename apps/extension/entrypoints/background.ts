@@ -50,7 +50,13 @@ export default defineBackground(() => {
 
     // Try finding open portal tabs first (simplewallet or egpayment)
     const portalTabs = await chrome.tabs.query({
-      url: ['*://*.simplewallet.in/*', '*://*.egpayment.com/*', '*://localhost/*'],
+      url: [
+        '*://simplewallet.in/*',
+        '*://*.simplewallet.in/*',
+        '*://egpayment.com/*',
+        '*://*.egpayment.com/*',
+        '*://localhost/*',
+      ],
     });
 
     // Sync all open portal tabs (simplewallet and egpayment)
@@ -60,6 +66,7 @@ export default defineBackground(() => {
         try {
           const response = await chrome.tabs.sendMessage(tab.id, {
             type: 'TRIGGER_PARSE',
+            refresh: storage.keepAliveMode === 'reload',
           });
           if (response && response.result) {
             await handleParseResult(response.result, storage);
@@ -75,8 +82,8 @@ export default defineBackground(() => {
       return;
     }
 
-    // Fallback: fetch directly if credentials allowed
-    if (storage.portalUrl) {
+    // Fallback: fetch directly if credentials allowed (not simplewallet which requires ASP.NET postback)
+    if (storage.portalUrl && !storage.portalUrl.includes('simplewallet.in')) {
       try {
         const res = await fetch(storage.portalUrl, { credentials: 'same-origin' });
         if (res.ok) {
@@ -248,36 +255,46 @@ export default defineBackground(() => {
   // 5. Message listener from Popup & Content scripts
   chrome.runtime.onMessage.addListener(
     (
-      message: { type?: string; code?: string; apiUrl?: string },
+      message: { type?: string; code?: string; apiUrl?: string; result?: ParseResult },
       _sender: chrome.runtime.MessageSender,
       sendResponse: (res?: unknown) => void,
     ) => {
+      if (message?.type === 'CONTENT_PARSED_PAGE' && message.result) {
+        getStorage().then(async (storage) => {
+          if (!storage.isPaused && storage.deviceToken && storage.deviceId) {
+            await handleParseResult(message.result!, storage);
+          }
+        });
+        return true;
+      }
+
       if (message?.type === 'PAIR_DEVICE' && message.code) {
         handlePairing(message.code, message.apiUrl).then(sendResponse);
         return true;
       }
 
-    if (message?.type === 'SYNC_NOW') {
-      triggerSyncCycle().then(() => sendResponse({ success: true }));
-      return true;
-    }
+      if (message?.type === 'SYNC_NOW') {
+        triggerSyncCycle().then(() => sendResponse({ success: true }));
+        return true;
+      }
 
-    if (message?.type === 'TOGGLE_PAUSE') {
-      getStorage().then(async (storage) => {
-        const isPaused = !storage.isPaused;
-        await setStorage({ isPaused, status: isPaused ? 'paused' : 'ok' });
-        if (isPaused) {
-          chrome.action.setBadgeText({ text: '❚❚' });
-          chrome.action.setBadgeBackgroundColor({ color: '#6b7280' });
-        } else {
-          chrome.action.setBadgeText({ text: '' });
-          triggerSyncCycle();
-        }
-        sendResponse({ success: true, isPaused });
-      });
-      return true;
-    }
-  });
+      if (message?.type === 'TOGGLE_PAUSE') {
+        getStorage().then(async (storage) => {
+          const isPaused = !storage.isPaused;
+          await setStorage({ isPaused, status: isPaused ? 'paused' : 'ok' });
+          if (isPaused) {
+            chrome.action.setBadgeText({ text: '❚❚' });
+            chrome.action.setBadgeBackgroundColor({ color: '#6b7280' });
+          } else {
+            chrome.action.setBadgeText({ text: '' });
+            triggerSyncCycle();
+          }
+          sendResponse({ success: true, isPaused });
+        });
+        return true;
+      }
+    },
+  );
 
   async function handlePairing(code: string, customApiUrl?: string) {
     const storage = await getStorage();

@@ -51,9 +51,15 @@ export default function SignUpPage() {
         body: JSON.stringify({ storeName: storeName.trim() || undefined }),
       });
 
-      const json = await res.json();
+      let json: { error?: string } = {};
+      try {
+        json = await res.json();
+      } catch {
+        // Safe parsing in case of non-JSON response
+      }
+
       if (!res.ok) {
-        setError(json.error || 'Failed to create store tenant');
+        setError(json.error || `Failed to create store tenant (${res.status})`);
         setLoading(false);
         return;
       }

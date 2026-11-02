@@ -10,7 +10,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,11 +29,18 @@ async function runMigrations() {
   // Import postgres from apps/web
   let postgres;
   try {
-    const postgresModule = await import(path.join(rootDir, 'apps/web/node_modules/postgres/src/index.js'));
+    const postgresPath = path.join(rootDir, 'apps/web/node_modules/postgres/src/index.js');
+    const postgresModule = await import(pathToFileURL(postgresPath).href);
     postgres = postgresModule.default;
   } catch {
-    const postgresModule = await import('postgres');
-    postgres = postgresModule.default;
+    try {
+      const pnpmPostgres = path.join(rootDir, 'node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/index.js');
+      const postgresModule = await import(pathToFileURL(pnpmPostgres).href);
+      postgres = postgresModule.default;
+    } catch {
+      const postgresModule = await import('postgres');
+      postgres = postgresModule.default;
+    }
   }
 
   const sql = postgres(connectionString, { max: 1 });

@@ -29,30 +29,36 @@ describe('Step A11 Hardening: Built Chrome Extension Manifest Exact Array Auditi
     }
   });
 
-  it('verifies host_permissions array contains EXACTLY https origins for simplewallet and egpayment', () => {
+  it('verifies host_permissions array contains EXACTLY the two portal origins plus ONE API origin', () => {
     const raw = fs.readFileSync(manifestPath, 'utf8');
     const manifest = JSON.parse(raw);
 
     const hostPermissions: string[] = manifest.host_permissions;
     expect(Array.isArray(hostPermissions)).toBe(true);
 
-    // In production build, must contain EXACTLY the two portal origins
-    expect(hostPermissions).toContain('https://simplewallet.in/*');
-    expect(hostPermissions).toContain('https://egpayment.com/*');
+    // Exact array length: exactly 3 elements (two portals + ONE API origin)
+    expect(hostPermissions).toHaveLength(3);
 
+    // Exact elements
+    expect(hostPermissions[0]).toBe('https://simplewallet.in/*');
+    expect(hostPermissions[1]).toBe('https://egpayment.com/*');
+
+    // The third element is ONE API origin read from build-time config
+    const apiOrigin = hostPermissions[2];
+    expect(apiOrigin).toMatch(/^https:\/\/[a-zA-Z0-9.-]+\/\*$/);
+    expect(apiOrigin).not.toContain('localhost');
+    expect(apiOrigin).not.toContain('127.0.0.1');
+    expect(apiOrigin).not.toContain('*.*');
+
+    // Forbid any wildcard subdomains or forbidden permissions across the array
     for (const hp of hostPermissions) {
-      // Must NOT be wildcard subdomains
       expect(hp).not.toBe('https://*.simplewallet.in/*');
       expect(hp).not.toBe('https://*.egpayment.com/*');
       expect(hp).not.toBe('*://*.simplewallet.in/*');
       expect(hp).not.toBe('*://*.egpayment.com/*');
       expect(hp).not.toBe('<all_urls>');
       expect(hp).not.toBe('*://*/*');
-
-      // Portals must strictly use https
-      if (hp.includes('simplewallet.in') || hp.includes('egpayment.com')) {
-        expect(hp.startsWith('https://')).toBe(true);
-      }
+      expect(hp.startsWith('https://')).toBe(true);
     }
   });
 

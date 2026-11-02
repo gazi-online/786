@@ -288,8 +288,8 @@ export const dictionaries: Record<Locale, Translations> = {
     devices: {
       title: 'Connected Devices',
       subtitle: 'Manage paired POS terminals and review sync telemetry',
-      readOnlyBadge: 'Strictly Read-Only',
-      readOnlyExplanation: 'WalletSync extensions ONLY perform GET requests to transaction history. They never touch credentials or execute balance transfers.',
+      readOnlyBadge: 'read-only except one search-button click, see ADR',
+      readOnlyExplanation: 'WalletSync extensions are read-only except one search-button click, see ADR. They never touch credentials or execute balance transfers.',
       pairNewDevice: 'Pair New Device',
       activeDevices: 'Active Extension Terminals',
       syncHistory: 'Recent Sync Events',
@@ -461,8 +461,8 @@ export const dictionaries: Record<Locale, Translations> = {
     devices: {
       title: 'সংযুক্ত ডিভাইস',
       subtitle: 'পেইয়ার করা POS টার্মিনাল ও সিঙ্ক টেলিমেট্রি পরিচালনা করুন',
-      readOnlyBadge: 'সম্পূর্ণ রিড-অনলি',
-      readOnlyExplanation: 'WalletSync এক্সটেনশন শুধুমাত্র ট্রানজ্যাকশন হিস্ট্রি পেজ পড়ে। এটি কখনই পাসওয়ার্ড সংগ্রহ করে না বা টাকা পাঠায় না।',
+      readOnlyBadge: 'read-only except one search-button click, see ADR',
+      readOnlyExplanation: 'WalletSync এক্সটেনশন হলো read-only except one search-button click, see ADR। এটি কখনই পাসওয়ার্ড সংগ্রহ করে না বা টাকা পাঠায় না।',
       pairNewDevice: 'নতুন ডিভাইস যুক্ত করুন',
       activeDevices: 'সক্রিয় টার্মিনাল',
       syncHistory: 'সাম্প্রতিক সিঙ্ক লগ',
@@ -634,8 +634,8 @@ export const dictionaries: Record<Locale, Translations> = {
     devices: {
       title: 'कनेक्टेड उपकरण',
       subtitle: 'पेयर किए गए POS टर्मिनलों को प्रबंधित करें',
-      readOnlyBadge: 'पूर्णतः केवल-पठन',
-      readOnlyExplanation: 'WalletSync एक्सटेंशन केवल ट्रांजैक्शन हिस्ट्री पढ़ता है। यह पासवर्ड या पैसे का हस्तांतरण कभी नहीं करता।',
+      readOnlyBadge: 'read-only except one search-button click, see ADR',
+      readOnlyExplanation: 'WalletSync एक्सटेंशन read-only except one search-button click, see ADR है। यह पासवर्ड या पैसे का हस्तांतरण कभी नहीं करता।',
       pairNewDevice: 'नया उपकरण जोड़ें',
       activeDevices: 'सक्रिय टर्मिनल',
       syncHistory: 'हालिया सिंक गतिविधियां',

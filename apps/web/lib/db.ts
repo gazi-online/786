@@ -16,6 +16,9 @@ export function validateEnvironmentAndDatabaseConfig(): { isProduction: boolean;
   const allowMemoryStoreEnv = process.env.ALLOW_IN_MEMORY_STORE;
 
   if (isProduction) {
+    if (process.env.NEXT_PHASE === 'phase-production-build') {
+      return { isProduction: true, allowMemoryFallback: false };
+    }
     if (allowMemoryStoreEnv === 'true' || allowMemoryStoreEnv === '1') {
       throw new Error(
         'FATAL: ALLOW_IN_MEMORY_STORE is strictly forbidden in production (NODE_ENV=production). Refusing to start.',
@@ -51,6 +54,48 @@ const queryClient = postgres(connectionString, {
 export const db = drizzle(queryClient, { schema });
 export type AppDatabase = typeof db;
 export type AppTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Asserts that the connected database role is not a table owner and has NOBYPASSRLS.
+ * Logs a fatal error and throws in production if breached (Item 5).
+ */
+export async function assertRuntimeRoleSecurity(client = queryClient): Promise<void> {
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (process.env.NEXT_PHASE === 'phase-production-build') return;
+
+  try {
+    const roleInfo = await client<{ rolname: string; rolbypassrls: boolean }[]>`
+      SELECT rolname, rolbypassrls FROM pg_roles WHERE rolname = current_user
+    `;
+    if (roleInfo.length > 0 && roleInfo[0]?.rolbypassrls) {
+      const msg = `FATAL: Connected database role "${roleInfo[0]?.rolname}" has BYPASSRLS. Runtime role must NOT have BYPASSRLS.`;
+      console.error(msg);
+      if (isProduction) {
+        throw new Error(msg);
+      }
+    }
+
+    const tableOwnerInfo = await client<{ tablename: string; tableowner: string }[]>`
+      SELECT tablename, tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'transactions'
+    `;
+    if (
+      tableOwnerInfo.length > 0 &&
+      roleInfo.length > 0 &&
+      tableOwnerInfo[0]?.tableowner === roleInfo[0]?.rolname
+    ) {
+      const msg = `FATAL: Connected database role "${roleInfo[0]?.rolname}" owns table "transactions". Runtime role must NOT own tenant tables.`;
+      console.error(msg);
+      if (isProduction) {
+        throw new Error(msg);
+      }
+    }
+  } catch (err) {
+    if (isProduction && err instanceof Error && err.message.startsWith('FATAL:')) {
+      throw err;
+    }
+    // Ignore offline connection errors in dev/test when DB not up
+  }
+}
 
 /**
  * Execute a callback within a transaction where `app.current_tenant_id` is explicitly set.

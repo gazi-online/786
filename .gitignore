@@ -16,6 +16,7 @@ out/
 .env
 .env.local
 .env.*.local
+.env*
 
 # WXT
 .wxt/
@@ -34,3 +35,6 @@ Thumbs.db
 # pnpm
 .pnpm-store/
 
+.vercel
+.agents/
+graphify-out/

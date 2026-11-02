@@ -8,6 +8,7 @@ import {
   generateDeviceToken,
   hashDeviceToken,
 } from '@/lib/crypto';
+import { isUnambiguousCode } from '@/lib/pairing-code';
 import { checkRateLimit } from '@/lib/rate-limit';
 import {
   consumeMemoryPairingCode,
@@ -15,7 +16,7 @@ import {
 } from '@/lib/memory-store';
 
 const PairRequestSchema = z.object({
-  code: z.string().min(6).max(16),
+  code: z.string().min(8).max(16),
   label: z.string().optional(),
 });
 
@@ -43,6 +44,12 @@ export async function POST(req: NextRequest) {
 
     const { code, label } = parseResult.data;
     const cleanCode = code.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (!isUnambiguousCode(cleanCode)) {
+      return NextResponse.json(
+        { error: 'Invalid pairing code: must be 8 characters from unambiguous alphabet (excluding 0, O, 1, I)' },
+        { status: 400 },
+      );
+    }
     const codeHash = hashPairingCode(cleanCode);
     const now = new Date();
 

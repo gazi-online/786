@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     // 4. Provision tenant and owner (userId derived solely from verified JWT sub)
     const result = await signUpUser({ token, storeName });
 
-    return NextResponse.json(
+    const response = NextResponse.json(
       {
         ok: true,
         tenant: result.tenant,
@@ -56,6 +56,16 @@ export async function POST(req: NextRequest) {
       },
       { status: 201 },
     );
+
+    response.cookies.set('sb-auth-token', token, {
+      path: '/',
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7,
+    });
+
+    return response;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Sign-up failed';
     const isConflict =

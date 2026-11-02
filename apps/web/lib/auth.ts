@@ -210,17 +210,36 @@ export async function getTenantSession(
     return null;
   }
 
-  // 2. Cryptographic Verification
+  // 2. Cryptographic / Identity Verification
   const verifier =
     customVerifier ||
     new HmacSha256Verifier(authConfig.jwtSecret, authConfig.issuer, authConfig.audience);
 
-  const result = await verifier.verify(token);
-  if (!result.valid || !result.payload) {
-    return null;
+  let result = await verifier.verify(token);
+  let userId = result.valid ? result.payload?.sub : undefined;
+  let userEmail = result.valid ? result.payload?.email : undefined;
+
+  // Authoritative Supabase fallback: If local HMAC verifier fails (due to Supabase asymmetric RS256/JWKS or secret mismatch),
+  // verify user identity via Supabase Auth client directly
+  if (!userId) {
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+      if (supabaseUrl && supabaseAnonKey) {
+        const { createClient } = await import('@supabase/supabase-js');
+        const supabase = createClient(supabaseUrl, supabaseAnonKey);
+        const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+        if (user && !userError) {
+          userId = user.id;
+          userEmail = user.email;
+          result = { valid: true, payload: { sub: user.id, ...(user.email ? { email: user.email } : {}) } };
+        }
+      }
+    } catch {
+      // Supabase verification failed
+    }
   }
 
-  const userId = result.payload.sub;
   if (!userId) {
     return null;
   }
@@ -261,7 +280,31 @@ export async function getTenantSession(
           )
           .limit(1);
 
-        const m = userMemberships[0];
+        let m = userMemberships[0];
+        if (!m) {
+          // If this is a valid authenticated Supabase user who doesn't have a tenant yet,
+          // automatically provision their initial store tenant and assign owner role
+          try {
+            const rows = await tx.execute<{
+              tenant_id: string;
+              tenant_name: string;
+              membership_id: string;
+              role: string;
+            }>(sql`SELECT * FROM create_tenant_and_owner('My Store', 'pro')`);
+            const created = rows[0];
+            if (created) {
+              m = {
+                role: (created.role as UserRole) || 'owner',
+                tenantId: created.tenant_id,
+                tenantName: created.tenant_name,
+                tenantPlan: 'pro',
+              };
+            }
+          } catch {
+            // Ignore error if already created concurrently
+          }
+        }
+
         if (!m) {
           return null;
         }
@@ -270,7 +313,7 @@ export async function getTenantSession(
         await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${m.tenantId}, true)`);
 
         return {
-          user: { id: userId, email: result.payload?.email || 'user@walletsync.local' },
+          user: { id: userId, email: userEmail || result.payload?.email || 'user@walletsync.local' },
           tenant: { id: m.tenantId, name: m.tenantName, plan: m.tenantPlan },
           role: m.role as UserRole,
         };
@@ -290,17 +333,17 @@ export async function getTenantSession(
   if (
     isTest &&
     (process.env.ALLOW_TEST_JWT_ROLE_CLAIMS === 'true' || !hasDatabase) &&
-    result.payload.role &&
+    result.payload?.role &&
     ['owner', 'admin', 'viewer'].includes(result.payload.role as string)
   ) {
     return {
-      user: { id: userId, email: result.payload.email || 'user@walletsync.test' },
+      user: { id: userId, email: result.payload?.email || 'user@walletsync.test' },
       tenant: {
-        id: requestedTenantId || (result.payload.tenantId as string) || '00000000-0000-0000-0000-000000000001',
+        id: requestedTenantId || (result.payload?.tenantId as string) || '00000000-0000-0000-0000-000000000001',
         name: 'Test Tenant',
         plan: 'pro',
       },
-      role: result.payload.role as UserRole,
+      role: (result.payload?.role as UserRole) || 'owner',
     };
   }
 
@@ -330,12 +373,29 @@ export async function signUpUser({
     new HmacSha256Verifier(authConfig.jwtSecret, authConfig.issuer, authConfig.audience);
 
   const verification = await verifier.verify(token);
-  if (!verification.valid || !verification.payload?.sub) {
-    throw new Error(`Unauthorized sign-up: ${verification.error || 'Invalid JWT'}`);
+  let verifiedUserId = verification.valid ? verification.payload?.sub : undefined;
+
+  // Authoritative Supabase fallback:
+  if (!verifiedUserId) {
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+      if (supabaseUrl && supabaseAnonKey) {
+        const { createClient } = await import('@supabase/supabase-js');
+        const supabase = createClient(supabaseUrl, supabaseAnonKey);
+        const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+        if (user && !userError) {
+          verifiedUserId = user.id;
+        }
+      }
+    } catch {
+      // Supabase verification failed
+    }
   }
 
-  // Extract userId strictly from verified JWT
-  const verifiedUserId = verification.payload.sub;
+  if (!verifiedUserId) {
+    throw new Error(`Unauthorized sign-up: ${verification.error || 'Invalid JWT'}`);
+  }
   const effectiveStoreName = storeName?.trim() || 'My Store';
 
   const isTest = process.env.NODE_ENV === 'test';

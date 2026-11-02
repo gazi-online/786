@@ -48,9 +48,15 @@ export default function SignInPage() {
         },
       });
 
-      const json = await res.json();
+      let json: { error?: string } = {};
+      try {
+        json = await res.json();
+      } catch {
+        // Safe parsing in case of non-JSON response
+      }
+
       if (!res.ok) {
-        setError(json.error || 'Failed to authenticate tenant context');
+        setError(json.error || `Failed to authenticate tenant context (${res.status})`);
         setLoading(false);
         return;
       }

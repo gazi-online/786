@@ -160,9 +160,16 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
-ALTER FUNCTION create_tenant_and_owner(text, plan) OWNER TO postgres;
+DO $$ 
+BEGIN 
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'postgres') THEN 
+    ALTER FUNCTION create_tenant_and_owner(text, plan) OWNER TO postgres; 
+  END IF; 
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'walletsync_app') THEN 
+    GRANT EXECUTE ON FUNCTION create_tenant_and_owner(text, plan) TO walletsync_app; 
+  END IF; 
+END $$;
 REVOKE ALL ON FUNCTION create_tenant_and_owner(text, plan) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION create_tenant_and_owner(text, plan) TO walletsync_app;
 
 -- One-tenant-per-user constraint: a user can be owner of at most one tenant
 CREATE UNIQUE INDEX IF NOT EXISTS idx_memberships_unique_owner_per_user 
@@ -259,9 +266,16 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
-ALTER FUNCTION delete_tenant(uuid) OWNER TO postgres;
+DO $$ 
+BEGIN 
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'postgres') THEN 
+    ALTER FUNCTION delete_tenant(uuid) OWNER TO postgres; 
+  END IF; 
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'walletsync_app') THEN 
+    GRANT EXECUTE ON FUNCTION delete_tenant(uuid) TO walletsync_app; 
+  END IF; 
+END $$;
 REVOKE ALL ON FUNCTION delete_tenant(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION delete_tenant(uuid) TO walletsync_app;
 
 -- Replace generic memberships ALL policy with role-enforced INSERT/UPDATE/DELETE policies
 DROP POLICY IF EXISTS memberships_tenant_isolation_policy ON memberships;
