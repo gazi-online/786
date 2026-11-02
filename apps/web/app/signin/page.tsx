@@ -19,38 +19,11 @@ export default function SignInPage() {
     setLoading(true);
 
     try {
-      let token: string | undefined;
-
-      // 1. Try Supabase Auth if configured with a real domain
-      try {
-        const supabase = getSupabaseBrowserClient();
-        const { data, error: authError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
-        if (authError && !authError.message?.includes('Failed to fetch')) {
-          setError(authError.message);
-          setLoading(false);
-          return;
-        }
-
-        token = data?.session?.access_token;
-      } catch {
-        // Fallback to direct backend credentials auth
-      }
-
-      // 2. Resolve tenant context & establish signed session cookie
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
       const res = await fetch('/api/v1/auth/signin', {
         method: 'POST',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ email, password }),
       });
 
@@ -69,8 +42,7 @@ export default function SignInPage() {
 
       const searchParams = new URLSearchParams(window.location.search);
       const nextPath = searchParams.get('next') || '/';
-      router.push(nextPath);
-      router.refresh();
+      window.location.href = nextPath;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'An unexpected error occurred';
       setError(msg);
