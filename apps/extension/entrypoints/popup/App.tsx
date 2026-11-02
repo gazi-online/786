@@ -425,8 +425,8 @@ export default function App() {
           <button
             onClick={() => setActiveTab('overview')}
             className={`py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${activeTab === 'overview'
-                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
-                : 'text-zinc-400 hover:text-white'
+              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
+              : 'text-zinc-400 hover:text-white'
               }`}
           >
             <Activity className="w-3.5 h-3.5" />
@@ -436,8 +436,8 @@ export default function App() {
           <button
             onClick={() => setActiveTab('feed')}
             className={`py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${activeTab === 'feed'
-                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
-                : 'text-zinc-400 hover:text-white'
+              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
+              : 'text-zinc-400 hover:text-white'
               }`}
           >
             <Clock className="w-3.5 h-3.5" />
@@ -447,8 +447,8 @@ export default function App() {
           <button
             onClick={() => setActiveTab('security')}
             className={`py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${activeTab === 'security'
-                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
-                : 'text-zinc-400 hover:text-white'
+              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
+              : 'text-zinc-400 hover:text-white'
               }`}
           >
             <Shield className="w-3.5 h-3.5" />
@@ -611,8 +611,8 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <span
                       className={`px-1.5 py-0.5 rounded text-[9px] font-black ${data.recentTransactions[0]?.source === 'egpayment'
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                          : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                        : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                         }`}
                     >
                       {data.recentTransactions[0]?.source === 'egpayment' ? 'EG' : 'SW'}
@@ -660,8 +660,8 @@ export default function App() {
               <button
                 onClick={() => setPortalFilter('all')}
                 className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${portalFilter === 'all'
-                    ? 'bg-white text-black'
-                    : 'bg-white/[0.04] text-zinc-400 hover:text-white border border-white/[0.06]'
+                  ? 'bg-white text-black'
+                  : 'bg-white/[0.04] text-zinc-400 hover:text-white border border-white/[0.06]'
                   }`}
               >
                 All
@@ -669,8 +669,8 @@ export default function App() {
               <button
                 onClick={() => setPortalFilter('simplewallet')}
                 className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${portalFilter === 'simplewallet'
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-blue-500/10 text-blue-300 hover:text-white border border-blue-500/20'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-blue-500/10 text-blue-300 hover:text-white border border-blue-500/20'
                   }`}
               >
                 SimpleWallet
@@ -678,8 +678,8 @@ export default function App() {
               <button
                 onClick={() => setPortalFilter('egpayment')}
                 className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${portalFilter === 'egpayment'
-                    ? 'bg-amber-600 text-white shadow-sm'
-                    : 'bg-amber-500/10 text-amber-300 hover:text-white border border-amber-500/20'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'bg-amber-500/10 text-amber-300 hover:text-white border border-amber-500/20'
                   }`}
               >
                 EG Payment
@@ -698,8 +698,8 @@ export default function App() {
                       {/* Source Badge */}
                       <span
                         className={`w-6 h-6 rounded-lg flex items-center justify-center text-[9px] font-black shrink-0 ${tx.source === 'egpayment'
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                            : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                          : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                           }`}
                       >
                         {tx.source === 'egpayment' ? 'EG' : 'SW'}
@@ -765,11 +765,10 @@ export default function App() {
                   </div>
                 </div>
                 <span
-                  className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
-                    data.deviceId && data.deviceToken
+                  className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${data.deviceId && data.deviceToken
                       ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                       : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                  }`}
+                    }`}
                 >
                   {data.deviceId && data.deviceToken ? 'Paired' : 'Not Paired'}
                 </span>
@@ -1007,8 +1006,41 @@ export default function App() {
       {/* PAIRING MODAL OVERLAY */}
       {/* ==================================================== */}
       {showPairModal && (
-        <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col justify-end animate-in fade-in duration-200">
-          <div className="p-5 bg-[#0E1017] border-t border-white/10 rounded-t-3xl shadow-2xl space-y-4">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowPairModal(false);
+          }}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(5, 7, 12, 0.88)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            zIndex: 9999,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'flex-end',
+          }}
+          className="animate-in fade-in duration-200"
+        >
+          <div
+            style={{
+              backgroundColor: '#0d1017',
+              borderTop: '1px solid rgba(255, 255, 255, 0.15)',
+              borderTopLeftRadius: '1.5rem',
+              borderTopRightRadius: '1.5rem',
+              boxShadow: '0 -25px 60px rgba(0, 0, 0, 0.98)',
+              padding: '1.25rem',
+              maxHeight: '92%',
+              overflowY: 'auto',
+            }}
+            className="space-y-3.5 custom-scrollbar"
+          >
             <div className="flex items-center justify-between pb-2 border-b border-white/[0.08]">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
@@ -1039,7 +1071,7 @@ export default function App() {
                   placeholder="e.g. 2468ACFH"
                   value={pairingCode}
                   onChange={(e) => setPairingCode(e.target.value.toUpperCase())}
-                  style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+                  style={{ backgroundColor: '#07080c', color: '#f4f4f5', colorScheme: 'dark' }}
                   className="w-full px-3 py-2.5 border border-white/15 rounded-xl text-center text-lg font-mono tracking-widest text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase font-black shadow-inner"
                 />
               </div>
@@ -1061,7 +1093,7 @@ export default function App() {
                   type="text"
                   value={pairingApiUrl}
                   onChange={(e) => setPairingApiUrl(e.target.value)}
-                  style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+                  style={{ backgroundColor: '#07080c', color: '#f4f4f5', colorScheme: 'dark' }}
                   className="w-full px-3 py-2 border border-white/10 rounded-xl text-xs font-mono text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-inner"
                 />
               </div>
