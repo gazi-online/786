@@ -147,7 +147,8 @@ export default function App() {
               placeholder="ENTER 8-CHAR CODE (e.g. 2468ACFH)"
               value={pairingCode}
               onChange={(e) => setPairingCode(e.target.value.toUpperCase())}
-              className="flex-1 px-4 py-2.5 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-xl text-sm font-mono tracking-widest text-center uppercase font-bold text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-inner"
+              style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+              className="flex-1 px-4 py-2.5 border border-zinc-700 rounded-xl text-sm font-mono tracking-widest text-center uppercase font-bold text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-inner"
             />
             <button
               type="submit"
@@ -288,14 +289,34 @@ export default function App() {
               type="text"
               value={portalUrl}
               onChange={(e) => setPortalUrl(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg text-sm bg-zinc-50 dark:bg-zinc-800 border-zinc-300 dark:border-zinc-700"
+              style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+              className="w-full px-3 py-2 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 font-mono"
             />
           </div>
 
           <div>
-            <label className="block font-medium text-sm mb-1">
-              Backend API URL
-            </label>
+            <div className="flex justify-between items-center mb-1">
+              <label className="block font-medium text-sm">
+                Backend API URL
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setApiUrl('http://localhost:3000')}
+                  className="text-xs text-blue-400 hover:underline"
+                >
+                  localhost:3000
+                </button>
+                <span className="text-zinc-600">•</span>
+                <button
+                  type="button"
+                  onClick={() => setApiUrl(DEFAULT_STORAGE.apiUrl)}
+                  className="text-xs text-zinc-400 hover:underline"
+                >
+                  reset
+                </button>
+              </div>
+            </div>
             <p className="text-xs text-zinc-500 mb-2">
               The URL of your WalletSync web dashboard.
             </p>
@@ -303,7 +324,8 @@ export default function App() {
               type="text"
               value={apiUrl}
               onChange={(e) => setApiUrl(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg text-sm bg-zinc-50 dark:bg-zinc-800 border-zinc-300 dark:border-zinc-700"
+              style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+              className="w-full px-3 py-2 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 font-mono"
             />
           </div>
         </div>

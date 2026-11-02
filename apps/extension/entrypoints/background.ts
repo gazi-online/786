@@ -312,7 +312,7 @@ export default defineBackground(() => {
 
   async function handlePairing(code: string, customApiUrl?: string) {
     const storage = await getStorage();
-    const apiUrl = customApiUrl || storage.apiUrl;
+    const apiUrl = (customApiUrl || storage.apiUrl || '').trim().replace(/\/+$/, '');
 
     try {
       const res = await fetch(`${apiUrl}/api/v1/devices/pair`, {
@@ -338,7 +338,10 @@ export default defineBackground(() => {
         return { success: false, error: data.error || 'Failed to pair device' };
       }
     } catch {
-      return { success: false, error: 'Cannot reach backend server. Check API URL.' };
+      return {
+        success: false,
+        error: `Cannot reach backend server at ${apiUrl || 'empty URL'}. Check API URL.`,
+      };
     }
   }
 });

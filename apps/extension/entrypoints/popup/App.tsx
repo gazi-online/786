@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   getStorage,
+  setStorage,
   DEFAULT_STORAGE,
   type StorageData,
 } from '../../lib/storage';
@@ -91,15 +92,23 @@ export default function App() {
     }
   }
 
+  async function handleSaveApiUrl(newUrl: string) {
+    const clean = newUrl.trim().replace(/\/+$/, '');
+    setPairingApiUrl(clean);
+    await setStorage({ apiUrl: clean });
+    loadData();
+  }
+
   async function handlePair(e?: React.FormEvent) {
     if (e) e.preventDefault();
     if (!pairingCode.trim()) return;
 
+    const cleanUrl = pairingApiUrl.trim().replace(/\/+$/, '');
     setIsPairing(true);
     setPairError(null);
 
     chrome.runtime.sendMessage(
-      { type: 'PAIR_DEVICE', code: pairingCode, apiUrl: pairingApiUrl },
+      { type: 'PAIR_DEVICE', code: pairingCode, apiUrl: cleanUrl },
       (res: { success?: boolean; error?: string } | undefined) => {
         setIsPairing(false);
         if (res && res.success) {
@@ -277,7 +286,8 @@ export default function App() {
                   value={pairingCode}
                   onChange={(e) => setPairingCode(e.target.value.toUpperCase())}
                   disabled={isPairing}
-                  className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.12] hover:border-white/[0.22] focus:border-blue-500 rounded-2xl text-center tracking-[0.25em] font-mono text-xl uppercase font-bold text-white placeholder-zinc-700 focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition-all shadow-inner"
+                  style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+                  className="w-full px-4 py-3 border border-white/[0.12] hover:border-white/[0.22] focus:border-blue-500 rounded-2xl text-center tracking-[0.25em] font-mono text-xl uppercase font-bold text-white placeholder-zinc-600 focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition-all shadow-inner"
                 />
               </div>
             </div>
@@ -321,12 +331,23 @@ export default function App() {
           </button>
 
           {showConfig && (
-            <div className="mt-2.5">
+            <div className="mt-2.5 space-y-1.5">
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="text-zinc-400">Dashboard API Endpoint:</span>
+                <button
+                  type="button"
+                  onClick={() => setPairingApiUrl('http://localhost:3000')}
+                  className="text-blue-400 hover:underline"
+                >
+                  localhost:3000
+                </button>
+              </div>
               <input
                 type="text"
                 value={pairingApiUrl}
                 onChange={(e) => setPairingApiUrl(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs bg-black/40 border border-white/10 rounded-xl text-zinc-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+                className="w-full px-3 py-1.5 text-xs border border-white/10 rounded-xl text-zinc-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
               />
             </div>
           )}
@@ -629,7 +650,8 @@ export default function App() {
                 placeholder="Search phone last-4, operator, or Txn ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-white/[0.04] border border-white/[0.08] rounded-xl text-xs text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+                className="w-full pl-9 pr-3 py-2 border border-white/[0.08] rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
               />
             </div>
 
@@ -753,40 +775,103 @@ export default function App() {
                 </span>
               </div>
 
-              {/* Pairing Code Input Form */}
-              <form onSubmit={handlePair} className="space-y-2 pt-1">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    maxLength={8}
-                    placeholder="8-CHAR CODE (e.g. 2468ACFH)"
-                    value={pairingCode}
-                    onChange={(e) => setPairingCode(e.target.value.toUpperCase())}
-                    className="flex-1 px-3 py-2 bg-black/60 border border-white/10 rounded-xl text-center text-xs font-mono tracking-widest text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase font-bold"
-                  />
-                  <button
-                    type="submit"
-                    disabled={isPairing || !pairingCode.trim()}
-                    className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white rounded-xl text-[11px] font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-md shadow-blue-600/25"
-                  >
-                    {isPairing ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Check className="w-3.5 h-3.5" />
-                    )}
-                    <span>{data.deviceId ? 'Update' : 'Pair'}</span>
-                  </button>
+              {/* Pairing Form */}
+              <form onSubmit={handlePair} className="space-y-2.5 pt-1">
+                {/* 1. Pairing Code Input */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
+                      Pairing Code (8 Characters)
+                    </label>
+                    <span className="text-[9px] text-zinc-400">From /devices modal</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      maxLength={8}
+                      placeholder="e.g. 2468ACFH"
+                      value={pairingCode}
+                      onChange={(e) => setPairingCode(e.target.value.toUpperCase())}
+                      style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+                      className="flex-1 px-3 py-2 border border-white/10 rounded-xl text-center text-xs font-mono tracking-widest text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase font-bold shadow-inner"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isPairing || !pairingCode.trim()}
+                      className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white rounded-xl text-[11px] font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-md shadow-blue-600/25 active:scale-95"
+                    >
+                      {isPairing ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                      <span>{data.deviceId ? 'Update' : 'Pair'}</span>
+                    </button>
+                  </div>
                 </div>
 
+                {/* 2. Backend API URL Field */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
+                      Web Dashboard API URL
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSaveApiUrl('http://localhost:3000')}
+                        className="text-[9px] text-blue-400 hover:text-blue-300 font-mono underline cursor-pointer"
+                      >
+                        localhost:3000
+                      </button>
+                      <span className="text-zinc-600">•</span>
+                      <button
+                        type="button"
+                        onClick={() => handleSaveApiUrl(DEFAULT_STORAGE.apiUrl)}
+                        className="text-[9px] text-zinc-400 hover:text-zinc-200 font-mono cursor-pointer"
+                      >
+                        default
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={pairingApiUrl}
+                      onChange={(e) => setPairingApiUrl(e.target.value)}
+                      onBlur={() => handleSaveApiUrl(pairingApiUrl)}
+                      placeholder="http://localhost:3000"
+                      style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+                      className="flex-1 px-3 py-1.5 border border-white/10 rounded-xl text-[11px] font-mono text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-inner"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleSaveApiUrl(pairingApiUrl)}
+                      className="px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300 hover:text-white rounded-xl text-[10px] font-medium transition-colors cursor-pointer shrink-0"
+                    >
+                      Save URL
+                    </button>
+                  </div>
+                </div>
+
+                {/* Error Box with Troubleshooting Guidance */}
                 {pairError && (
-                  <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-[10px] text-red-300 flex items-center gap-1.5">
-                    <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
-                    <span>{pairError}</span>
+                  <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-[10px] text-red-300 space-y-1">
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                      <span>{pairError}</span>
+                    </div>
+                    {pairError.includes('Cannot reach backend') && (
+                      <p className="text-[9px] text-zinc-400 pl-5 leading-normal">
+                        Tip: Verify your Next.js dashboard is running (<span className="text-zinc-200 font-mono">pnpm dev</span> on <span className="text-blue-300 font-mono">http://localhost:3000</span>) or enter the correct web dashboard URL above.
+                      </p>
+                    )}
                   </div>
                 )}
 
+                {/* Footer status / Disconnect */}
                 {data.deviceId && (
-                  <div className="flex justify-between items-center pt-1.5">
+                  <div className="flex justify-between items-center pt-1 border-t border-white/[0.06]">
                     <span className="text-[10px] text-zinc-400">
                       ID: <span className="font-mono text-zinc-300">{data.deviceId.slice(0, 16)}...</span>
                     </span>
@@ -796,7 +881,7 @@ export default function App() {
                       className="text-[10px] text-red-400 hover:text-red-300 font-semibold flex items-center gap-1 transition-colors cursor-pointer"
                     >
                       <Unlink className="w-3 h-3" />
-                      <span>Disconnect</span>
+                      <span>Disconnect Terminal</span>
                     </button>
                   </div>
                 )}
@@ -954,19 +1039,30 @@ export default function App() {
                   placeholder="e.g. 2468ACFH"
                   value={pairingCode}
                   onChange={(e) => setPairingCode(e.target.value.toUpperCase())}
-                  className="w-full px-3 py-2.5 bg-black/60 border border-white/15 rounded-xl text-center text-lg font-mono tracking-widest text-white placeholder-zinc-700 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase font-black"
+                  style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+                  className="w-full px-3 py-2.5 border border-white/15 rounded-xl text-center text-lg font-mono tracking-widest text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase font-black shadow-inner"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
-                  Backend API URL
-                </label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                    Backend API URL
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setPairingApiUrl('http://localhost:3000')}
+                    className="text-[9px] text-blue-400 hover:underline"
+                  >
+                    localhost:3000
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={pairingApiUrl}
                   onChange={(e) => setPairingApiUrl(e.target.value)}
-                  className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-xl text-xs font-mono text-zinc-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+                  className="w-full px-3 py-2 border border-white/10 rounded-xl text-xs font-mono text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-inner"
                 />
               </div>
 

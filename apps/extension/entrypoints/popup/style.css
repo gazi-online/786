@@ -41,6 +41,35 @@ body, html {
   user-select: none;
 }
 
+/* --- Global Dark Obsidian Input Styling & Autofill Overrides --- */
+input, select, textarea {
+  background-color: #0d1017 !important;
+  color: #f4f4f5 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 0.75rem;
+  outline: none;
+  font-family: inherit;
+  color-scheme: dark;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input::placeholder, textarea::placeholder {
+  color: #71717a !important;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35) !important;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #f4f4f5 !important;
+  -webkit-box-shadow: 0 0 0px 1000px #0d1017 inset !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
 /* --- Billion-Dollar Keyframe Animations --- */
 
 @keyframes spin {
@@ -304,6 +333,10 @@ body, html {
 .bg-white\/\[0\.05\] { background-color: rgba(255, 255, 255, 0.055); }
 .bg-white\/\[0\.06\] { background-color: rgba(255, 255, 255, 0.065); }
 .bg-black\/40 { background-color: rgba(0, 0, 0, 0.4); }
+.bg-black\/50 { background-color: rgba(0, 0, 0, 0.5); }
+.bg-black\/60 { background-color: rgba(0, 0, 0, 0.6); }
+.bg-black\/80 { background-color: rgba(0, 0, 0, 0.8); }
+.bg-black\/90 { background-color: rgba(0, 0, 0, 0.9); }
 
 .bg-blue-500\/10 { background-color: rgba(59, 130, 246, 0.1); }
 .bg-blue-500\/15 { background-color: rgba(59, 130, 246, 0.15); }
