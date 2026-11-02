@@ -51,16 +51,24 @@ export default function TransactionsPage() {
       setItems(cached);
       setLoading(false);
     }
-    loadTransactions();
+    loadTransactions(false);
+
+    // Continuous auto-fetch every 8 seconds to keep transaction list fresh
+    const timer = setInterval(() => {
+      loadTransactions(true);
+    }, 8000);
+
+    return () => clearInterval(timer);
   }, [status, service, portal]);
 
-  async function loadTransactions() {
-    // Only show skeleton if we have no cached items
-    const cached = getClientCache<ApiTransaction[]>(cacheKey);
-    if (!cached || cached.length === 0) {
-      setLoading(true);
+  async function loadTransactions(silent = false) {
+    if (!silent) {
+      const cached = getClientCache<ApiTransaction[]>(cacheKey);
+      if (!cached || cached.length === 0) {
+        setLoading(true);
+      }
+      setError(null);
     }
-    setError(null);
     try {
       const params = new URLSearchParams();
       if (portal !== 'all') params.set('source', portal);
@@ -79,9 +87,13 @@ export default function TransactionsPage() {
       setItems(newItems);
       setClientCache(cacheKey, newItems);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Error fetching data');
+      if (!silent) {
+        setError(err instanceof Error ? err.message : 'Error fetching data');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }
 
@@ -170,7 +182,7 @@ export default function TransactionsPage() {
             {t.transactions.exportCsv}
           </button>
           <button
-            onClick={loadTransactions}
+            onClick={() => loadTransactions(false)}
             className="p-2 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
             title={t.common.refresh}
           >
@@ -256,7 +268,7 @@ export default function TransactionsPage() {
           <h3 className="font-semibold text-red-900 dark:text-red-200">{t.common.error}</h3>
           <p className="text-xs text-red-600 dark:text-red-400 mt-1 mb-4">{error}</p>
           <button
-            onClick={loadTransactions}
+            onClick={() => loadTransactions(false)}
             className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700"
           >
             {t.common.retry}

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import type { ApiTransaction, IngestTransaction, TransactionSource } from '@walletsync/contract';
+import type { ApiTransaction } from '@walletsync/contract';
 import { AppLayout } from '@/components/AppLayout';
 import { useI18n } from '@/lib/i18n-context';
 import { formatPaise, formatKolkataDate } from '@/lib/i18n';
@@ -20,6 +20,8 @@ import {
   Check,
   RefreshCw,
   Sparkles,
+  X,
+  ChevronRight,
 } from 'lucide-react';
 
 interface Stats {
@@ -35,6 +37,8 @@ export default function DashboardPage() {
   const [transactions, setTransactions] = useState<ApiTransaction[]>([]);
   const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
   const [revealedNumbers, setRevealedNumbers] = useState<Record<string, string>>({});
+  const [selectedTxn, setSelectedTxn] = useState<ApiTransaction | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,7 +61,7 @@ export default function DashboardPage() {
   const [pairingCode, setPairingCode] = useState('SYNC-7489');
   const [copiedCode, setCopiedCode] = useState(false);
 
-  // 1. Initial data fetch with instant 0ms client-side cache
+  // 1. Initial data fetch with instant 0ms client-side cache & continuous 5s auto-fetch
   useEffect(() => {
     const cached = getClientCache<ApiTransaction[]>('dashboard_txns');
     if (cached && cached.length > 0) {
@@ -65,15 +69,26 @@ export default function DashboardPage() {
       setLoading(false);
       setLastSyncTime(cached[0]?.occurredAt || null);
     }
-    fetchTransactions();
+    fetchTransactions(false);
+
+    // Continuous auto-fetch every 5 seconds to ensure live transaction stream auto-updates
+    const autoFetchTimer = setInterval(() => {
+      fetchTransactions(true);
+    }, 5000);
+
+    return () => {
+      clearInterval(autoFetchTimer);
+    };
   }, []);
 
-  async function fetchTransactions() {
+  async function fetchTransactions(silent = false) {
     const cached = getClientCache<ApiTransaction[]>('dashboard_txns');
-    if (!cached || cached.length === 0) {
+    if (!silent && (!cached || cached.length === 0)) {
       setLoading(true);
     }
-    setError(null);
+    if (!silent) {
+      setError(null);
+    }
     try {
       const res = await fetch('/api/v1/transactions?limit=100');
       if (res.status === 304) return;
@@ -84,109 +99,71 @@ export default function DashboardPage() {
       if (!res.ok) throw new Error('Failed to load transactions');
       const data = await res.json();
       const items: ApiTransaction[] = data.items || [];
-      setTransactions(items);
+
+      setTransactions((prev) => {
+        // Highlight brand new transactions that were not present previously
+        if (prev.length > 0 && items.length > 0) {
+          const prevIds = new Set(prev.map((p) => p.txnId));
+          const newTxnIds = items.filter((it) => !prevIds.has(it.txnId)).map((it) => it.txnId);
+          if (newTxnIds.length > 0) {
+            setHighlightedIds(new Set(newTxnIds));
+            setTimeout(() => {
+              setHighlightedIds(new Set());
+            }, 1200);
+          }
+        }
+        return items;
+      });
+
       setClientCache('dashboard_txns', items);
       if (items.length > 0) {
         setLastSyncTime(items[0]?.occurredAt || null);
+        setDeviceStatus('ok');
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Error fetching data');
+      if (!silent) {
+        setError(err instanceof Error ? err.message : 'Error fetching data');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }
 
   // 2. Server-Sent Events setup with ADR-004 Reconnect & Polling Fallback
   useEffect(() => {
     let eventSource: EventSource | null = null;
-    let fallbackInterval: NodeJS.Timeout | null = null;
 
     function connectSSE() {
-      eventSource = new EventSource('/api/v1/stream');
+      try {
+        eventSource = new EventSource('/api/v1/stream');
 
-      eventSource.onopen = () => {
-        setIsConnected(true);
-        lastEventTimeRef.current = Date.now();
-      };
-
-      eventSource.addEventListener('transaction.updated', (event) => {
-        try {
+        eventSource.onopen = () => {
+          setIsConnected(true);
           lastEventTimeRef.current = Date.now();
-          const data = JSON.parse(event.data);
-          if (data.rows && Array.isArray(data.rows)) {
-            const newIds = new Set<string>();
-            const newItems: ApiTransaction[] = data.rows.map((r: IngestTransaction) => {
-              const last4 = r.customerNo.replace(/\D/g, '').slice(-4) || '0000';
-              newIds.add(r.txnId);
-              return {
-                id: r.txnId,
-                tenantId: '00000000-0000-0000-0000-000000000001',
-                txnId: r.txnId,
-                source: (r.source || 'simplewallet') as TransactionSource,
-                service: r.service,
-                serviceName: r.serviceName,
-                customerLast4: last4,
-                customerNoMasked: `••••••${last4}`,
-                occurredAt: r.occurredAt,
-                status: r.status,
-                statusRaw: r.statusRaw,
-                operatorRef: r.operatorRef || '',
-                amountPaise: r.amountPaise,
-                discountPct: r.discountPct,
-                discountPaise: r.discountPaise,
-                parserVersion: '1.0.0',
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-              };
-            });
+        };
 
-            setTransactions((prev) => {
-              const existingIds = new Set(prev.map((p) => p.txnId));
-              const uniqueNew = newItems.filter((item) => !existingIds.has(item.txnId));
-              return [...uniqueNew, ...prev];
-            });
+        eventSource.addEventListener('transaction.updated', (_event) => {
+          lastEventTimeRef.current = Date.now();
+          // Instant auto-fetch when event arrives
+          fetchTransactions(true);
+        });
 
-            setHighlightedIds(newIds);
-            setTimeout(() => {
-              setHighlightedIds(new Set());
-            }, 1200);
-
-            setLastSyncTime(new Date().toISOString());
-            setDeviceStatus('ok');
-          }
-        } catch {
-          // parse error ignored
-        }
-      });
-
-      eventSource.onerror = () => {
+        eventSource.onerror = () => {
+          setIsConnected(false);
+          eventSource?.close();
+          setTimeout(connectSSE, 5000);
+        };
+      } catch {
         setIsConnected(false);
-        eventSource?.close();
-        if (!fallbackInterval) {
-          fallbackInterval = setInterval(async () => {
-            try {
-              const res = await fetch('/api/v1/transactions?limit=20');
-              if (res.ok) {
-                const data = await res.json();
-                if (data.items?.length > 0) {
-                  setTransactions(data.items);
-                  setLastSyncTime(data.items[0].occurredAt);
-                }
-              }
-            } catch {
-              // ignore polling error
-            }
-          }, 10000);
-        }
-        setTimeout(connectSSE, 3000);
-      };
+      }
     }
 
     connectSSE();
 
     return () => {
       eventSource?.close();
-      if (fallbackInterval) clearInterval(fallbackInterval);
     };
   }, []);
 
@@ -280,7 +257,7 @@ export default function DashboardPage() {
             {t.dashboard.connectExtension}
           </button>
           <button
-            onClick={fetchTransactions}
+            onClick={() => fetchTransactions(false)}
             className="p-2 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
             title={t.common.refresh}
           >
@@ -336,7 +313,7 @@ export default function DashboardPage() {
           <h3 className="font-semibold text-red-900 dark:text-red-200">{t.common.error}</h3>
           <p className="text-sm text-red-600 dark:text-red-400 mt-1 mb-4">{error}</p>
           <button
-            onClick={fetchTransactions}
+            onClick={() => fetchTransactions(false)}
             className="px-4 py-2 text-xs font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
           >
             {t.common.retry}
@@ -437,8 +414,27 @@ export default function DashboardPage() {
               </p>
             </div>
 
-            {/* Quick Filters */}
+            {/* Quick Filters, Manual Refresh & Auto-Sync Status */}
             <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Auto-sync: 5s</span>
+              </span>
+
+              <button
+                onClick={() => {
+                  setIsRefreshing(true);
+                  fetchTransactions(true).finally(() => {
+                    setTimeout(() => setIsRefreshing(false), 500);
+                  });
+                }}
+                className="p-1.5 text-zinc-600 dark:text-zinc-300 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors shadow-2xs cursor-pointer"
+                title="Refresh Transactions Now"
+                aria-label="Refresh Transactions"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : ''}`} />
+              </button>
+
               <select
                 value={portalFilter}
                 onChange={(e) => setPortalFilter(e.target.value)}
@@ -463,7 +459,7 @@ export default function DashboardPage() {
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-2.5 py-1.5 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200 outline-hidden"
+                className="px-2.5 py-1.5 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200 outline-hidden cursor-pointer"
               >
                 <option value="all">{t.transactions.filterAllStatuses}</option>
                 <option value="success">{t.common.statusSuccess}</option>
@@ -475,7 +471,7 @@ export default function DashboardPage() {
               <select
                 value={serviceFilter}
                 onChange={(e) => setServiceFilter(e.target.value)}
-                className="px-2.5 py-1.5 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200 outline-hidden"
+                className="px-2.5 py-1.5 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200 outline-hidden cursor-pointer"
               >
                 <option value="all">{t.transactions.filterAllServices}</option>
                 <option value="PREPAID">PREPAID</option>
@@ -517,6 +513,7 @@ export default function DashboardPage() {
                       <th className="py-3 px-4 text-right">{t.common.amount}</th>
                       <th className="py-3 px-4 text-right">{t.common.discount}</th>
                       <th className="py-3 px-4 text-right">{t.common.date}</th>
+                      <th className="py-3 px-4 text-center">{t.common.actions}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800" aria-live="polite">
@@ -527,7 +524,8 @@ export default function DashboardPage() {
                       return (
                         <tr
                           key={item.id}
-                          className={`transition-colors hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 ${
+                          onClick={() => setSelectedTxn(item)}
+                          className={`transition-colors cursor-pointer hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 ${
                             isHighlighted ? 'animate-row-highlight bg-blue-50 dark:bg-blue-950/40' : ''
                           }`}
                         >
@@ -555,7 +553,7 @@ export default function DashboardPage() {
                               {item.service}
                             </span>
                           </td>
-                          <td className="py-3 px-4">
+                          <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center gap-1.5">
                               <span className="font-mono text-zinc-600 dark:text-zinc-300">
                                 {isRevealed ? revealedNumbers[item.id] : item.customerNoMasked}
@@ -574,12 +572,12 @@ export default function DashboardPage() {
                             <span
                               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${
                                 item.status === 'success'
-                                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
-                                  : item.status === 'pending'
-                                  ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
-                                  : item.status === 'failed'
-                                  ? 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300'
-                                  : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+                                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                    : item.status === 'pending'
+                                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
+                                    : item.status === 'failed'
+                                    ? 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300'
+                                    : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
                               }`}
                             >
                               {item.status === 'success' && <CheckCircle2 className="w-3 h-3" />}
@@ -608,6 +606,14 @@ export default function DashboardPage() {
                           <td className="py-3 px-4 text-right text-zinc-400 whitespace-nowrap tabular-nums">
                             {formatKolkataDate(item.occurredAt)}
                           </td>
+                          <td className="py-3 px-4 text-center" onClick={(e) => { e.stopPropagation(); setSelectedTxn(item); }}>
+                            <button
+                              className="p-1 text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                              title={t.transactions.detailsTitle}
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -616,6 +622,131 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Transaction Details Modal */}
+      {selectedTxn && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4"
+          onClick={() => setSelectedTxn(null)}
+        >
+          <div
+            className="w-full max-w-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-4">
+              <div>
+                <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+                  {t.transactions.detailsTitle}
+                </h3>
+                <span className="font-mono text-xs text-zinc-400">{selectedTxn.txnId}</span>
+              </div>
+              <button
+                onClick={() => setSelectedTxn(null)}
+                className="p-1.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-800 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-zinc-500 font-medium">Source Website:</span>
+                {selectedTxn.source === 'egpayment' ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-bold text-[11px] bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    EG Payment (egpayment.com)
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-bold text-[11px] bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300 border border-blue-300 dark:border-blue-800">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                    SimpleWallet (simplewallet.in)
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 text-xs">
+              <div>
+                <span className="text-zinc-400 block">{t.common.service}</span>
+                <span className="font-medium text-zinc-900 dark:text-zinc-100">{selectedTxn.service}</span>
+              </div>
+              <div>
+                <span className="text-zinc-400 block">{t.common.operator}</span>
+                <span className="font-medium text-zinc-900 dark:text-zinc-100">{selectedTxn.serviceName}</span>
+              </div>
+              <div>
+                <span className="text-zinc-400 block">{t.transactions.operatorRef}</span>
+                <span className="font-mono font-medium text-zinc-900 dark:text-zinc-100">
+                  {selectedTxn.operatorRef || 'N/A'}
+                </span>
+              </div>
+              <div>
+                <span className="text-zinc-400 block">{t.common.status}</span>
+                <span className="font-semibold uppercase text-emerald-600 dark:text-emerald-400">
+                  {selectedTxn.status}
+                </span>
+              </div>
+              <div>
+                <span className="text-zinc-400 block">{t.common.amount}</span>
+                <span className="font-bold text-base text-zinc-900 dark:text-zinc-100 tabular-nums">
+                  {formatPaise(selectedTxn.amountPaise)}
+                </span>
+              </div>
+              <div>
+                <span className="text-zinc-400 block">{t.common.discount}</span>
+                <span className="font-medium text-base text-zinc-600 dark:text-zinc-300 tabular-nums">
+                  {formatPaise(selectedTxn.discountPaise)} ({selectedTxn.discountPct}%)
+                </span>
+              </div>
+              <div className="col-span-2">
+                <span className="text-zinc-400 block">{t.common.customer}</span>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="font-mono text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                    {revealedNumbers[selectedTxn.id] || selectedTxn.customerNoMasked}
+                  </span>
+                  <button
+                    onClick={() => handleReveal(selectedTxn.id)}
+                    className="px-2 py-0.5 text-[11px] font-medium rounded-md border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    {revealedNumbers[selectedTxn.id] ? (
+                      <>
+                        <EyeOff className="w-3 h-3" />
+                        <span>{t.common.hide}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-3 h-3" />
+                        <span>{t.common.reveal}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+              <div className="col-span-2">
+                <span className="text-zinc-400 block">{t.transactions.time}</span>
+                <span className="text-zinc-700 dark:text-zinc-300 tabular-nums">
+                  {formatKolkataDate(selectedTxn.occurredAt)}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 bg-zinc-50 dark:bg-zinc-800/50 rounded-xl text-[11px] text-zinc-500 border border-zinc-200/80 dark:border-zinc-700/60">
+              {t.transactions.revealNotice}
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setSelectedTxn(null)}
+                className="px-4 py-2 text-xs font-semibold rounded-lg bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-300 dark:hover:bg-zinc-700 cursor-pointer"
+              >
+                {t.common.close}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
