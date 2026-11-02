@@ -48,10 +48,16 @@ export interface StorageData {
   offlineQueue: IngestRequest[];
 }
 
+// Build-time API origin injected by WXT config from WALLETSYNC_API_ORIGIN env var
+declare const __BUILD_API_URL__: string | undefined;
+
 export const DEFAULT_STORAGE: StorageData = {
   deviceId: null,
   deviceToken: null,
-  apiUrl: 'https://walletsync-seven.vercel.app',
+  apiUrl:
+    typeof __BUILD_API_URL__ !== 'undefined' && __BUILD_API_URL__
+      ? __BUILD_API_URL__
+      : 'https://api.walletsync.example.com',
   portalUrl: 'https://simplewallet.in/web/MyTrans.aspx?ST=1&mID=824&PID=821',
   status: 'ok',
   lastSyncTime: null,

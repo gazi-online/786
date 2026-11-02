@@ -1,4 +1,18 @@
 import { defineConfig } from 'wxt';
+import fs from 'node:fs';
+import path from 'node:path';
+
+// Automatically load .env.local and .env from workspace root if present
+for (const envFile of ['.env.local', '.env']) {
+  const envPath = path.resolve(__dirname, '../../', envFile);
+  if (fs.existsSync(envPath) && typeof process.loadEnvFile === 'function') {
+    try {
+      process.loadEnvFile(envPath);
+    } catch {
+      // ignore parse errors
+    }
+  }
+}
 
 // Determine environment
 const isDev = process.env.NODE_ENV !== 'production';
@@ -6,8 +20,9 @@ const isDev = process.env.NODE_ENV !== 'production';
 // Build-time API origin configuration (read from WALLETSYNC_API_ORIGIN)
 const rawApiOrigin =
   process.env.WALLETSYNC_API_ORIGIN ||
-  (isDev ? 'http://localhost:3000/*' : 'https://walletsync-seven.vercel.app/*');
+  (isDev ? 'http://localhost:3000/*' : 'https://api.walletsync.example.com/*');
 const apiOrigin = rawApiOrigin.endsWith('/*') ? rawApiOrigin : `${rawApiOrigin.replace(/\/+$/, '')}/*`;
+const cleanApiUrl = apiOrigin.replace(/\/\*$/, '');
 
 // HARD RULE (Amd-6 & Round 10):
 // - Exactly the two portal origins plus ONE API origin read from build-time config
@@ -30,4 +45,9 @@ export default defineConfig({
     host_permissions: hostPermissions,
     permissions: ['storage', 'alarms', 'notifications', 'tabs'],
   },
+  vite: () => ({
+    define: {
+      __BUILD_API_URL__: JSON.stringify(cleanApiUrl),
+    },
+  }),
 });
