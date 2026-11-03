@@ -209,20 +209,58 @@ export default defineContentScript({
     );
 
     // 4. Automatic parse on page load (if table is present)
-    try {
-      const result = parseCurrentPage();
-      if (result.ok) {
-        chrome.runtime.sendMessage({
-          type: 'CONTENT_PARSED_PAGE',
-          result,
-        }).catch(() => {});
+    // For simplewallet, the table may load dynamically via AJAX after clicking "Show" button.
+    // Use MutationObserver to detect when #gvList appears, then parse.
+    let hasParsedOnLoad = false;
 
-        if (window.location.hostname.includes('simplewallet.in')) {
-          showNotification(`WalletSync: ${result.rows.length} transactions synced ✓`, 'success');
+    function tryParseAndNotify() {
+      try {
+        const result = parseCurrentPage();
+        if (result.ok) {
+          chrome.runtime.sendMessage({
+            type: 'CONTENT_PARSED_PAGE',
+            result,
+          }).catch(() => {});
+
+          if (window.location.hostname.includes('simplewallet.in')) {
+            showNotification(`WalletSync: ${result.rows.length} transactions synced ✓`, 'success');
+          }
+          return true;
         }
+        // If parser failed (e.g., layout_changed, logged_out), don't retry automatically
+        // The background script will handle retry via TRIGGER_PARSE
+      } catch {
+        // Ignore background communication errors
       }
-    } catch {
-      // Ignore background communication errors on initial load
+      return false;
+    }
+
+    // Try immediate parse first (for pages where table is already in initial HTML)
+    if (window.location.hostname.includes('simplewallet.in')) {
+      // For simplewallet, check if table exists; if not, wait for it
+      const gvList = document.getElementById('gvList');
+      if (gvList) {
+        hasParsedOnLoad = tryParseAndNotify();
+      } else {
+        // Table not yet loaded — watch for it to appear via AJAX
+        const observer = new MutationObserver((mutations, obs) => {
+          const table = document.getElementById('gvList');
+          if (table) {
+            obs.disconnect();
+            // Small delay to let table rows populate
+            setTimeout(() => {
+              tryParseAndNotify();
+            }, 500);
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+
+        // Safety timeout: stop observing after 30 seconds
+        setTimeout(() => observer.disconnect(), 30000);
+      }
+    } else {
+      // For egpayment and other portals, parse immediately
+      hasParsedOnLoad = tryParseAndNotify();
     }
 
     // 5. Periodic auto-refresh while tab is kept open (if enabled in settings)
