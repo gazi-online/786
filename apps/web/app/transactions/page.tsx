@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import type { ApiTransaction } from '@walletsync/contract';
 import { AppLayout } from '@/components/AppLayout';
 import { useI18n } from '@/lib/i18n-context';
@@ -42,28 +42,49 @@ export default function TransactionsPage() {
   // Device-adaptive mobile pagination
   const [mobileLimit, setMobileLimit] = useState(25);
 
+  const isDefaultFilter = portal === 'all' && status === 'all' && service === 'all';
   const cacheKey = `txns_${portal}_${status}_${service}`;
+  const currentKeyRef = useRef(cacheKey);
+
+  // Cross-page shared cache resolver:
+  // When on default filter, immediately fallback to dashboard cache for instant 0ms transition
+  const getEffectiveCache = () => {
+    const cached = getClientCache<ApiTransaction[]>(cacheKey);
+    if (cached && cached.length > 0) return cached;
+    if (isDefaultFilter) {
+      const dashCached = getClientCache<ApiTransaction[]>('dashboard_txns');
+      if (dashCached && dashCached.length > 0) return dashCached;
+    }
+    return null;
+  };
 
   useEffect(() => {
+    const isFilterChanged = currentKeyRef.current !== cacheKey;
+    currentKeyRef.current = cacheKey;
+
     // 0ms instant display from memory/session cache
-    const cached = getClientCache<ApiTransaction[]>(cacheKey);
+    const cached = getEffectiveCache();
     if (cached && cached.length > 0) {
       setItems(cached);
       setLoading(false);
+    } else if (isFilterChanged) {
+      setItems([]);
+      setLoading(true);
     }
-    loadTransactions(false);
+
+    loadTransactions(false, isFilterChanged);
 
     // Continuous auto-fetch every 8 seconds to keep transaction list fresh
     const timer = setInterval(() => {
-      loadTransactions(true);
+      loadTransactions(true, false);
     }, 8000);
 
     return () => clearInterval(timer);
   }, [status, service, portal]);
 
-  async function loadTransactions(silent = false) {
+  async function loadTransactions(silent = false, isFilterChanged = false) {
+    const cached = getEffectiveCache();
     if (!silent) {
-      const cached = getClientCache<ApiTransaction[]>(cacheKey);
       if (!cached || cached.length === 0) {
         setLoading(true);
       }
@@ -78,14 +99,52 @@ export default function TransactionsPage() {
 
       const res = await fetch(`/api/v1/transactions?${params.toString()}`);
       if (res.status === 304) {
-        // Not modified — keep current data
+        // Not modified — server data is identical.
+        // If state was empty, restore immediately from effective cache so data never disappears
+        setItems((prev) => {
+          if (prev.length > 0) return prev;
+          const restored = getEffectiveCache();
+          return restored && restored.length > 0 ? restored : prev;
+        });
         return;
       }
       if (!res.ok) throw new Error('Failed to fetch transaction records');
       const data = await res.json();
       const newItems: ApiTransaction[] = data.items || [];
-      setItems(newItems);
-      setClientCache(cacheKey, newItems);
+
+      setItems((prev) => {
+        // If filter changed, take new items directly without mixing old filter items
+        if (isFilterChanged) {
+          return newItems;
+        }
+        // If background silent poll returns empty, preserve previous transactions to prevent flash
+        if (silent && newItems.length === 0 && prev.length > 0) {
+          return prev;
+        }
+        if (newItems.length === 0) {
+          return [];
+        }
+        // Non-destructive merge by txnId
+        const txnMap = new Map(prev.map((t) => [t.txnId, t]));
+        for (const item of newItems) {
+          txnMap.set(item.txnId, item);
+        }
+        return Array.from(txnMap.values()).sort(
+          (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime(),
+        );
+      });
+
+      if (newItems.length > 0) {
+        setClientCache(cacheKey, newItems);
+        if (isDefaultFilter) {
+          setClientCache('dashboard_txns', newItems);
+        }
+      } else if (!silent) {
+        setClientCache(cacheKey, []);
+        if (isDefaultFilter) {
+          setClientCache('dashboard_txns', []);
+        }
+      }
     } catch (err: unknown) {
       if (!silent) {
         setError(err instanceof Error ? err.message : 'Error fetching data');
@@ -281,10 +340,14 @@ export default function TransactionsPage() {
         <div className="my-8 p-12 text-center border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900">
           <FileSpreadsheet className="w-10 h-10 mx-auto text-zinc-400 mb-3" />
           <h3 className="font-semibold text-sm text-zinc-900 dark:text-zinc-100">
-            {t.transactions.noTxnsFound}
+            {search.trim() || portal !== 'all' || status !== 'all' || service !== 'all' || datePreset !== 'all'
+              ? t.transactions.noTxnsFound
+              : (t.dashboard.noRecentTxns || t.transactions.noTxnsFound)}
           </h3>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-sm mx-auto">
-            {t.transactions.noTxnsFoundDesc}
+            {search.trim() || portal !== 'all' || status !== 'all' || service !== 'all' || datePreset !== 'all'
+              ? t.transactions.noTxnsFoundDesc
+              : t.dashboard.noRecentTxnsDesc}
           </p>
         </div>
       )}

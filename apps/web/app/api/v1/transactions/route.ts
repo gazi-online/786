@@ -29,13 +29,13 @@ export async function GET(req: NextRequest) {
     if (source && source !== 'all') {
       conditions.push(eq(transactions.source, source as TransactionSource));
     }
-    if (status) {
+    if (status && status !== 'all') {
       conditions.push(eq(transactions.status, status as TransactionStatus));
     }
-    if (service) {
+    if (service && service !== 'all') {
       conditions.push(eq(transactions.service, service));
     }
-    if (operator) {
+    if (operator && operator !== 'all') {
       conditions.push(eq(transactions.serviceName, operator));
     }
     if (search && search.trim()) {

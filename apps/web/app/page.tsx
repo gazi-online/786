@@ -157,10 +157,12 @@ export default function DashboardPage() {
 
       if (items.length > 0) {
         setClientCache('dashboard_txns', items);
+        setClientCache('txns_all_all_all', items);
         setLastSyncTime(items[0]?.occurredAt || null);
         setDeviceStatus('ok');
       } else if (!silent) {
         setClientCache('dashboard_txns', []);
+        setClientCache('txns_all_all_all', []);
       }
     } catch (err: unknown) {
       if (!silent) {
