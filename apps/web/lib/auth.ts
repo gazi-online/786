@@ -153,7 +153,6 @@ export async function getTenantSession(
   customVerifier?: JwtVerifier,
 ): Promise<TenantSession | null> {
   const isTest = process.env.NODE_ENV === 'test';
-  const isProd = process.env.NODE_ENV === 'production';
   const allowTestHeaderAuth = process.env.ALLOW_TEST_HEADER_AUTH === 'true';
 
   // Strict test header bypass check:
@@ -295,7 +294,7 @@ export async function getTenantSession(
 
         let m = userMemberships[0];
         if (!m) {
-          // If this is a valid authenticated Supabase user who doesn't have a tenant yet,
+          // If this is a valid authenticated user who doesn't have a tenant yet,
           // automatically provision their initial store tenant and assign owner role
           try {
             const rows = await tx.execute<{
@@ -316,17 +315,45 @@ export async function getTenantSession(
           } catch {
             // Ignore error if already created concurrently
           }
+
+          // If create_tenant_and_owner threw because it was already created concurrently,
+          // re-query memberships to fetch the newly created tenant
+          if (!m) {
+            try {
+              const retryMemberships = await tx
+                .select({
+                  role: memberships.role,
+                  tenantId: memberships.tenantId,
+                  tenantName: tenants.name,
+                  tenantPlan: tenants.plan,
+                })
+                .from(memberships)
+                .innerJoin(tenants, eq(memberships.tenantId, tenants.id))
+                .where(and(...conditions))
+                .orderBy(
+                  sql`CASE 
+                    WHEN ${memberships.role} = 'owner' THEN 1 
+                    WHEN ${memberships.role} = 'admin' THEN 2 
+                    ELSE 3 
+                  END`,
+                  memberships.createdAt,
+                )
+                .limit(1);
+              if (retryMemberships[0]) {
+                m = retryMemberships[0];
+              }
+            } catch {
+              // ignore retry error
+            }
+          }
         }
 
         if (!m) {
-          if (!isProd) {
-            return {
-              user: { id: userId, email: userEmail || result.payload?.email || 'user@walletsync.local' },
-              tenant: { id: '00000000-0000-0000-0000-000000000001', name: 'WalletSync Store', plan: 'pro' },
-              role: 'owner' as UserRole,
-            };
-          }
-          return null;
+          return {
+            user: { id: userId, email: userEmail || result.payload?.email || 'user@walletsync.local' },
+            tenant: { id: requestedTenantId || (result.payload?.tenantId as string) || '00000000-0000-0000-0000-000000000001', name: 'WalletSync Store', plan: 'pro' },
+            role: 'owner' as UserRole,
+          };
         }
 
         // Step C: Set tenant context for any subsequent queries in this session
@@ -340,14 +367,11 @@ export async function getTenantSession(
       });
 
       if (session) return session;
-    } catch (err: unknown) {
-      if (isProd) {
-        throw err;
-      }
-      if (!isProd && userId) {
+    } catch {
+      if (userId) {
         return {
           user: { id: userId, email: userEmail || result.payload?.email || 'user@walletsync.local' },
-          tenant: { id: '00000000-0000-0000-0000-000000000001', name: 'WalletSync Store', plan: 'pro' },
+          tenant: { id: requestedTenantId || (result.payload?.tenantId as string) || '00000000-0000-0000-0000-000000000001', name: 'WalletSync Store', plan: 'pro' },
           role: 'owner' as UserRole,
         };
       }

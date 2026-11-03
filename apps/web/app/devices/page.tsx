@@ -53,6 +53,7 @@ export default function DevicesPage() {
   const activePairingCodeRef = useRef<string | null>(null);
   const seenDeviceIdsRef = useRef<Set<string>>(new Set());
   const lastNotifiedDeviceIdRef = useRef<string | null>(null);
+  const isPairSuccessActiveRef = useRef(false);
 
   // Real-time Device Paired Notification State
   const [pairedDeviceToast, setPairedDeviceToast] = useState<{
@@ -67,6 +68,12 @@ export default function DevicesPage() {
   }, []);
 
   function triggerDevicePairedSuccess(deviceId?: string, label?: string) {
+    if (isPairSuccessActiveRef.current) return;
+    isPairSuccessActiveRef.current = true;
+    setTimeout(() => {
+      isPairSuccessActiveRef.current = false;
+    }, 4000);
+
     setShowPairModal(false);
     const time = new Date().toLocaleTimeString('en-US', {
       hour: '2-digit',

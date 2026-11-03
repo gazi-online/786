@@ -63,6 +63,8 @@ export default function DashboardPage() {
   const activePairingCodeRef = useRef<string | null>(null);
   const seenDeviceIdsRef = useRef<Set<string>>(new Set());
   const lastNotifiedDeviceIdRef = useRef<string | null>(null);
+  const isPairSuccessActiveRef = useRef(false);
+  const burstTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Real-time Device Paired Notification State
   const [pairedDeviceToast, setPairedDeviceToast] = useState<{
@@ -89,6 +91,10 @@ export default function DashboardPage() {
 
     return () => {
       clearInterval(autoFetchTimer);
+      if (burstTimerRef.current) {
+        clearInterval(burstTimerRef.current);
+        burstTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -104,7 +110,11 @@ export default function DashboardPage() {
       const res = await fetch('/api/v1/transactions?limit=100');
       if (res.status === 304) return;
       if (res.status === 401) {
-        window.location.href = '/signin';
+        // Never auto-logout or force redirect during live stream refresh or polling.
+        // Route access is cleanly guarded on page transitions by Next.js middleware.
+        if (!silent) {
+          setError('Session or authorization refresh needed. Please sign in again if issues persist.');
+        }
         return;
       }
       if (!res.ok) throw new Error('Failed to load transactions');
@@ -189,6 +199,13 @@ export default function DashboardPage() {
   }, []);
 
   function triggerDevicePairedSuccess(deviceId?: string, label?: string) {
+    // Debounce to prevent multiple simultaneous triggers from parallel SSE and polling loops
+    if (isPairSuccessActiveRef.current) return;
+    isPairSuccessActiveRef.current = true;
+    setTimeout(() => {
+      isPairSuccessActiveRef.current = false;
+    }, 4000);
+
     setShowPairModal(false);
     const time = new Date().toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -205,15 +222,24 @@ export default function DashboardPage() {
     // 1. Instantly fetch latest transactions from backend
     fetchTransactions(false);
 
-    // 2. Burst polling every 2s for 12 seconds to instantly capture live stream rows
+    // 2. Clear any active burst timer before scheduling a new smooth sequence
+    if (burstTimerRef.current) {
+      clearInterval(burstTimerRef.current);
+      burstTimerRef.current = null;
+    }
+
+    // 3. Smooth burst polling spaced 2.5s apart for 10 seconds (4 attempts total)
     let attempts = 0;
-    const burst = setInterval(() => {
+    burstTimerRef.current = setInterval(() => {
       attempts++;
       fetchTransactions(true);
-      if (attempts >= 6) {
-        clearInterval(burst);
+      if (attempts >= 4) {
+        if (burstTimerRef.current) {
+          clearInterval(burstTimerRef.current);
+          burstTimerRef.current = null;
+        }
       }
-    }, 2000);
+    }, 2500);
   }
 
   // Continuous pairing detector: polls pending code (even if modal is closed) + detects any newly connected device
