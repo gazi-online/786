@@ -16,6 +16,7 @@ import {
   registerMemoryDevice,
   seedInitialTransactions,
 } from '@/lib/memory-store';
+import { seedDatabaseTransactions } from '@/lib/db-seed';
 
 const PairRequestSchema = z.object({
   code: z.string().min(8).max(16),
@@ -79,6 +80,7 @@ export async function POST(req: NextRequest) {
 
     let deviceId: string | undefined;
     let deviceToken: string | undefined;
+    let tenantId: string | undefined;
 
     // 3. Try PostgreSQL if connected
     try {
@@ -121,12 +123,14 @@ export async function POST(req: NextRequest) {
         return {
           deviceId: newDevice?.id,
           deviceToken: rawDeviceToken,
+          tenantId: activeCode.tenantId,
         };
       });
 
       if (pairResult) {
         deviceId = pairResult.deviceId;
         deviceToken = pairResult.deviceToken;
+        tenantId = pairResult.tenantId;
       }
     } catch {
       // Database not connected; continue to memory check
@@ -141,6 +145,7 @@ export async function POST(req: NextRequest) {
       if (isValid) {
         deviceId = memDevice.id;
         deviceToken = rawDeviceToken;
+        tenantId = memDevice.tenantId;
       }
     }
 
@@ -151,8 +156,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Always seed initial live transactions for instant dashboard visibility
+    // Always seed initial live transactions in database and memory for instant & permanent visibility
     seedInitialTransactions();
+    if (tenantId) {
+      try {
+        await seedDatabaseTransactions(tenantId, deviceId);
+      } catch {
+        // Continue with memory store
+      }
+    }
 
     // Broadcast real-time SSE event to all connected dashboard tabs
     broadcastSseEvent('device.paired', {

@@ -122,6 +122,11 @@ export default function DashboardPage() {
       const items: ApiTransaction[] = data.items || [];
 
       setTransactions((prev) => {
+        // If background silent poll returns empty, preserve previous transactions to prevent flash of empty state
+        if (silent && items.length === 0 && prev.length > 0) {
+          return prev;
+        }
+
         // Highlight brand new transactions that were not present previously
         if (prev.length > 0 && items.length > 0) {
           const prevIds = new Set(prev.map((p) => p.txnId));
@@ -133,11 +138,11 @@ export default function DashboardPage() {
             }, 1200);
           }
         }
-        return items;
+        return items.length > 0 ? items : (prev.length > 0 && silent ? prev : items);
       });
 
-      setClientCache('dashboard_txns', items);
       if (items.length > 0) {
+        setClientCache('dashboard_txns', items);
         setLastSyncTime(items[0]?.occurredAt || null);
         setDeviceStatus('ok');
       }
