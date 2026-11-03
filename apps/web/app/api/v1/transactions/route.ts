@@ -6,7 +6,6 @@ import type { ApiTransaction, TransactionStatus, TransactionSource } from '@wall
 import { getMemoryTransactions } from '@/lib/memory-store';
 import { computeTenantScopedETag } from '@/lib/etag';
 import { getTenantSession } from '@/lib/auth';
-import { seedDatabaseTransactions } from '@/lib/db-seed';
 
 export async function GET(req: NextRequest) {
   const session = await getTenantSession(req);
@@ -108,50 +107,6 @@ export async function GET(req: NextRequest) {
           formatted.unshift(m);
           seen.add(m.txnId);
         }
-      }
-    }
-
-    // Auto-seed persistent transactions in database under RLS if none exist yet for this tenant
-    if (formatted.length === 0) {
-      try {
-        await seedDatabaseTransactions(session.tenant.id);
-        const freshRows = await withTenantContext(session.tenant.id, async (tx) => {
-          return await tx
-            .select()
-            .from(transactions)
-            .where(conditions.length > 0 ? and(...conditions) : undefined)
-            .orderBy(desc(transactions.occurredAt))
-            .limit(limit);
-        });
-
-        if (freshRows.length > 0) {
-          formatted = freshRows.map((r) => {
-            const last4 = r.customerLast4;
-            const masked = `••••••${last4}`;
-            return {
-              id: r.id,
-              tenantId: r.tenantId,
-              txnId: r.txnId,
-              source: r.source,
-              service: r.service,
-              serviceName: r.serviceName,
-              customerLast4: last4,
-              customerNoMasked: masked,
-              occurredAt: r.occurredAt.toISOString(),
-              status: r.status,
-              statusRaw: r.statusRaw,
-              operatorRef: r.operatorRef,
-              amountPaise: r.amountPaise,
-              discountPct: parseFloat(r.discountPct) || 0,
-              discountPaise: r.discountPaise,
-              parserVersion: r.parserVersion,
-              createdAt: r.createdAt.toISOString(),
-              updatedAt: r.updatedAt.toISOString(),
-            };
-          });
-        }
-      } catch {
-        // Fallback gracefully
       }
     }
 

@@ -9,6 +9,8 @@
 
 const memoryCache = new Map<string, { data: unknown; timestamp: number }>();
 
+const CACHE_PREFIX = 'ws_cache_v2_';
+
 export function getClientCache<T>(key: string, maxAgeMs = 60_000): T | null {
   // 1. Try in-memory first (0ms latency, works in both browser and test environments)
   const mem = memoryCache.get(key);
@@ -19,7 +21,7 @@ export function getClientCache<T>(key: string, maxAgeMs = 60_000): T | null {
   // 2. Try sessionStorage for tab persistence across reloads (if window/sessionStorage available)
   if (typeof window !== 'undefined' && typeof sessionStorage !== 'undefined') {
     try {
-      const raw = sessionStorage.getItem(`ws_cache_${key}`);
+      const raw = sessionStorage.getItem(`${CACHE_PREFIX}${key}`);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && Date.now() - parsed.timestamp < maxAgeMs) {
@@ -41,7 +43,7 @@ export function setClientCache<T>(key: string, data: T): void {
 
   if (typeof window !== 'undefined' && typeof sessionStorage !== 'undefined') {
     try {
-      sessionStorage.setItem(`ws_cache_${key}`, JSON.stringify(entry));
+      sessionStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(entry));
     } catch {
       // sessionStorage quota
     }
@@ -60,7 +62,7 @@ export function clearClientCache(): void {
       const keysToRemove: string[] = [];
       for (let i = 0; i < sessionStorage.length; i++) {
         const k = sessionStorage.key(i);
-        if (k && k.startsWith('ws_cache_')) {
+        if (k && (k.startsWith('ws_cache_') || k.startsWith('ws_cache_v2_'))) {
           keysToRemove.push(k);
         }
       }

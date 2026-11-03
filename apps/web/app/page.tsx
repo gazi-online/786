@@ -122,9 +122,13 @@ export default function DashboardPage() {
       const items: ApiTransaction[] = data.items || [];
 
       setTransactions((prev) => {
-        // If API returns empty, preserve existing transactions so data is never auto-removed
-        if (items.length === 0) {
+        // If background silent poll returns empty, preserve previous transactions to prevent flash of empty state
+        if (silent && items.length === 0 && prev.length > 0) {
           return prev;
+        }
+
+        if (items.length === 0) {
+          return [];
         }
 
         // Highlight brand new transactions that were not present previously
@@ -155,6 +159,8 @@ export default function DashboardPage() {
         setClientCache('dashboard_txns', items);
         setLastSyncTime(items[0]?.occurredAt || null);
         setDeviceStatus('ok');
+      } else if (!silent) {
+        setClientCache('dashboard_txns', []);
       }
     } catch (err: unknown) {
       if (!silent) {
@@ -349,7 +355,7 @@ export default function DashboardPage() {
       totalCount: 0,
       successCount: 0,
       discountPaise: 0,
-      walletBalancePaise: 1542000,
+      walletBalancePaise: null,
     },
   );
 
@@ -508,8 +514,8 @@ export default function DashboardPage() {
               <p className="text-xl sm:text-2xl font-bold tracking-tight mt-1 text-zinc-900 dark:text-zinc-100 tabular-nums">
                 {formatPaise(stats.totalAmountPaise)}
               </p>
-              <span className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 block">
-                +8.4% vs yesterday
+              <span className="text-[11px] text-zinc-500 mt-1 block">
+                {stats.totalCount > 0 ? '+0% vs yesterday' : '—'}
               </span>
             </div>
 
@@ -532,10 +538,10 @@ export default function DashboardPage() {
               <p className="text-xl sm:text-2xl font-bold tracking-tight mt-1 text-zinc-900 dark:text-zinc-100 tabular-nums">
                 {stats.totalCount > 0
                   ? `${Math.round((stats.successCount / stats.totalCount) * 100)}%`
-                  : '100%'}
+                  : '0%'}
               </p>
-              <span className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 block">
-                Healthy conversion
+              <span className="text-[11px] text-zinc-500 mt-1 block">
+                {stats.totalCount > 0 ? 'Healthy conversion' : 'No transactions'}
               </span>
             </div>
 
@@ -547,7 +553,9 @@ export default function DashboardPage() {
                 {formatPaise(stats.discountPaise)}
               </p>
               <span className="text-[11px] text-zinc-500 mt-1 block">
-                Net margin 1.5%
+                {stats.totalAmountPaise > 0
+                  ? `Net margin ${((stats.discountPaise / stats.totalAmountPaise) * 100).toFixed(1)}%`
+                  : '0% margin'}
               </span>
             </div>
 

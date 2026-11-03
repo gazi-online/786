@@ -69,7 +69,6 @@ export function consumeMemoryPairingCode(
         v.pairedDeviceId = deviceId;
         v.pairedDeviceLabel = label;
         pairingCodesMap.set(k, v);
-        seedInitialTransactions();
         return true;
       }
     }
@@ -83,7 +82,6 @@ export function consumeMemoryPairingCode(
         pairedDeviceId: deviceId || 'ws-pos-term',
         pairedDeviceLabel: label || 'POS Terminal (Chrome)',
       });
-      seedInitialTransactions();
       return true;
     }
     return false;
@@ -97,7 +95,6 @@ export function consumeMemoryPairingCode(
   entry.pairedDeviceId = deviceId;
   entry.pairedDeviceLabel = label;
   pairingCodesMap.set(upper, entry);
-  seedInitialTransactions();
   return true;
 }
 
@@ -129,91 +126,8 @@ export function getMemoryPairingStatus(code: string): {
 }
 
 export function seedInitialTransactions() {
-  if (transactionsList.length > 0) return;
-  const now = new Date();
-  const sampleTxns: ApiTransaction[] = [
-    {
-      id: crypto.randomUUID(),
-      tenantId: '00000000-0000-0000-0000-000000000001',
-      txnId: 'SW' + Math.floor(100000000 + Math.random() * 900000000),
-      source: 'simplewallet',
-      service: 'Recharge',
-      serviceName: 'Jio Prepaid Fast',
-      customerLast4: '4829',
-      customerNoMasked: '••••••4829',
-      occurredAt: new Date(now.getTime() - 2 * 60 * 1000).toISOString(),
-      status: 'success',
-      statusRaw: 'SUCCESS',
-      operatorRef: 'BR' + Math.floor(10000000 + Math.random() * 90000000),
-      amountPaise: 29900,
-      discountPct: 2.5,
-      discountPaise: 747,
-      parserVersion: '1.0.0',
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-    },
-    {
-      id: crypto.randomUUID(),
-      tenantId: '00000000-0000-0000-0000-000000000001',
-      txnId: 'SW' + Math.floor(100000000 + Math.random() * 900000000),
-      source: 'simplewallet',
-      service: 'Bill Pay',
-      serviceName: 'Airtel Postpaid Bill',
-      customerLast4: '8831',
-      customerNoMasked: '••••••8831',
-      occurredAt: new Date(now.getTime() - 7 * 60 * 1000).toISOString(),
-      status: 'success',
-      statusRaw: 'SUCCESS',
-      operatorRef: 'AIR' + Math.floor(10000000 + Math.random() * 90000000),
-      amountPaise: 71900,
-      discountPct: 2.0,
-      discountPaise: 1438,
-      parserVersion: '1.0.0',
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-    },
-    {
-      id: crypto.randomUUID(),
-      tenantId: '00000000-0000-0000-0000-000000000001',
-      txnId: 'EG' + Math.floor(100000000 + Math.random() * 900000000),
-      source: 'egpayment',
-      service: 'DTH',
-      serviceName: 'Tata Play HD Max',
-      customerLast4: '1920',
-      customerNoMasked: '••••••1920',
-      occurredAt: new Date(now.getTime() - 14 * 60 * 1000).toISOString(),
-      status: 'success',
-      statusRaw: 'SUCCESS',
-      operatorRef: 'TP' + Math.floor(10000000 + Math.random() * 90000000),
-      amountPaise: 45000,
-      discountPct: 3.0,
-      discountPaise: 1350,
-      parserVersion: '1.0.0',
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-    },
-    {
-      id: crypto.randomUUID(),
-      tenantId: '00000000-0000-0000-0000-000000000001',
-      txnId: 'EG' + Math.floor(100000000 + Math.random() * 900000000),
-      source: 'egpayment',
-      service: 'Recharge',
-      serviceName: 'Vi Unlimited 84D',
-      customerLast4: '7721',
-      customerNoMasked: '••••••7721',
-      occurredAt: new Date(now.getTime() - 25 * 60 * 1000).toISOString(),
-      status: 'pending',
-      statusRaw: 'PENDING',
-      operatorRef: 'VI' + Math.floor(10000000 + Math.random() * 90000000),
-      amountPaise: 85900,
-      discountPct: 2.2,
-      discountPaise: 1889,
-      parserVersion: '1.0.0',
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-    },
-  ];
-  addMemoryTransactions(sampleTxns);
+  // Demo data removed: No synthetic transactions are generated.
+  // Transactions are populated strictly via live ingest (/api/v1/ingest).
 }
 
 export function registerMemoryDevice(deviceToken: string, tokenHash: string, label?: string): MemoryDevice {
