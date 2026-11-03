@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { sql, eq } from 'drizzle-orm';
-import { db } from '@/lib/db';
+import { withTenantContext, type AppTransaction } from '@/lib/db';
 import { transactions } from '@/drizzle/schema';
 import {
   encryptCustomerNo,
@@ -14,20 +14,6 @@ export async function seedDatabaseTransactions(
   deviceId?: string,
 ): Promise<void> {
   const now = new Date();
-
-  // 1. Check if transactions already exist in database for this tenant
-  try {
-    const existing = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(transactions)
-      .where(eq(transactions.tenantId, tenantId));
-
-    if ((existing[0]?.count || 0) > 0) {
-      return;
-    }
-  } catch {
-    // Database check failed or offline; continue
-  }
 
   const sampleRows = [
     {
@@ -90,58 +76,97 @@ export async function seedDatabaseTransactions(
 
   const memTxns: ApiTransaction[] = [];
 
-  for (const s of sampleRows) {
-    const prefix = s.source === 'simplewallet' ? 'SW' : 'EG';
-    const txnId = `${prefix}${Math.floor(100000000 + Math.random() * 900000000)}`;
+  // Use withTenantContext to ensure all PostgreSQL operations satisfy Row Level Security (RLS)
+  try {
+    await withTenantContext(tenantId, async (tx: AppTransaction) => {
+      // 1. Check if transactions already exist in database for this tenant under RLS
+      const existing = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(transactions)
+        .where(eq(transactions.tenantId, tenantId));
 
-    try {
-      await db.insert(transactions).values({
+      if ((existing[0]?.count || 0) > 0) {
+        return;
+      }
+
+      for (const s of sampleRows) {
+        const prefix = s.source === 'simplewallet' ? 'SW' : 'EG';
+        const txnId = `${prefix}${Math.floor(100000000 + Math.random() * 900000000)}`;
+
+        await tx.insert(transactions).values({
+          tenantId,
+          deviceId: deviceId || null,
+          source: s.source,
+          txnId,
+          service: s.service,
+          serviceName: s.serviceName,
+          customerNo: encryptCustomerNo(s.customerNo, tenantId),
+          customerLast4: s.customerLast4,
+          customerNoHash: hashCustomerNo(s.customerNo),
+          occurredAt: s.occurredAt,
+          status: s.status,
+          statusRaw: s.statusRaw,
+          operatorRef: s.operatorRef,
+          amountPaise: s.amountPaise,
+          discountPct: s.discountPct,
+          discountPaise: s.discountPaise,
+          parserVersion: '1.0.0',
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        memTxns.push({
+          id: crypto.randomUUID(),
+          tenantId,
+          txnId,
+          source: s.source,
+          service: s.service,
+          serviceName: s.serviceName,
+          customerLast4: s.customerLast4,
+          customerNoMasked: `••••••${s.customerLast4}`,
+          occurredAt: s.occurredAt.toISOString(),
+          status: s.status,
+          statusRaw: s.statusRaw,
+          operatorRef: s.operatorRef,
+          amountPaise: s.amountPaise,
+          discountPct: parseFloat(s.discountPct),
+          discountPaise: s.discountPaise,
+          parserVersion: '1.0.0',
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        });
+      }
+    });
+  } catch {
+    // Database offline or transactional failure; generate memory transactions as zero-latency fallback
+    for (const s of sampleRows) {
+      const prefix = s.source === 'simplewallet' ? 'SW' : 'EG';
+      const txnId = `${prefix}${Math.floor(100000000 + Math.random() * 900000000)}`;
+      memTxns.push({
+        id: crypto.randomUUID(),
         tenantId,
-        deviceId: deviceId || null,
-        source: s.source,
         txnId,
+        source: s.source,
         service: s.service,
         serviceName: s.serviceName,
-        customerNo: encryptCustomerNo(s.customerNo, tenantId),
         customerLast4: s.customerLast4,
-        customerNoHash: hashCustomerNo(s.customerNo),
-        occurredAt: s.occurredAt,
+        customerNoMasked: `••••••${s.customerLast4}`,
+        occurredAt: s.occurredAt.toISOString(),
         status: s.status,
         statusRaw: s.statusRaw,
         operatorRef: s.operatorRef,
         amountPaise: s.amountPaise,
-        discountPct: s.discountPct,
+        discountPct: parseFloat(s.discountPct),
         discountPaise: s.discountPaise,
         parserVersion: '1.0.0',
-        createdAt: now,
-        updatedAt: now,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
       });
-    } catch {
-      // Ignore conflict or offline DB errors
     }
-
-    memTxns.push({
-      id: crypto.randomUUID(),
-      tenantId,
-      txnId,
-      source: s.source,
-      service: s.service,
-      serviceName: s.serviceName,
-      customerLast4: s.customerLast4,
-      customerNoMasked: `••••••${s.customerLast4}`,
-      occurredAt: s.occurredAt.toISOString(),
-      status: s.status,
-      statusRaw: s.statusRaw,
-      operatorRef: s.operatorRef,
-      amountPaise: s.amountPaise,
-      discountPct: parseFloat(s.discountPct),
-      discountPaise: s.discountPaise,
-      parserVersion: '1.0.0',
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-    });
   }
 
   // Also seed memory store for zero-latency local fallback
-  addMemoryTransactions(memTxns);
+  if (memTxns.length > 0) {
+    addMemoryTransactions(memTxns);
+  }
 }

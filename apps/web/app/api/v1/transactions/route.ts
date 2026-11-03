@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { withTenantContext } from '@/lib/db';
 import { transactions } from '@/drizzle/schema';
 import { desc, and, eq, or, ilike, lt } from 'drizzle-orm';
 import type { ApiTransaction, TransactionStatus, TransactionSource } from '@walletsync/contract';
@@ -55,13 +55,16 @@ export async function GET(req: NextRequest) {
 
     let formatted: ApiTransaction[] = [];
 
+    // Query PostgreSQL using withTenantContext so PostgreSQL RLS satisfies user_has_tenant_access
     try {
-      const rows = await db
-        .select()
-        .from(transactions)
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(desc(transactions.occurredAt))
-        .limit(limit);
+      const rows = await withTenantContext(session.tenant.id, async (tx) => {
+        return await tx
+          .select()
+          .from(transactions)
+          .where(conditions.length > 0 ? and(...conditions) : undefined)
+          .orderBy(desc(transactions.occurredAt))
+          .limit(limit);
+      });
 
       formatted = rows.map((r) => {
         const last4 = r.customerLast4;
@@ -95,6 +98,9 @@ export async function GET(req: NextRequest) {
     if (memList.length > 0) {
       const seen = new Set(formatted.map((f) => f.txnId));
       for (const m of memList) {
+        if (m.tenantId && m.tenantId !== session.tenant.id && m.tenantId !== '00000000-0000-0000-0000-000000000001') {
+          continue;
+        }
         if (!seen.has(m.txnId)) {
           if (source && source !== 'all' && m.source !== source) continue;
           if (status && status !== 'all' && m.status !== status) continue;
@@ -105,16 +111,18 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Auto-seed persistent transactions in database if none exist yet for this tenant
+    // Auto-seed persistent transactions in database under RLS if none exist yet for this tenant
     if (formatted.length === 0) {
       try {
         await seedDatabaseTransactions(session.tenant.id);
-        const freshRows = await db
-          .select()
-          .from(transactions)
-          .where(conditions.length > 0 ? and(...conditions) : undefined)
-          .orderBy(desc(transactions.occurredAt))
-          .limit(limit);
+        const freshRows = await withTenantContext(session.tenant.id, async (tx) => {
+          return await tx
+            .select()
+            .from(transactions)
+            .where(conditions.length > 0 ? and(...conditions) : undefined)
+            .orderBy(desc(transactions.occurredAt))
+            .limit(limit);
+        });
 
         if (freshRows.length > 0) {
           formatted = freshRows.map((r) => {
@@ -160,7 +168,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const tenantId = itemsToReturn[0]?.tenantId || '00000000-0000-0000-0000-000000000001';
+    const tenantId = itemsToReturn[0]?.tenantId || session.tenant.id;
     const etag = computeTenantScopedETag({
       tenantId,
       count: itemsToReturn.length,

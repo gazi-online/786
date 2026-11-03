@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, withTenantContext } from '@/lib/db';
 import { devices, pairingCodes } from '@/drizzle/schema';
 import { desc, eq, and } from 'drizzle-orm';
 import { hashPairingCode } from '@/lib/crypto';
@@ -59,12 +59,14 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const rows = await db
-      .select()
-      .from(devices)
-      .where(eq(devices.tenantId, session.tenant.id))
-      .orderBy(desc(devices.createdAt))
-      .limit(50);
+    const rows = await withTenantContext(session.tenant.id, async (tx) => {
+      return await tx
+        .select()
+        .from(devices)
+        .where(eq(devices.tenantId, session.tenant.id))
+        .orderBy(desc(devices.createdAt))
+        .limit(50);
+    });
 
     return NextResponse.json({
       devices: rows.map((d) => ({

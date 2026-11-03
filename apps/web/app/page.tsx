@@ -122,13 +122,13 @@ export default function DashboardPage() {
       const items: ApiTransaction[] = data.items || [];
 
       setTransactions((prev) => {
-        // If background silent poll returns empty, preserve previous transactions to prevent flash of empty state
-        if (silent && items.length === 0 && prev.length > 0) {
+        // If API returns empty, preserve existing transactions so data is never auto-removed
+        if (items.length === 0) {
           return prev;
         }
 
         // Highlight brand new transactions that were not present previously
-        if (prev.length > 0 && items.length > 0) {
+        if (prev.length > 0) {
           const prevIds = new Set(prev.map((p) => p.txnId));
           const newTxnIds = items.filter((it) => !prevIds.has(it.txnId)).map((it) => it.txnId);
           if (newTxnIds.length > 0) {
@@ -138,7 +138,17 @@ export default function DashboardPage() {
             }, 1200);
           }
         }
-        return items.length > 0 ? items : (prev.length > 0 && silent ? prev : items);
+
+        // Merge incoming transactions with previous stream by txnId:
+        // Updates existing transaction statuses and prepends new ones without ever removing existing rows
+        const txnMap = new Map(prev.map((t) => [t.txnId, t]));
+        for (const item of items) {
+          txnMap.set(item.txnId, item);
+        }
+
+        return Array.from(txnMap.values()).sort(
+          (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime(),
+        );
       });
 
       if (items.length > 0) {
