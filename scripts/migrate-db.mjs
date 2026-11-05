@@ -58,6 +58,10 @@ async function runMigrations() {
     const rlsSql = fs.readFileSync(path.join(rootDir, 'apps/web/drizzle/0001_rls.sql'), 'utf8');
     await sql.unsafe(rlsSql);
 
+    console.log('Applying 0002_device_heartbeat.sql (Heartbeat & portal metadata columns)...');
+    const heartbeatSql = fs.readFileSync(path.join(rootDir, 'apps/web/drizzle/0002_device_heartbeat.sql'), 'utf8');
+    await sql.unsafe(heartbeatSql);
+
     console.log('✓ All migrations applied successfully.');
   } catch (err) {
     console.error('Migration failed:', err);
