@@ -93,6 +93,7 @@ export default function DashboardPage() {
   const lastNotifiedDeviceIdRef = useRef<string | null>(null);
   const isPairSuccessActiveRef = useRef(false);
   const burstTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pairToastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Real-time Device Paired Notification State
   const [pairedDeviceToast, setPairedDeviceToast] = useState<{
@@ -131,6 +132,10 @@ export default function DashboardPage() {
       if (burstTimerRef.current) {
         clearInterval(burstTimerRef.current);
         burstTimerRef.current = null;
+      }
+      if (pairToastTimerRef.current) {
+        clearTimeout(pairToastTimerRef.current);
+        pairToastTimerRef.current = null;
       }
     };
   }, []);
@@ -223,6 +228,15 @@ export default function DashboardPage() {
       const data = await res.json();
       const items: ApiTransaction[] = data.items || [];
 
+      const getTxnKey = (t: ApiTransaction) =>
+        t.id ? `id_${t.id}` : `${t.source || 'simplewallet'}_${t.txnId}`;
+
+      const getTime = (d?: string | null) => {
+        if (!d) return 0;
+        const val = new Date(d).getTime();
+        return isNaN(val) ? 0 : val;
+      };
+
       setTransactions((prev) => {
         // If background silent poll returns empty, preserve previous transactions to prevent flash of empty state
         if (silent && items.length === 0 && prev.length > 0) {
@@ -235,8 +249,8 @@ export default function DashboardPage() {
 
         // Highlight brand new transactions that were not present previously
         if (prev.length > 0) {
-          const prevIds = new Set(prev.map((p) => p.txnId));
-          const newTxnIds = items.filter((it) => !prevIds.has(it.txnId)).map((it) => it.txnId);
+          const prevKeys = new Set(prev.map(getTxnKey));
+          const newTxnIds = items.filter((it) => !prevKeys.has(getTxnKey(it))).map((it) => it.txnId);
           if (newTxnIds.length > 0) {
             setHighlightedIds(new Set(newTxnIds));
             setTimeout(() => {
@@ -245,21 +259,26 @@ export default function DashboardPage() {
           }
         }
 
-        // Merge incoming transactions with previous stream by txnId:
-        // Updates existing transaction statuses and prepends new ones without ever removing existing rows
-        const txnMap = new Map(prev.map((t) => [t.txnId, t]));
+        // Merge incoming transactions across all portals (SimpleWallet + EG Payment)
+        // Composite key ensures numeric ID collisions never overwrite transactions from another portal
+        const txnMap = new Map(prev.map((t) => [getTxnKey(t), t]));
         for (const item of items) {
-          txnMap.set(item.txnId, item);
+          txnMap.set(getTxnKey(item), item);
         }
 
-        return Array.from(txnMap.values()).sort(
-          (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime(),
-        );
+        const merged = Array.from(txnMap.values()).sort((a, b) => {
+          const diff = getTime(b.occurredAt) - getTime(a.occurredAt);
+          if (diff !== 0) return diff;
+          return getTime(b.createdAt) - getTime(a.createdAt);
+        });
+
+        // Keep local cache in sync with full merged stream
+        setClientCache('dashboard_txns', merged);
+        setClientCache('txns_all_all_all', merged);
+        return merged;
       });
 
       if (items.length > 0) {
-        setClientCache('dashboard_txns', items);
-        setClientCache('txns_all_all_all', items);
         setLastSyncTime(items[0]?.occurredAt || null);
         setDeviceStatus('ok');
       } else if (!silent) {
@@ -333,6 +352,16 @@ export default function DashboardPage() {
 
     setShowPairModal(false);
     setShowDeviceDetailsModal(false);
+
+    // Update local device status immediately so header & empty states reflect "Connected Terminal"
+    setDeviceHeartbeat((prev) => ({
+      ...prev,
+      id: deviceId || prev.id || 'pos-terminal',
+      label: label || prev.label || 'Chrome Extension',
+      status: 'connected',
+      lastSeenAt: new Date().toISOString(),
+    }));
+
     const time = new Date().toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
@@ -345,10 +374,13 @@ export default function DashboardPage() {
       time,
     });
 
-    // Auto-dismiss the success modal after 4.5 seconds so merchant is never stuck
-    setTimeout(() => {
+    // Auto-dismiss / minimize the success modal after 2.5 seconds so merchant is never stuck
+    if (pairToastTimerRef.current) {
+      clearTimeout(pairToastTimerRef.current);
+    }
+    pairToastTimerRef.current = setTimeout(() => {
       setPairedDeviceToast(null);
-    }, 4500);
+    }, 2500);
 
     // 1. Instantly fetch latest transactions from backend
     fetchTransactions(false);
@@ -492,8 +524,19 @@ export default function DashboardPage() {
     }
   }
 
-  // 5. Generate pair code modal
+  // 5. Connect Extension / Pairing Modal Router
   async function openPairingModal() {
+    // If a terminal is already paired or connected, show the active connected device details
+    // instead of generating a new random pairing code
+    if (deviceHeartbeat.id || deviceHeartbeat.status === 'connected') {
+      setShowDeviceDetailsModal(true);
+      return;
+    }
+    await forceGenerateNewPairingCode();
+  }
+
+  // Explicitly generate a fresh pairing code when requested
+  async function forceGenerateNewPairingCode() {
     try {
       const res = await fetch('/api/v1/devices', { method: 'POST' });
       if (res.ok) {
@@ -510,6 +553,7 @@ export default function DashboardPage() {
         } catch {
           // ignore storage error
         }
+        setShowDeviceDetailsModal(false);
         setShowPairModal(true);
       } else {
         const data = await res.json().catch(() => ({}));
@@ -1520,11 +1564,12 @@ export default function DashboardPage() {
               </div>
 
               <button
+                type="button"
                 onClick={() => {
                   setShowDeviceDetailsModal(false);
-                  openPairingModal();
+                  forceGenerateNewPairingCode();
                 }}
-                className="w-full py-1.5 text-center text-[11px] text-zinc-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
+                className="w-full py-1.5 text-center text-[11px] text-zinc-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer font-medium"
               >
                 + Pair New / Additional Extension
               </button>
@@ -1538,18 +1583,26 @@ export default function DashboardPage() {
         <div
           role="dialog"
           aria-modal="true"
-          onClick={() => setPairedDeviceToast(null)}
+          onClick={() => {
+            if (pairToastTimerRef.current) clearTimeout(pairToastTimerRef.current);
+            setPairedDeviceToast(null);
+          }}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-in fade-in zoom-in-95 duration-200 cursor-pointer"
         >
           <div
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-md bg-[#0B0D13] border border-emerald-500/40 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-zinc-100 cursor-default"
           >
+            {/* Top Auto-dismiss Countdown Progress Indicator */}
+            <div className="absolute top-0 left-0 right-0 h-1 bg-zinc-800 overflow-hidden">
+              <div className="h-full bg-emerald-400 animate-pulse transition-all duration-2500 w-full" />
+            </div>
+
             {/* Top Emerald Ambient Glow */}
             <div className="absolute -top-14 -left-14 w-36 h-36 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none" />
             <div className="absolute -top-14 -right-14 w-36 h-36 bg-blue-500/15 rounded-full blur-3xl pointer-events-none" />
 
-            <div className="flex items-start justify-between relative z-10">
+            <div className="flex items-start justify-between relative z-10 pt-1">
               <div className="flex items-center gap-3">
                 <div className="relative flex items-center justify-center w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
                   <span className="absolute w-4 h-4 rounded-full bg-emerald-500 animate-ping opacity-75" />
@@ -1567,12 +1620,30 @@ export default function DashboardPage() {
                   </h3>
                 </div>
               </div>
-              <button
-                onClick={() => setPairedDeviceToast(null)}
-                className="text-zinc-400 hover:text-zinc-100 p-1 rounded-lg hover:bg-zinc-800/60 transition-colors cursor-pointer"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  title="Minimize"
+                  onClick={() => {
+                    if (pairToastTimerRef.current) clearTimeout(pairToastTimerRef.current);
+                    setPairedDeviceToast(null);
+                  }}
+                  className="text-zinc-400 hover:text-zinc-100 px-2 py-0.5 rounded-lg hover:bg-zinc-800/60 transition-colors cursor-pointer text-xs font-bold"
+                >
+                  —
+                </button>
+                <button
+                  type="button"
+                  title="Close"
+                  onClick={() => {
+                    if (pairToastTimerRef.current) clearTimeout(pairToastTimerRef.current);
+                    setPairedDeviceToast(null);
+                  }}
+                  className="text-zinc-400 hover:text-zinc-100 p-1 rounded-lg hover:bg-zinc-800/60 transition-colors cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             <p className="text-xs text-zinc-300 mt-3 leading-relaxed">
@@ -1593,21 +1664,23 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="mt-6 flex items-center gap-3">
+            <div className="mt-5 flex items-center gap-3">
               <button
+                type="button"
                 onClick={() => {
+                  if (pairToastTimerRef.current) clearTimeout(pairToastTimerRef.current);
                   setPairedDeviceToast(null);
                   fetchTransactions(false);
                 }}
-                className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs tracking-wide transition-all shadow-lg shadow-emerald-950/40 flex items-center justify-center gap-2 cursor-pointer"
+                className="flex-1 py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs tracking-wide transition-all shadow-lg shadow-emerald-950/40 flex items-center justify-center gap-2 cursor-pointer"
               >
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                View Live Transactions
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Done (Minimize to Dashboard)
               </button>
             </div>
 
-            <p className="text-[10px] text-zinc-500 text-center mt-3 font-mono">
-              Auto-closing in 4s • click anywhere to dismiss
+            <p className="text-[10px] text-zinc-500 text-center mt-2.5 font-mono">
+              Auto-minimizing in 2.5s • Click anywhere to dismiss
             </p>
           </div>
         </div>

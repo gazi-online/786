@@ -95,19 +95,27 @@ export async function GET(req: NextRequest) {
 
     const memList = getMemoryTransactions();
     if (memList.length > 0) {
-      const seen = new Set(formatted.map((f) => f.txnId));
+      const getCompositeKey = (t: { source?: string | null; txnId: string }) =>
+        `${t.source || 'simplewallet'}_${t.txnId}`;
+      const seen = new Set(formatted.map(getCompositeKey));
       for (const m of memList) {
         if (m.tenantId && m.tenantId !== session.tenant.id && m.tenantId !== '00000000-0000-0000-0000-000000000001') {
           continue;
         }
-        if (!seen.has(m.txnId)) {
+        const mKey = getCompositeKey(m);
+        if (!seen.has(mKey)) {
           if (source && source !== 'all' && m.source !== source) continue;
           if (status && status !== 'all' && m.status !== status) continue;
           if (service && service !== 'all' && m.service !== service) continue;
-          formatted.unshift(m);
-          seen.add(m.txnId);
+          formatted.push(m);
+          seen.add(mKey);
         }
       }
+      formatted.sort((a, b) => {
+        const timeA = new Date(a.occurredAt).getTime();
+        const timeB = new Date(b.occurredAt).getTime();
+        return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+      });
     }
 
     const nextCursor =

@@ -217,13 +217,28 @@ export default defineBackground(() => {
           };
         });
 
+        const existingTxns = storage.recentTransactions || [];
+        const getKey = (item: { source?: string; txnId: string }) => `${item.source || 'simplewallet'}_${item.txnId}`;
+        const txnMap = new Map(existingTxns.map((t) => [getKey(t), t]));
+        for (const r of recentRows) {
+          txnMap.set(getKey(r), r);
+        }
+        const mergedRecent = Array.from(txnMap.values()).sort((a, b) => {
+          const tA = new Date(a.occurredAt).getTime();
+          const tB = new Date(b.occurredAt).getTime();
+          return (isNaN(tB) ? 0 : tB) - (isNaN(tA) ? 0 : tA);
+        }).slice(0, 20);
+
+        const swCount = source === 'simplewallet' ? payload.rows.length : storage.simplewalletCount || 0;
+        const egCount = source === 'egpayment' ? payload.rows.length : storage.egpaymentCount || 0;
+
         const patch: Partial<StorageData> = {
           status: 'ok',
           errorMessage: null,
           lastSyncTime: nowIso,
-          todayCount: payload.rows.length,
+          todayCount: swCount + egCount,
           todayAmountPaise: totalAmount,
-          recentTransactions: recentRows,
+          recentTransactions: mergedRecent,
           offlineQueue: [], // clear offline queue on successful ingest
         };
 

@@ -216,13 +216,17 @@ export function updateMemoryDeviceHeartbeat(
 }
 
 export function addMemoryTransactions(txns: ApiTransaction[]) {
-  const existingIds = new Set(transactionsList.map((t) => t.txnId));
+  const getKey = (t: ApiTransaction) => `${t.source || 'simplewallet'}_${t.txnId}`;
+  const map = new Map(transactionsList.map((t) => [getKey(t), t]));
   for (const t of txns) {
-    if (!existingIds.has(t.txnId)) {
-      transactionsList.unshift(t);
-      existingIds.add(t.txnId);
-    }
+    map.set(getKey(t), t);
   }
+  const sorted = Array.from(map.values()).sort((a, b) => {
+    const timeA = new Date(a.occurredAt).getTime();
+    const timeB = new Date(b.occurredAt).getTime();
+    return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+  });
+  transactionsList.splice(0, transactionsList.length, ...sorted);
 }
 
 export function getMemoryTransactions(): ApiTransaction[] {

@@ -67,12 +67,12 @@ export async function POST(req: NextRequest) {
     const codeHash = hashPairingCode(cleanCode);
     const now = new Date();
 
-    // Rate limit per code (lock code after 5 failed attempts)
-    const codeRateLimit = await checkRateLimit(`pair:code:${codeHash}`, 5, 600);
+    // Rate limit per code (lock code after 15 failed attempts in 300s)
+    const codeRateLimit = await checkRateLimit(`pair:code:${codeHash}`, 15, 300);
     if (!codeRateLimit.success) {
       return NextResponse.json(
-        { error: 'Pairing code is locked due to too many failed attempts' },
-        { status: 429, headers: { 'Retry-After': '600' } },
+        { error: 'Pairing code is locked due to repeated attempts. Please generate a fresh code from your Web Dashboard.' },
+        { status: 429, headers: { 'Retry-After': '60', ...CORS_HEADERS } },
       );
     }
 
