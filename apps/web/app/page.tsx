@@ -528,9 +528,28 @@ export default function DashboardPage() {
   async function handleSyncAllDataNow() {
     setIsSyncingAll(true);
     try {
-      await fetchTransactions(true);
-      setSyncToastMessage('All portal transactions synchronized successfully!');
-      setTimeout(() => setSyncToastMessage(null), 3000);
+      const res = await fetch('/api/v1/transactions');
+      if (res.ok) {
+        const data = await res.json();
+        const items: ApiTransaction[] = data.items || [];
+        if (items.length > 0) {
+          setTransactions(items);
+          setClientCache('dashboard_txns', items);
+          setClientCache('txns_all_all_all', items);
+          setLastSyncTime(items[0]?.occurredAt || null);
+          setSyncToastMessage(`Synchronized ${items.length} live transactions successfully ✓`);
+        } else {
+          setSyncToastMessage(
+            deviceHeartbeat.status === 'connected'
+              ? 'Terminal connected. Keep SimpleWallet or EGPayment history tab open in browser to stream live records.'
+              : 'No live records yet today. Launch portal or use Direct HTML Ingest to sync immediately.',
+          );
+        }
+      } else {
+        await fetchTransactions(true);
+        setSyncToastMessage('Transactions refreshed');
+      }
+      setTimeout(() => setSyncToastMessage(null), 4000);
     } catch {
       setSyncToastMessage('Sync completed');
       setTimeout(() => setSyncToastMessage(null), 2500);

@@ -188,6 +188,8 @@ export default defineContentScript({
         sendResponse: (res?: unknown) => void,
       ) => {
         if (message && (message.type === 'TRIGGER_PARSE' || message.type === 'TRIGGER_SHOW_CLICK')) {
+          const currentResult = parseCurrentPage();
+
           // If refresh requested or manual TRIGGER_SHOW_CLICK on SimpleWallet, attempt safe auto-click if enabled
           if ((message.refresh || message.type === 'TRIGGER_SHOW_CLICK') && isSimpleWalletHistoryPage) {
             chrome.storage.local.get(
@@ -209,33 +211,24 @@ export default defineContentScript({
                       },
                     );
                     console.log('[WalletSync] Auto-click manual refresh result:', res);
-                  }, 400);
-                  sendResponse({ success: true, pending: true, message: 'Refreshing via Show button' });
-                } else {
-                  const result = parseCurrentPage();
-                  sendResponse({ success: true, result });
+                  }, 200);
                 }
               },
             );
-            return true;
           }
 
-          const result = parseCurrentPage();
-          sendResponse({ success: true, result });
+          sendResponse({ success: true, result: currentResult });
           return true;
         }
       },
     );
 
-    // 4. Automatic parse on page load (if table is present)
-    // For simplewallet, the table may load dynamically via AJAX after clicking "Show" button.
-    // Use MutationObserver to detect when #gvList appears, then parse.
-    let hasParsedOnLoad = false;
-
+    // 4. Automatic parse on page load & continuous table observation
+    // For simplewallet and ajax portals, watch for table population or updates
     function tryParseAndNotify() {
       try {
         const result = parseCurrentPage();
-        if (result.ok) {
+        if (result.ok && result.rows.length > 0) {
           chrome.runtime.sendMessage({
             type: 'CONTENT_PARSED_PAGE',
             result,
@@ -246,41 +239,24 @@ export default defineContentScript({
           }
           return true;
         }
-        // If parser failed (e.g., layout_changed, logged_out), don't retry automatically
-        // The background script will handle retry via TRIGGER_PARSE
       } catch {
         // Ignore background communication errors
       }
       return false;
     }
 
-    // Try immediate parse first (for pages where table is already in initial HTML)
-    if (window.location.hostname.includes('simplewallet.in')) {
-      // For simplewallet, check if table exists; if not, wait for it
-      const gvList = document.getElementById('gvList');
-      if (gvList) {
-        hasParsedOnLoad = tryParseAndNotify();
-      } else {
-        // Table not yet loaded — watch for it to appear via AJAX
-        const observer = new MutationObserver((mutations, obs) => {
-          const table = document.getElementById('gvList');
-          if (table) {
-            obs.disconnect();
-            // Small delay to let table rows populate
-            setTimeout(() => {
-              tryParseAndNotify();
-            }, 500);
-          }
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
+    // Try immediate parse on page load
+    tryParseAndNotify();
 
-        // Safety timeout: stop observing after 30 seconds
-        setTimeout(() => observer.disconnect(), 30000);
-      }
-    } else {
-      // For egpayment and other portals, parse immediately
-      hasParsedOnLoad = tryParseAndNotify();
-    }
+    // Continuous DOM mutation watcher for AJAX updates (e.g. after clicking Show)
+    let mutationDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const observer = new MutationObserver(() => {
+      if (mutationDebounceTimer) clearTimeout(mutationDebounceTimer);
+      mutationDebounceTimer = setTimeout(() => {
+        tryParseAndNotify();
+      }, 500);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
 
     // 5. Periodic auto-refresh while tab is kept open (if enabled in settings)
     if (isSimpleWalletHistoryPage) {

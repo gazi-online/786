@@ -62,6 +62,10 @@ async function runMigrations() {
     const heartbeatSql = fs.readFileSync(path.join(rootDir, 'apps/web/drizzle/0002_device_heartbeat.sql'), 'utf8');
     await sql.unsafe(heartbeatSql);
 
+    console.log('Applying 0003_sync_events_fix.sql (Sync events schema fix)...');
+    const syncEventsSql = fs.readFileSync(path.join(rootDir, 'apps/web/drizzle/0003_sync_events_fix.sql'), 'utf8');
+    await sql.unsafe(syncEventsSql);
+
     console.log('✓ All migrations applied successfully.');
   } catch (err) {
     console.error('Migration failed:', err);

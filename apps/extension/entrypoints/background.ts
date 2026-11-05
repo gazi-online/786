@@ -65,6 +65,14 @@ export default defineBackground(() => {
       return;
     }
 
+    // Flush any pending buffered payloads from offline queue
+    if (storage.offlineQueue && storage.offlineQueue.length > 0) {
+      const queueToFlush = [...storage.offlineQueue];
+      for (const bufferedPayload of queueToFlush) {
+        await sendIngest(bufferedPayload, storage);
+      }
+    }
+
     // Try finding open portal tabs first (simplewallet or egpayment)
     const portalTabs = await chrome.tabs.query({
       url: [
