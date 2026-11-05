@@ -24,6 +24,11 @@ interface DeviceItem {
   label: string;
   status: string;
   parserVersion: string;
+  extensionVersion?: string;
+  portal?: string | null;
+  portalLoggedIn?: boolean;
+  lastSyncAt?: string | null;
+  errorCategory?: string | null;
   lastSeenAt: string | null;
   revokedAt: string | null;
   createdAt: string;
@@ -352,6 +357,8 @@ export default function DevicesPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {devicesList.map((dev) => {
                 const isRevoked = Boolean(dev.revokedAt);
+                const lastSeenMs = dev.lastSeenAt ? new Date(dev.lastSeenAt).getTime() : 0;
+                const isOnline = !isRevoked && lastSeenMs > 0 && Date.now() - lastSeenMs <= 2 * 60 * 1000;
                 return (
                   <div
                     key={dev.id}
@@ -370,42 +377,54 @@ export default function DevicesPage() {
                         </div>
                       </div>
 
-                      <span
-                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium ${
-                          isRevoked
-                            ? 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
-                            : dev.status === 'ok'
-                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
-                            : 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
-                        }`}
-                      >
-                        {isRevoked ? (
-                          t.devices.revoked
-                        ) : dev.status === 'ok' ? (
-                          <>
-                            <CheckCircle2 className="w-3 h-3" />
-                            {t.devices.statusOk}
-                          </>
-                        ) : (
-                          <>
-                            <AlertTriangle className="w-3 h-3" />
-                            {dev.status}
-                          </>
+                      <div className="flex items-center gap-2">
+                        {isOnline && dev.portalLoggedIn === false && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                            Portal login needed
+                          </span>
                         )}
-                      </span>
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium ${
+                            isRevoked
+                              ? 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                              : isOnline
+                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                              : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                          }`}
+                        >
+                          {isRevoked ? (
+                            t.devices.revoked
+                          ) : isOnline ? (
+                            <>
+                              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                              Connected
+                            </>
+                          ) : (
+                            <>
+                              <AlertTriangle className="w-3 h-3 text-zinc-400" />
+                              Offline
+                            </>
+                          )}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-zinc-100 dark:border-zinc-800">
                       <div>
                         <span className="text-zinc-400 block">{t.devices.parserVersion}</span>
                         <span className="font-mono text-zinc-700 dark:text-zinc-300">
-                          v{dev.parserVersion}
+                          v{dev.extensionVersion || dev.parserVersion}
                         </span>
                       </div>
                       <div>
                         <span className="text-zinc-400 block">{t.common.lastSynced}</span>
                         <span className="text-zinc-700 dark:text-zinc-300 tabular-nums">
-                          {dev.lastSeenAt ? formatKolkataDate(dev.lastSeenAt) : t.common.neverSynced}
+                          {dev.lastSyncAt
+                            ? formatKolkataDate(dev.lastSyncAt)
+                            : dev.lastSeenAt
+                            ? formatKolkataDate(dev.lastSeenAt)
+                            : t.common.neverSynced}
                         </span>
                       </div>
                     </div>

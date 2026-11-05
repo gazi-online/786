@@ -8,9 +8,11 @@ import {
 import type { ParseResult } from '@walletsync/contract';
 
 export default defineContentScript({
-  // Hardening Amd-6: Content scripts match ONLY the exact history paths of each portal
+  // Hardening Amd-6: Content scripts match ONLY the exact history paths of each portal (handling casing variations)
   matches: [
     'https://simplewallet.in/web/MyTrans.aspx*',
+    'https://simplewallet.in/web/mytrans.aspx*',
+    'https://simplewallet.in/Web/MyTrans.aspx*',
     'https://egpayment.com/users/recharge_history*',
   ],
   runAt: 'document_idle',
@@ -113,52 +115,69 @@ export default defineContentScript({
 
     // 2. Safe Auto-Click on SimpleWallet search button (ADR 005)
     // Runs ONLY on exact history path, ONLY if enabled in settings, ONLY after fingerprint matches
-    if (window.location.hostname.includes('simplewallet.in') && window.location.pathname === EXACT_EXPECTED_PATH) {
-      const gvList = document.getElementById('gvList');
+    const isSimpleWalletHistoryPage =
+      window.location.hostname.includes('simplewallet.in') &&
+      window.location.pathname.toLowerCase().endsWith('/web/mytrans.aspx');
 
+    if (isSimpleWalletHistoryPage) {
       chrome.storage.local.get(
         ['autoClickEnabled', 'autoClickIntervalSeconds'],
         (settings: { autoClickEnabled?: boolean; autoClickIntervalSeconds?: number }) => {
-          const autoClickEnabled = Boolean(settings?.autoClickEnabled); // Safest default: false
+          const autoClickEnabled = settings?.autoClickEnabled !== false; // Default: true (Auto-Detector ON)
           const intervalSeconds = Math.max(
             MIN_AUTO_CLICK_INTERVAL_SECONDS,
             settings?.autoClickIntervalSeconds || 120,
           );
 
-          if (!gvList && autoClickEnabled) {
-            const lastClickStr = sessionStorage.getItem('walletsync_show_clicked');
-            const lastClick = lastClickStr ? parseInt(lastClickStr, 10) : undefined;
-            const now = Date.now();
+          if (!autoClickEnabled) return;
 
-            if (!lastClick || now - lastClick > intervalSeconds * 1000) {
-              showNotification('WalletSync: Auto-loading transactions in 2 seconds...', 'info');
-
-              setTimeout(() => {
-                const res = attemptAutoClick(
-                  document,
-                  window.location.pathname,
-                  {
-                    autoClickEnabled,
-                    autoClickIntervalSeconds: intervalSeconds,
-                    ...(lastClick !== undefined ? { lastClickTime: lastClick } : {}),
-                  },
-                  (detail) => {
-                    chrome.runtime.sendMessage({
-                      type: 'CONTENT_PARSER_ERROR',
-                      error: { reason: 'layout_changed', detail },
-                    }).catch(() => {});
-                  },
-                );
-
-                if (res.clicked) {
-                  sessionStorage.setItem('walletsync_show_clicked', Date.now().toString());
-                }
-              }, 2000);
+          function attemptInitialAutoClick(retryCount = 0) {
+            const gvList = document.getElementById('gvList');
+            // Table is only considered loaded if it exists and has data rows (> 1 row including header)
+            if (gvList && gvList.querySelectorAll('tr').length > 1) {
+              sessionStorage.removeItem('walletsync_show_clicked');
+              return;
             }
-          } else if (gvList) {
-            // Table loaded; clear initial load session flag
-            sessionStorage.removeItem('walletsync_show_clicked');
+
+            const button = (document.getElementById('cmdShow') ||
+              document.querySelector(
+                '#cmdShow, [id$="cmdShow"], input[name$="cmdShow"], input[type="submit"][value="Show"]',
+              )) as HTMLElement | null;
+
+            if (!button && retryCount < 15) {
+              setTimeout(() => attemptInitialAutoClick(retryCount + 1), 400);
+              return;
+            }
+
+            showNotification('WalletSync: Auto-loading transactions...', 'info');
+
+            const res = attemptAutoClick(
+              document,
+              window.location.pathname,
+              {
+                autoClickEnabled: true,
+                autoClickIntervalSeconds: intervalSeconds,
+              },
+              (detail) => {
+                chrome.runtime.sendMessage({
+                  type: 'CONTENT_PARSER_ERROR',
+                  error: { reason: 'layout_changed', detail },
+                }).catch(() => {});
+              },
+            );
+
+            console.log('[WalletSync] Auto-click attempt result:', res);
+
+            if (res.clicked) {
+              sessionStorage.setItem('walletsync_show_clicked', Date.now().toString());
+              showNotification('WalletSync: Show button clicked ✓ Loading live records...', 'success');
+            } else if (!res.clicked && retryCount < 6) {
+              setTimeout(() => attemptInitialAutoClick(retryCount + 1), 700);
+            }
           }
+
+          // Trigger after 400ms for DOM readiness
+          setTimeout(() => attemptInitialAutoClick(), 400);
         },
       );
     }
@@ -170,16 +189,17 @@ export default defineContentScript({
         _sender: chrome.runtime.MessageSender,
         sendResponse: (res?: unknown) => void,
       ) => {
-        if (message && message.type === 'TRIGGER_PARSE') {
-          // If refresh requested and on SimpleWallet, attempt safe auto-click if enabled
-          if (message.refresh && window.location.hostname.includes('simplewallet.in')) {
+        if (message && (message.type === 'TRIGGER_PARSE' || message.type === 'TRIGGER_SHOW_CLICK')) {
+          // If refresh requested or manual TRIGGER_SHOW_CLICK on SimpleWallet, attempt safe auto-click if enabled
+          if ((message.refresh || message.type === 'TRIGGER_SHOW_CLICK') && isSimpleWalletHistoryPage) {
             chrome.storage.local.get(
               ['autoClickEnabled', 'autoClickIntervalSeconds'],
               (settings: { autoClickEnabled?: boolean; autoClickIntervalSeconds?: number }) => {
-                if (settings?.autoClickEnabled) {
-                  showNotification('WalletSync: Refreshing transactions in 2 seconds...', 'info');
+                const autoClickEnabled = settings?.autoClickEnabled !== false;
+                if (autoClickEnabled) {
+                  showNotification('WalletSync: Refreshing transactions via Show button...', 'info');
                   setTimeout(() => {
-                    attemptAutoClick(
+                    const res = attemptAutoClick(
                       document,
                       window.location.pathname,
                       {
@@ -190,7 +210,8 @@ export default defineContentScript({
                         ),
                       },
                     );
-                  }, 2000);
+                    console.log('[WalletSync] Auto-click manual refresh result:', res);
+                  }, 400);
                   sendResponse({ success: true, pending: true, message: 'Refreshing via Show button' });
                 } else {
                   const result = parseCurrentPage();
@@ -264,11 +285,12 @@ export default defineContentScript({
     }
 
     // 5. Periodic auto-refresh while tab is kept open (if enabled in settings)
-    if (window.location.hostname.includes('simplewallet.in') && window.location.pathname === EXACT_EXPECTED_PATH) {
+    if (isSimpleWalletHistoryPage) {
       chrome.storage.local.get(
         ['autoClickEnabled', 'autoClickIntervalSeconds', 'isPaused'],
         (res: { autoClickEnabled?: boolean; autoClickIntervalSeconds?: number; isPaused?: boolean }) => {
-          if (!res?.autoClickEnabled || res?.isPaused) return;
+          const autoClickEnabled = res?.autoClickEnabled !== false;
+          if (!autoClickEnabled || res?.isPaused) return;
 
           const intervalSeconds = Math.max(
             MIN_AUTO_CLICK_INTERVAL_SECONDS,

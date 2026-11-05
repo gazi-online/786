@@ -158,8 +158,38 @@ export default function App() {
     });
   }
 
-  function handleOpenPortal(url: string) {
-    chrome.tabs.create({ url });
+  async function handleOpenPortal(url: string) {
+    try {
+      const isSimpleWallet = url.includes('simplewallet');
+      const queryPattern = isSimpleWallet
+        ? ['*://simplewallet.in/*', '*://*.simplewallet.in/*']
+        : ['*://egpayment.com/*', '*://*.egpayment.com/*'];
+
+      if (typeof chrome !== 'undefined' && chrome.tabs) {
+        const existingTabs = await chrome.tabs.query({ url: queryPattern });
+        const targetTab = existingTabs[0];
+        if (targetTab && targetTab.id !== undefined) {
+          // Switch to existing open tab
+          await chrome.tabs.update(targetTab.id, { active: true });
+          if (targetTab.windowId !== undefined) {
+            await chrome.windows.update(targetTab.windowId, { focused: true });
+          }
+          if (isSimpleWallet) {
+            // Signal content script to auto-click Show button immediately
+            chrome.tabs.sendMessage(targetTab.id, {
+              type: 'TRIGGER_SHOW_CLICK',
+              refresh: true,
+            }).catch(() => {});
+          }
+          return;
+        }
+        chrome.tabs.create({ url });
+      } else {
+        window.open(url, '_blank');
+      }
+    } catch {
+      window.open(url, '_blank');
+    }
   }
 
   function handleOpenDashboard() {
@@ -514,7 +544,22 @@ export default function App() {
                   <Layers className="w-3 h-3 text-blue-400" />
                   Live Portal Status
                 </span>
-                <span className="text-[10px] text-emerald-400 font-mono">Auto-Detector ON</span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const next = data?.autoClickEnabled === false ? true : false;
+                    await setStorage({ autoClickEnabled: next });
+                    loadData();
+                  }}
+                  className="text-[10px] font-mono cursor-pointer transition-opacity hover:opacity-80"
+                  title="Click to toggle auto-clicking the Show button"
+                >
+                  {data?.autoClickEnabled !== false ? (
+                    <span className="text-emerald-400">Auto-Detector ON</span>
+                  ) : (
+                    <span className="text-zinc-500">Auto-Detector OFF</span>
+                  )}
+                </button>
               </div>
 
               {/* CARD 1: SimpleWallet */}

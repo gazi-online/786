@@ -76,6 +76,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const isDev = process.env.NODE_ENV === 'development';
     let deviceId: string | undefined;
     let deviceToken: string | undefined;
 
@@ -128,11 +129,17 @@ export async function POST(req: NextRequest) {
         deviceToken = pairResult.deviceToken;
       }
     } catch {
-      // Database not connected; continue to memory check
+      if (!isDev) {
+        return NextResponse.json(
+          { error: 'Database not configured or unavailable' },
+          { status: 503, headers: CORS_HEADERS },
+        );
+      }
+      // In dev, continue to memory check
     }
 
-    // 4. In-memory check for local development / demo
-    if (!deviceId || !deviceToken) {
+    // 4. In-memory check ONLY for local development / demo
+    if (isDev && (!deviceId || !deviceToken)) {
       const rawDeviceToken = generateDeviceToken();
       const tokenHash = hashDeviceToken(rawDeviceToken);
       const memDevice = registerMemoryDevice(rawDeviceToken, tokenHash, label);
@@ -146,7 +153,7 @@ export async function POST(req: NextRequest) {
     if (!deviceId || !deviceToken) {
       return NextResponse.json(
         { error: 'Invalid or expired pairing code' },
-        { status: 400 },
+        { status: 400, headers: CORS_HEADERS },
       );
     }
 
@@ -169,10 +176,10 @@ export async function POST(req: NextRequest) {
         deviceToken,
         serverTime: now.toISOString(),
       },
-      { status: 201 },
+      { status: 201, headers: CORS_HEADERS },
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Pairing failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500, headers: CORS_HEADERS });
   }
 }

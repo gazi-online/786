@@ -3,11 +3,30 @@ import postgres from 'postgres';
 import { sql } from 'drizzle-orm';
 import * as schema from '@/drizzle/schema';
 
+// Guard to ensure single startup log
+let hasLoggedEnvCheck = false;
+
+export function checkDatabaseEnvironment(): void {
+  if (hasLoggedEnvCheck) return;
+  hasLoggedEnvCheck = true;
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  const hasDbUrl = Boolean(
+    process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.SUPABASE_DB_URL,
+  );
+
+  if (isProduction && !hasDbUrl) {
+    console.warn(
+      '[WalletSync WARN] DATABASE_URL or POSTGRES_URL is missing in production environment. Database queries will fail and pairing will return 503.',
+    );
+  }
+}
+
 /**
  * Production Database and In-Memory Store Boot Guard
  *
  * Requirements (Amd-2):
- * - Boot fails in production (NODE_ENV === 'production') without DATABASE_URL / SUPABASE_DB_URL.
+ * - Checks in production (NODE_ENV === 'production') for DATABASE_URL / POSTGRES_URL / SUPABASE_DB_URL.
  * - Boot fails in production if ALLOW_IN_MEMORY_STORE is set.
  * - In-memory store is allowed ONLY when NODE_ENV !== 'production' and ALLOW_IN_MEMORY_STORE is set to 'true'.
  */
@@ -24,11 +43,7 @@ export function validateEnvironmentAndDatabaseConfig(): { isProduction: boolean;
         'FATAL: ALLOW_IN_MEMORY_STORE is strictly forbidden in production (NODE_ENV=production). Refusing to start.',
       );
     }
-    if (!process.env.DATABASE_URL && !process.env.SUPABASE_DB_URL) {
-      throw new Error(
-        'FATAL: Production requires DATABASE_URL or SUPABASE_DB_URL. In-memory store cannot be used in production. Refusing to start.',
-      );
-    }
+    checkDatabaseEnvironment();
   }
 
   const allowMemoryFallback = !isProduction && (allowMemoryStoreEnv === 'true' || allowMemoryStoreEnv === '1');
@@ -41,6 +56,7 @@ validateEnvironmentAndDatabaseConfig();
 // Connection string for PostgreSQL runtime role
 const connectionString =
   process.env.DATABASE_URL ||
+  process.env.POSTGRES_URL ||
   process.env.SUPABASE_DB_URL ||
   'postgres://postgres:postgres@localhost:5432/walletsync';
 

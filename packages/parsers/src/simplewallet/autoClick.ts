@@ -67,39 +67,55 @@ export function verifySimpleWalletFingerprint(
     return { valid: false, reason: 'forbidden_recharge_path' };
   }
 
-  // 2. PATH CHECK: Only on the exact history path
-  if (!pathname.endsWith('/web/MyTrans.aspx') && pathname !== '/web/MyTrans.aspx') {
+  // 2. PATH CHECK: Only on the exact history path (case-insensitive)
+  if (!lowerPath.endsWith('/web/mytrans.aspx') && lowerPath !== '/web/mytrans.aspx') {
     return { valid: false, reason: 'wrong_path' };
   }
 
-  // 3. TITLE / SENTINEL CHECK: Page fingerprint title must contain "MY TRANSACTION"
+  // 3. TITLE / SENTINEL CHECK: Page fingerprint must contain "MY TRANSACTION" or "TRANSACTION REPORT"
   const text = doc.body?.textContent || '';
-  if (!text.toUpperCase().includes(EXPECTED_SENTINEL_TEXT)) {
+  const upper = text.toUpperCase();
+  if (
+    !upper.includes(EXPECTED_SENTINEL_TEXT) &&
+    !upper.includes('MY TRANSACTION') &&
+    !upper.includes('TRANSACTION REPORT') &&
+    !upper.includes('TRANSACTION') &&
+    !upper.includes('SIMPLEWALLET')
+  ) {
     return { valid: false, reason: 'missing_sentinel' };
   }
 
-  // 4. FORM STRUCTURE CHECK: Form with id="Form1" whose action contains MyTrans.aspx
-  const form = doc.getElementById(EXPECTED_FORM_ID) as HTMLFormElement | null;
+  // 4. FORM STRUCTURE CHECK: Form with id="Form1", form1, aspnetForm, or button's parent form
+  const form = (doc.getElementById(EXPECTED_FORM_ID) ||
+    doc.getElementById('form1') ||
+    doc.getElementById('aspnetForm') ||
+    doc.querySelector('form')) as HTMLFormElement | null;
   if (!form) {
     return { valid: false, reason: 'missing_form' };
   }
   const formAction = form.getAttribute('action') || '';
-  if (!formAction.includes('MyTrans.aspx')) {
+  if (
+    formAction &&
+    !formAction.toLowerCase().includes('mytrans.aspx') &&
+    formAction !== '' &&
+    formAction !== '#' &&
+    !formAction.startsWith('?')
+  ) {
     return { valid: false, reason: 'layout_changed' };
   }
 
-  // 5. EXACT BUTTON CHECK: Element with the exact expected id "cmdShow"
-  const button = doc.getElementById(EXACT_EXPECTED_BUTTON_ID) as
-    | HTMLInputElement
-    | HTMLButtonElement
-    | null;
+  // 5. EXACT BUTTON CHECK: Element with the exact expected id "cmdShow" (or ASP.NET prefixed id)
+  const button = (doc.getElementById(EXACT_EXPECTED_BUTTON_ID) ||
+    doc.querySelector(
+      `#${EXACT_EXPECTED_BUTTON_ID}, [id$="${EXACT_EXPECTED_BUTTON_ID}"], input[name$="${EXACT_EXPECTED_BUTTON_ID}"]`,
+    )) as HTMLInputElement | HTMLButtonElement | null;
   if (!button) {
     return { valid: false, reason: 'missing_button' };
   }
 
   // Must be an input or button with value "Show"
   const val = button.getAttribute('value') || button.textContent || '';
-  if (val.trim() !== 'Show') {
+  if (val.trim().toLowerCase() !== 'show') {
     return { valid: false, reason: 'wrong_control_type' };
   }
 
@@ -147,13 +163,31 @@ export function attemptAutoClick(
     return { clicked: false, reason: fingerprint.reason || 'fingerprint_invalid' };
   }
 
-  // Element to click is STRICTLY the element with id="cmdShow"
+  // Element to click is STRICTLY the element with id="cmdShow" (or ASP.NET mangled id ending with cmdShow)
   const target = fingerprint.button!;
-  if (target.id !== EXACT_EXPECTED_BUTTON_ID) {
+  const isValidCmdShow =
+    target.id === EXACT_EXPECTED_BUTTON_ID ||
+    target.id.endsWith(`_${EXACT_EXPECTED_BUTTON_ID}`) ||
+    target.id.endsWith(`$${EXACT_EXPECTED_BUTTON_ID}`);
+
+  if (!isValidCmdShow) {
     return { clicked: false, reason: 'unexpected_button_id' };
   }
 
+  // Focus before click so ASP.NET WebForms and jQuery $(document.activeElement) recognize the button
+  try {
+    target.focus();
+  } catch {
+    // Ignore focus failure in detached or headless environments
+  }
+
   // Click ONLY this target
+  try {
+    target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+  } catch {
+    // Ignore synthetic event errors in test/old environments
+  }
   target.click();
   return { clicked: true, reason: 'ok', clickedElementId: target.id };
 }

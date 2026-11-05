@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
       // Database not available; fallback to memory store
     }
 
-    const memStatus = getMemoryPairingStatus(clean);
+    const memStatus = process.env.NODE_ENV === 'development' ? getMemoryPairingStatus(clean) : { paired: false };
     if (memStatus.paired) {
       return NextResponse.json({
         paired: true,
@@ -57,6 +57,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ paired: false });
   }
+
+  const isDev = process.env.NODE_ENV === 'development';
 
   try {
     const rows = await withTenantContext(session.tenant.id, async (tx) => {
@@ -74,30 +76,47 @@ export async function GET(req: NextRequest) {
         label: d.label || 'POS Terminal (Chrome)',
         status: d.status,
         parserVersion: d.parserVersion || '1.0.0',
+        extensionVersion: d.extensionVersion || d.parserVersion || '1.0.0',
+        portal: d.portal || null,
+        portalLoggedIn: d.portalLoggedIn ?? true,
+        lastSyncAt: d.lastSyncAt?.toISOString() || null,
+        errorCategory: d.errorCategory || null,
         lastSeenAt: d.lastSeenAt?.toISOString() || null,
         revokedAt: d.revokedAt?.toISOString() || null,
         createdAt: d.createdAt.toISOString(),
       })),
     });
   } catch {
-    const memDevs = listMemoryDevices();
-    if (memDevs.length > 0) {
+    if (isDev) {
+      const memDevs = listMemoryDevices();
+      if (memDevs.length > 0) {
+        return NextResponse.json({
+          devices: memDevs.map((d) => ({
+            id: d.id,
+            label: d.label,
+            status: d.status,
+            parserVersion: d.parserVersion,
+            extensionVersion: d.extensionVersion || d.parserVersion || '1.0.0',
+            portal: d.portal || null,
+            portalLoggedIn: d.portalLoggedIn ?? true,
+            lastSyncAt: d.lastSyncAt ? d.lastSyncAt.toISOString() : null,
+            errorCategory: d.errorCategory || null,
+            lastSeenAt: d.lastSeenAt.toISOString(),
+            revokedAt: d.revokedAt ? d.revokedAt.toISOString() : null,
+            createdAt: d.createdAt.toISOString(),
+          })),
+        });
+      }
+
       return NextResponse.json({
-        devices: memDevs.map((d) => ({
-          id: d.id,
-          label: d.label,
-          status: d.status,
-          parserVersion: d.parserVersion,
-          lastSeenAt: d.lastSeenAt.toISOString(),
-          revokedAt: d.revokedAt ? d.revokedAt.toISOString() : null,
-          createdAt: d.createdAt.toISOString(),
-        })),
+        devices: [],
       });
     }
 
-    return NextResponse.json({
-      devices: [],
-    });
+    return NextResponse.json(
+      { error: 'Database not configured or unavailable' },
+      { status: 503 },
+    );
   }
 }
 
@@ -121,8 +140,12 @@ export async function POST(req: NextRequest) {
     const codeHash = hashPairingCode(rawCode);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Save in memory store so extension pairing works immediately
-    saveMemoryPairingCode(rawCode, codeHash, expiresAt);
+    const isDev = process.env.NODE_ENV === 'development';
+
+    if (isDev) {
+      // Save in memory store ONLY in local development
+      saveMemoryPairingCode(rawCode, codeHash, expiresAt);
+    }
 
     try {
       await db.insert(pairingCodes).values({
@@ -131,7 +154,13 @@ export async function POST(req: NextRequest) {
         expiresAt,
       });
     } catch {
-      // Handled via memory store
+      if (!isDev) {
+        return NextResponse.json(
+          { error: 'Database not configured or unavailable' },
+          { status: 503 },
+        );
+      }
+      // In dev, allow memory fallback
     }
 
     return NextResponse.json({

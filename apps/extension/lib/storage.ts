@@ -69,7 +69,7 @@ export const DEFAULT_STORAGE: StorageData = {
   egpaymentCount: 0,
   pollingIntervalMinutes: 2,
   keepAliveMode: 'fetch',
-  autoClickEnabled: false, // Safest default: off until merchant explicitly enables it
+  autoClickEnabled: true, // Default to true so Auto-Detector works automatically on SimpleWallet history page
   autoClickIntervalSeconds: 120, // Capped at MIN_AUTO_CLICK_INTERVAL_SECONDS (60s)
   todayCount: 0,
   todayAmountPaise: 0,

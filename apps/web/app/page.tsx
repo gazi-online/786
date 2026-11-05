@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
+import Link from 'next/link';
 import type { ApiTransaction } from '@walletsync/contract';
 import { AppLayout } from '@/components/AppLayout';
 import { useI18n } from '@/lib/i18n-context';
@@ -52,6 +53,30 @@ export default function DashboardPage() {
   const [deviceStatus, setDeviceStatus] = useState<string>('ok');
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
 
+  // Live Device Status & Heartbeat
+  const [deviceHeartbeat, setDeviceHeartbeat] = useState<{
+    id: string | null;
+    status: 'connected' | 'offline' | 'not_paired';
+    portalLoggedIn: boolean;
+    portal: string | null;
+    lastSeenAt: string | null;
+    lastSyncAt: string | null;
+    label: string | null;
+    extensionVersion: string | null;
+  }>({
+    id: null,
+    status: 'not_paired',
+    portalLoggedIn: true,
+    portal: null,
+    lastSeenAt: null,
+    lastSyncAt: null,
+    label: null,
+    extensionVersion: null,
+  });
+
+  // Active Device Details Modal state
+  const [showDeviceDetailsModal, setShowDeviceDetailsModal] = useState(false);
+
   // SSE & Fallback state (ADR-004)
   const [isConnected, setIsConnected] = useState(false);
   const lastEventTimeRef = useRef<number>(Date.now());
@@ -95,6 +120,71 @@ export default function DashboardPage() {
         clearInterval(burstTimerRef.current);
         burstTimerRef.current = null;
       }
+    };
+  }, []);
+
+  // 1b. Poll device live heartbeat status every 10 seconds (CHANGE 3)
+  useEffect(() => {
+    let active = true;
+
+    async function pollDeviceStatus() {
+      try {
+        const res = await fetch('/api/v1/devices');
+        if (!res.ok) return;
+        const data = await res.json();
+        const devList: Array<{
+          id: string;
+          label?: string;
+          lastSeenAt?: string | null;
+          lastSyncAt?: string | null;
+          portalLoggedIn?: boolean;
+          portal?: string | null;
+          revokedAt?: string | null;
+          extensionVersion?: string | null;
+          parserVersion?: string | null;
+        }> = data.devices || [];
+
+        if (!active) return;
+
+        if (devList.length === 0) {
+          setDeviceHeartbeat({
+            id: null,
+            status: 'not_paired',
+            portalLoggedIn: true,
+            portal: null,
+            lastSeenAt: null,
+            lastSyncAt: null,
+            label: null,
+            extensionVersion: null,
+          });
+          return;
+        }
+
+        const activeDev = devList.find((d) => !d.revokedAt) || devList[0];
+        const lastSeenMs = activeDev?.lastSeenAt ? new Date(activeDev.lastSeenAt).getTime() : 0;
+        const isConnected = lastSeenMs > 0 && Date.now() - lastSeenMs <= 2 * 60 * 1000;
+
+        setDeviceHeartbeat({
+          id: activeDev?.id || null,
+          status: isConnected ? 'connected' : 'offline',
+          portalLoggedIn: activeDev?.portalLoggedIn !== false,
+          portal: activeDev?.portal || null,
+          lastSeenAt: activeDev?.lastSeenAt || null,
+          lastSyncAt: activeDev?.lastSyncAt || null,
+          label: activeDev?.label || 'POS Terminal (Chrome)',
+          extensionVersion: activeDev?.extensionVersion || activeDev?.parserVersion || '1.0.0',
+        });
+      } catch {
+        // network or background error
+      }
+    }
+
+    pollDeviceStatus();
+    const interval = setInterval(pollDeviceStatus, 10000); // 10s poll
+
+    return () => {
+      active = false;
+      clearInterval(interval);
     };
   }, []);
 
@@ -230,6 +320,7 @@ export default function DashboardPage() {
     }, 4000);
 
     setShowPairModal(false);
+    setShowDeviceDetailsModal(false);
     const time = new Date().toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
@@ -241,6 +332,11 @@ export default function DashboardPage() {
       label: label || 'POS Terminal (Chrome)',
       time,
     });
+
+    // Auto-dismiss the success modal after 4.5 seconds so merchant is never stuck
+    setTimeout(() => {
+      setPairedDeviceToast(null);
+    }, 4500);
 
     // 1. Instantly fetch latest transactions from backend
     fetchTransactions(false);
@@ -390,7 +486,11 @@ export default function DashboardPage() {
       const res = await fetch('/api/v1/devices', { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
-        const code = data.code || 'SYNC-7489';
+        const code = data.code;
+        if (!code) {
+          alert('Failed to generate pairing code');
+          return;
+        }
         setPairingCode(code);
         activePairingCodeRef.current = code;
         try {
@@ -398,11 +498,14 @@ export default function DashboardPage() {
         } catch {
           // ignore storage error
         }
+        setShowPairModal(true);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || `Server returned ${res.status}: Failed to generate pairing code`);
       }
     } catch {
-      // fallback
+      alert('Network error connecting to pairing server');
     }
-    setShowPairModal(true);
   }
 
   // Filtered transactions
@@ -432,20 +535,99 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={openPairingModal}
-            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors"
-          >
-            <Smartphone className="w-4 h-4" />
-            {t.dashboard.connectExtension}
-          </button>
+          {deviceHeartbeat.status !== 'not_paired' ? (
+            <button
+              onClick={() => setShowDeviceDetailsModal(true)}
+              className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs transition-colors cursor-pointer"
+            >
+              <span className={`w-2 h-2 rounded-full ${deviceHeartbeat.status === 'connected' ? 'bg-white animate-pulse' : 'bg-zinc-300'}`} />
+              <Smartphone className="w-4 h-4" />
+              <span>{deviceHeartbeat.status === 'connected' ? 'Connected Terminal' : 'Paired Terminal'}</span>
+            </button>
+          ) : (
+            <button
+              onClick={openPairingModal}
+              className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors cursor-pointer"
+            >
+              <Smartphone className="w-4 h-4" />
+              {t.dashboard.connectExtension}
+            </button>
+          )}
+
           <button
             onClick={() => fetchTransactions(false)}
-            className="p-2 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            className="p-2 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
             title={t.common.refresh}
           >
             <RefreshCw className="w-4 h-4" />
           </button>
+        </div>
+      </div>
+
+      {/* Live Terminal Heartbeat Status Bar (CHANGE 3) */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3 my-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/60 backdrop-blur-xs">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+            Terminal Status:
+          </span>
+
+          {deviceHeartbeat.status === 'connected' && (
+            <button
+              type="button"
+              onClick={() => setShowDeviceDetailsModal(true)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 cursor-pointer transition-colors"
+              title="Click to view connected terminal details"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              Connected (View Details)
+            </button>
+          )}
+
+          {deviceHeartbeat.status === 'offline' && (
+            <button
+              type="button"
+              onClick={() => setShowDeviceDetailsModal(true)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-500/10 hover:bg-zinc-500/20 text-zinc-600 dark:text-zinc-400 border border-zinc-500/20 cursor-pointer transition-colors"
+              title="Click to view terminal details"
+            >
+              <span className="w-2 h-2 rounded-full bg-zinc-400" />
+              Offline (View Details)
+            </button>
+          )}
+
+          {deviceHeartbeat.status === 'not_paired' && (
+            <button
+              type="button"
+              onClick={openPairingModal}
+              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/20 cursor-pointer transition-colors"
+              title="Click to pair a new extension"
+            >
+              <span className="w-2 h-2 rounded-full bg-amber-400" />
+              Not paired (Click to Connect)
+            </button>
+          )}
+
+          {!deviceHeartbeat.portalLoggedIn && deviceHeartbeat.status === 'connected' && (
+            <button
+              type="button"
+              onClick={() => setShowDeviceDetailsModal(true)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/30 cursor-pointer transition-colors"
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              Portal login needed
+            </button>
+          )}
+        </div>
+
+        <div className="text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
+          <span>
+            Last synced:{' '}
+            {deviceHeartbeat.lastSyncAt
+              ? formatKolkataDate(deviceHeartbeat.lastSyncAt)
+              : lastSyncTime
+              ? formatKolkataDate(lastSyncTime)
+              : 'Never'}
+          </span>
         </div>
       </div>
 
@@ -983,14 +1165,163 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Active Connected Terminal Details Modal */}
+      {showDeviceDetailsModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setShowDeviceDetailsModal(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-in fade-in zoom-in-95 duration-150"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-2xl relative overflow-hidden"
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500">
+                  <Smartphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+                    Active Extension Terminal
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Currently linked Chrome Extension
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDeviceDetailsModal(false)}
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Status Indicator */}
+            <div className="my-4 p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200/80 dark:border-zinc-700/60 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${deviceHeartbeat.status === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-400'}`} />
+                <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                  {deviceHeartbeat.status === 'connected' ? 'Online & Syncing' : 'Terminal Offline'}
+                </span>
+              </div>
+              <span className={`text-[11px] font-mono font-medium px-2 py-0.5 rounded-full ${
+                deviceHeartbeat.status === 'connected'
+                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                  : 'bg-zinc-500/15 text-zinc-600 dark:text-zinc-400 border border-zinc-500/30'
+              }`}>
+                {deviceHeartbeat.status === 'connected' ? 'CONNECTED' : 'OFFLINE'}
+              </span>
+            </div>
+
+            {/* Portal Alert Warning if logged out */}
+            {!deviceHeartbeat.portalLoggedIn && deviceHeartbeat.status === 'connected' && (
+              <div className="mb-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 flex items-start gap-2.5 text-amber-800 dark:text-amber-200 text-xs">
+                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold block">Portal Login Needed</span>
+                  <span>Your portal session is expired or logged out. Log back into SimpleWallet or EGPayment in Chrome.</span>
+                </div>
+              </div>
+            )}
+
+            {/* Detailed Metadata Grid */}
+            <div className="space-y-2.5 text-xs">
+              <div className="flex items-center justify-between py-1.5 border-b border-zinc-100 dark:border-zinc-800/80">
+                <span className="text-zinc-500 dark:text-zinc-400 font-medium">Terminal Name</span>
+                <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                  {deviceHeartbeat.label || 'POS Terminal (Chrome)'}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between py-1.5 border-b border-zinc-100 dark:border-zinc-800/80">
+                <span className="text-zinc-500 dark:text-zinc-400 font-medium">Extension Version</span>
+                <span className="font-mono text-zinc-700 dark:text-zinc-300">
+                  v{deviceHeartbeat.extensionVersion || '0.1.0'}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between py-1.5 border-b border-zinc-100 dark:border-zinc-800/80">
+                <span className="text-zinc-500 dark:text-zinc-400 font-medium">Active Portal</span>
+                <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                  {deviceHeartbeat.portal
+                    ? deviceHeartbeat.portal === 'simplewallet'
+                      ? 'SimpleWallet.in'
+                      : 'EGPayment.com'
+                    : 'SimpleWallet & EGPayment'}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between py-1.5 border-b border-zinc-100 dark:border-zinc-800/80">
+                <span className="text-zinc-500 dark:text-zinc-400 font-medium">Last Heartbeat</span>
+                <span className="text-zinc-700 dark:text-zinc-300">
+                  {deviceHeartbeat.lastSeenAt ? formatKolkataDate(deviceHeartbeat.lastSeenAt) : 'Just now'}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between py-1.5">
+                <span className="text-zinc-500 dark:text-zinc-400 font-medium">Last Synced Record</span>
+                <span className="text-zinc-700 dark:text-zinc-300 font-medium">
+                  {deviceHeartbeat.lastSyncAt
+                    ? formatKolkataDate(deviceHeartbeat.lastSyncAt)
+                    : lastSyncTime
+                    ? formatKolkataDate(lastSyncTime)
+                    : 'Never'}
+                </span>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="mt-6 pt-4 border-t border-zinc-100 dark:border-zinc-800 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    fetchTransactions(false);
+                    setShowDeviceDetailsModal(false);
+                  }}
+                  className="flex-1 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Sync Stream Now
+                </button>
+                <Link
+                  href="/devices"
+                  onClick={() => setShowDeviceDetailsModal(false)}
+                  className="py-2 px-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 font-medium text-xs transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  Manage
+                </Link>
+              </div>
+
+              <button
+                onClick={() => {
+                  setShowDeviceDetailsModal(false);
+                  openPairingModal();
+                }}
+                className="w-full py-1.5 text-center text-[11px] text-zinc-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
+              >
+                + Pair New / Additional Extension
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Terminal Paired / Device Connected High-Tech Modal Popup */}
       {pairedDeviceToast?.show && (
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-in fade-in zoom-in-95 duration-200"
+          onClick={() => setPairedDeviceToast(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-in fade-in zoom-in-95 duration-200 cursor-pointer"
         >
-          <div className="w-full max-w-md bg-[#0B0D13] border border-emerald-500/40 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-zinc-100">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-[#0B0D13] border border-emerald-500/40 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-zinc-100 cursor-default"
+          >
             {/* Top Emerald Ambient Glow */}
             <div className="absolute -top-14 -left-14 w-36 h-36 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none" />
             <div className="absolute -top-14 -right-14 w-36 h-36 bg-blue-500/15 rounded-full blur-3xl pointer-events-none" />
@@ -1051,6 +1382,10 @@ export default function DashboardPage() {
                 View Live Transactions
               </button>
             </div>
+
+            <p className="text-[10px] text-zinc-500 text-center mt-3 font-mono">
+              Auto-closing in 4s • click anywhere to dismiss
+            </p>
           </div>
         </div>
       )}

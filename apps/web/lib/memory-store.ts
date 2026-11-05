@@ -23,6 +23,11 @@ export interface MemoryDevice {
   label: string;
   status: string;
   parserVersion: string;
+  extensionVersion?: string;
+  portal?: string | null;
+  portalLoggedIn?: boolean;
+  lastSyncAt?: Date | null;
+  errorCategory?: string | null;
   lastSeenAt: Date;
   revokedAt: Date | null;
   createdAt: Date;
@@ -185,6 +190,28 @@ export function revokeMemoryDevice(deviceId: string) {
       dev.revokedAt = new Date();
       dev.status = 'paused';
     }
+  }
+}
+
+export function updateMemoryDeviceHeartbeat(
+  tokenHash: string,
+  data: {
+    extensionVersion: string;
+    portal: string | null;
+    portalLoggedIn: boolean;
+    lastSyncAt: Date | null;
+    errorCategory: string | null;
+    lastSeenAt: Date;
+  },
+) {
+  const dev = findMemoryDeviceByTokenHash(tokenHash);
+  if (dev) {
+    dev.extensionVersion = data.extensionVersion;
+    dev.portal = data.portal;
+    dev.portalLoggedIn = data.portalLoggedIn;
+    dev.lastSyncAt = data.lastSyncAt;
+    dev.errorCategory = data.errorCategory;
+    dev.lastSeenAt = data.lastSeenAt;
   }
 }
 

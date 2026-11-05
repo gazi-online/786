@@ -12,10 +12,11 @@ import {
 import { parse } from '@walletsync/parsers';
 
 const ALARM_NAME = 'walletsync_poll_alarm';
+const HEARTBEAT_ALARM_NAME = 'walletsync_heartbeat_alarm';
 
 export default defineBackground(() => {
   // 1. Initialize alarms on install / startup
-  async function setupAlarm() {
+  async function setupAlarms() {
     const data = await getStorage();
     const intervalMinutes = Math.max(1, data.pollingIntervalMinutes || 2);
     // Add ±15% jitter to avoid predictable load spikes
@@ -27,15 +28,31 @@ export default defineBackground(() => {
       delayInMinutes: 1,
       periodInMinutes,
     });
+
+    await chrome.alarms.clear(HEARTBEAT_ALARM_NAME);
+    chrome.alarms.create(HEARTBEAT_ALARM_NAME, {
+      delayInMinutes: 0.1,
+      periodInMinutes: 1,
+    });
   }
 
+  setupAlarms();
+
   chrome.runtime.onInstalled.addListener(() => {
-    setupAlarm();
+    setupAlarms();
   });
+
+  if (chrome.runtime.onStartup) {
+    chrome.runtime.onStartup.addListener(() => {
+      setupAlarms();
+    });
+  }
 
   chrome.alarms.onAlarm.addListener((alarm: chrome.alarms.Alarm) => {
     if (alarm.name === ALARM_NAME) {
       triggerSyncCycle();
+    } else if (alarm.name === HEARTBEAT_ALARM_NAME) {
+      sendHeartbeat();
     }
   });
 
@@ -310,39 +327,107 @@ export default defineBackground(() => {
     },
   );
 
+  async function sendHeartbeat() {
+    try {
+      const storage = await getStorage();
+      if (!storage.deviceToken || !storage.deviceId) {
+        return;
+      }
+      const apiUrl = (storage.apiUrl || '').trim().replace(/\/+$/, '');
+      if (!apiUrl) return;
+
+      let portal: 'simplewallet' | 'egpayment' | null = null;
+      try {
+        const swTabs = await chrome.tabs.query({
+          url: ['*://simplewallet.in/*', '*://*.simplewallet.in/*'],
+        });
+        const egTabs = await chrome.tabs.query({
+          url: ['*://egpayment.com/*', '*://*.egpayment.com/*'],
+        });
+        if (swTabs.length > 0) portal = 'simplewallet';
+        else if (egTabs.length > 0) portal = 'egpayment';
+        else if (storage.portalUrl?.includes('simplewallet')) portal = 'simplewallet';
+        else if (storage.portalUrl?.includes('egpayment')) portal = 'egpayment';
+      } catch {
+        if (storage.portalUrl?.includes('egpayment')) portal = 'egpayment';
+        else portal = 'simplewallet';
+      }
+
+      const portalLoggedIn = storage.status !== 'logged_out';
+      const manifest = chrome.runtime.getManifest();
+
+      const payload = {
+        extensionVersion: manifest.version || '0.1.0',
+        portal,
+        portalLoggedIn,
+        lastSyncAt: storage.lastSyncTime || null,
+        errorCategory: storage.status !== 'ok' ? storage.status : null,
+      };
+
+      await fetch(`${apiUrl}/api/v1/devices/heartbeat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${storage.deviceToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      // Handle failures silently without retry storms
+    }
+  }
+
   async function handlePairing(code: string, customApiUrl?: string) {
     const storage = await getStorage();
     const apiUrl = (customApiUrl || storage.apiUrl || '').trim().replace(/\/+$/, '');
     const cleanCode = code.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 
+    let res: Response;
     try {
-      const res = await fetch(`${apiUrl}/api/v1/devices/pair`, {
+      res = await fetch(`${apiUrl}/api/v1/devices/pair`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: cleanCode }),
       });
-
-      const data = await res.json();
-      if (res.status === 201 && data.deviceToken && data.deviceId) {
-        await setStorage({
-          deviceId: data.deviceId,
-          deviceToken: data.deviceToken,
-          apiUrl,
-          status: 'ok',
-          errorMessage: null,
-        });
-        chrome.action.setBadgeText({ text: '' });
-        // Immediately trigger first sync
-        triggerSyncCycle();
-        return { success: true };
-      } else {
-        return { success: false, error: data.error || 'Failed to pair device' };
-      }
     } catch {
+      // (a) Network failure
       return {
         success: false,
-        error: `Cannot reach backend server at ${apiUrl || 'empty URL'}. Check API URL.`,
+        error: `Network error: cannot reach backend server at ${apiUrl || 'empty URL'}. Check host permissions and connectivity.`,
       };
     }
+
+    let data: Record<string, any>;
+    try {
+      data = await res.json();
+    } catch {
+      // (b) Non-JSON response
+      return {
+        success: false,
+        error: `Server replied ${res.status}: non-JSON response received.`,
+      };
+    }
+
+    if (res.status === 201 && data.deviceToken && data.deviceId) {
+      await setStorage({
+        deviceId: data.deviceId,
+        deviceToken: data.deviceToken,
+        apiUrl,
+        status: 'ok',
+        errorMessage: null,
+      });
+      chrome.action.setBadgeText({ text: '' });
+      // Immediately trigger first sync & heartbeat
+      triggerSyncCycle();
+      sendHeartbeat();
+      return { success: true };
+    }
+
+    // (c) Server error with message
+    const errorMsg = data?.error || data?.message || 'Failed to pair device';
+    return {
+      success: false,
+      error: `Server replied ${res.status}: ${errorMsg}`,
+    };
   }
 });
