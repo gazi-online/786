@@ -43,6 +43,14 @@ export function validateEnvironmentAndDatabaseConfig(): { isProduction: boolean;
         'FATAL: ALLOW_IN_MEMORY_STORE is strictly forbidden in production (NODE_ENV=production). Refusing to start.',
       );
     }
+    const hasDbUrl = Boolean(
+      process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL,
+    );
+    if (!hasDbUrl) {
+      throw new Error(
+        'FATAL: Production requires DATABASE_URL or SUPABASE_DB_URL environment variable to be configured.',
+      );
+    }
     checkDatabaseEnvironment();
   }
 

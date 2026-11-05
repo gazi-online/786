@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
       // Database not available; fallback to memory store
     }
 
-    const memStatus = process.env.NODE_ENV === 'development' ? getMemoryPairingStatus(clean) : { paired: false };
+    const memStatus = process.env.NODE_ENV !== 'production' ? getMemoryPairingStatus(clean) : { paired: false };
     if (memStatus.paired) {
       return NextResponse.json({
         paired: true,
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ paired: false });
   }
 
-  const isDev = process.env.NODE_ENV === 'development';
+  const isDev = process.env.NODE_ENV !== 'production';
 
   try {
     const rows = await withTenantContext(session.tenant.id, async (tx) => {
@@ -140,7 +140,7 @@ export async function POST(req: NextRequest) {
     const codeHash = hashPairingCode(rawCode);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    const isDev = process.env.NODE_ENV === 'development';
+    const isDev = process.env.NODE_ENV !== 'production';
 
     if (isDev) {
       // Save in memory store ONLY in local development

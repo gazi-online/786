@@ -81,6 +81,9 @@ importers:
       '@walletsync/contract':
         specifier: workspace:*
         version: link:../../packages/contract
+      '@walletsync/parsers':
+        specifier: workspace:*
+        version: link:../../packages/parsers
       clsx:
         specifier: ^2.1.1
         version: 2.1.1

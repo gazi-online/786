@@ -1,6 +1,6 @@
 import type { ParseResult } from '@walletsync/contract';
-import { parse as parseSimpleWallet, PARSER_VERSION as SW_VERSION } from './simplewallet/transactionHistory.js';
-import { parseEgPayment, PARSER_VERSION as EG_VERSION } from './egpayment/transactionHistory.js';
+import { parse as parseSimpleWallet, PARSER_VERSION as SW_VERSION } from './simplewallet/transactionHistory';
+import { parseEgPayment, PARSER_VERSION as EG_VERSION } from './egpayment/transactionHistory';
 
 export { parseSimpleWallet, SW_VERSION };
 export { parseEgPayment, EG_VERSION };
@@ -19,7 +19,7 @@ export {
   type FingerprintFailureReason,
   type AutoClickOptions,
   type AutoClickExecutionResult,
-} from './simplewallet/autoClick.js';
+} from './simplewallet/autoClick';
 
 /**
  * Unified parser entrypoint with auto-detection.

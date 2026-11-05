@@ -8,11 +8,9 @@ import {
 import type { ParseResult } from '@walletsync/contract';
 
 export default defineContentScript({
-  // Hardening Amd-6: Content scripts match ONLY the exact history paths of each portal (handling casing variations)
+  // Hardening Amd-6: Content scripts match ONLY the exact history paths of each portal
   matches: [
     'https://simplewallet.in/web/MyTrans.aspx*',
-    'https://simplewallet.in/web/mytrans.aspx*',
-    'https://simplewallet.in/Web/MyTrans.aspx*',
     'https://egpayment.com/users/recharge_history*',
   ],
   runAt: 'document_idle',

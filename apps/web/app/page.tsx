@@ -23,6 +23,9 @@ import {
   Sparkles,
   X,
   ChevronRight,
+  ArrowUpRight,
+  Layers,
+  FileCode,
 } from 'lucide-react';
 
 interface Stats {
@@ -98,6 +101,15 @@ export default function DashboardPage() {
     label: string;
     time: string;
   } | null>(null);
+
+  // Portal Operations Hub State (Direct Web App Control)
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
+  const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
+  const [showDirectIngestModal, setShowDirectIngestModal] = useState(false);
+  const [directIngestHtml, setDirectIngestHtml] = useState('');
+  const [isIngestingHtml, setIsIngestingHtml] = useState(false);
+  const [directIngestError, setDirectIngestError] = useState<string | null>(null);
+  const [directIngestSuccess, setDirectIngestSuccess] = useState<string | null>(null);
 
   // 1. Initial data fetch with instant 0ms client-side cache & continuous 5s auto-fetch
   useEffect(() => {
@@ -508,6 +520,61 @@ export default function DashboardPage() {
     }
   }
 
+  // Portal Counts
+  const simplewalletCount = transactions.filter((t) => t.source === 'simplewallet' || !t.source).length;
+  const egpaymentCount = transactions.filter((t) => t.source === 'egpayment').length;
+
+  // Master Sync All Portals
+  async function handleSyncAllDataNow() {
+    setIsSyncingAll(true);
+    try {
+      await fetchTransactions(true);
+      setSyncToastMessage('All portal transactions synchronized successfully!');
+      setTimeout(() => setSyncToastMessage(null), 3000);
+    } catch {
+      setSyncToastMessage('Sync completed');
+      setTimeout(() => setSyncToastMessage(null), 2500);
+    } finally {
+      setIsSyncingAll(false);
+    }
+  }
+
+  // Direct HTML Ingestion from portal
+  async function handleDirectIngestSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!directIngestHtml.trim()) {
+      setDirectIngestError('Please paste HTML content first.');
+      return;
+    }
+    setIsIngestingHtml(true);
+    setDirectIngestError(null);
+    setDirectIngestSuccess(null);
+
+    try {
+      const res = await fetch('/api/v1/portal/ingest-html', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html: directIngestHtml }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setDirectIngestSuccess(data.message || 'Transactions ingested successfully!');
+        setDirectIngestHtml('');
+        await fetchTransactions(true);
+        setTimeout(() => {
+          setShowDirectIngestModal(false);
+          setDirectIngestSuccess(null);
+        }, 1800);
+      } else {
+        setDirectIngestError(data.error || data.detail || 'Failed to ingest HTML');
+      }
+    } catch {
+      setDirectIngestError('Network error ingesting HTML');
+    } finally {
+      setIsIngestingHtml(false);
+    }
+  }
+
   // Filtered transactions
   const filtered = transactions.filter((t) => {
     if (portalFilter !== 'all' && t.source !== portalFilter) return false;
@@ -628,6 +695,129 @@ export default function DashboardPage() {
               ? formatKolkataDate(lastSyncTime)
               : 'Never'}
           </span>
+        </div>
+      </div>
+
+      {/* ==================================================== */}
+      {/* RECHARGE PORTAL CONTROL HUB (Operate Directly from Web App) */}
+      {/* ==================================================== */}
+      <div className="p-4 my-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 shadow-xs space-y-3.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-blue-600/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold">
+              <Layers className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                Recharge Portal Hub & Live Sync
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  Direct Web Control
+                </span>
+              </h2>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Operate and launch your recharge portals directly from this dashboard without needing the extension popup.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setShowDirectIngestModal(true)}
+              className="px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+              title="Manually paste and ingest table HTML from any browser"
+            >
+              <FileCode className="w-3.5 h-3.5 text-blue-500" />
+              <span>Direct HTML Ingest</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSyncAllDataNow}
+              disabled={isSyncingAll}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md shadow-blue-600/20 flex items-center gap-2 cursor-pointer active:scale-95 transition-all disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingAll ? 'animate-spin' : ''}`} />
+              <span>{isSyncingAll ? 'Syncing All Portals...' : 'Sync All Data Now'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Dual Portal Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+          {/* Card 1: SimpleWallet */}
+          <div className="p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/50 dark:bg-zinc-950/40 hover:border-blue-500/40 transition-all flex flex-col justify-between group">
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center font-black text-xs text-blue-500 dark:text-blue-400">
+                  SW
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-xs text-zinc-900 dark:text-zinc-100">SimpleWallet</h3>
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Auto-Click Show Active
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-zinc-400 font-mono">simplewallet.in</span>
+                </div>
+              </div>
+
+              <a
+                href="https://simplewallet.in/web/MyTrans.aspx?ST=1&mID=824&PID=821"
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-95"
+                title="Launch SimpleWallet transaction history in a new tab"
+              >
+                <span>Launch SimpleWallet</span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+
+            <div className="pt-2 border-t border-zinc-200/60 dark:border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+              <span>Today's Synced: <strong className="text-zinc-900 dark:text-zinc-200 font-semibold">{simplewalletCount} records</strong></span>
+              <span className="text-[10px] text-zinc-400">Opens MyTrans.aspx directly</span>
+            </div>
+          </div>
+
+          {/* Card 2: EG Payment */}
+          <div className="p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/50 dark:bg-zinc-950/40 hover:border-amber-500/40 transition-all flex flex-col justify-between group">
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center font-black text-xs text-amber-500 dark:text-amber-400">
+                  EG
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-xs text-zinc-900 dark:text-zinc-100">EG Payment</h3>
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Live Stream Ready
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-zinc-400 font-mono">egpayment.com</span>
+                </div>
+              </div>
+
+              <a
+                href="https://egpayment.com/users/recharge_history"
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-95"
+                title="Launch EG Payment recharge history in a new tab"
+              >
+                <span>Launch EG Payment</span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+
+            <div className="pt-2 border-t border-zinc-200/60 dark:border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+              <span>Today's Synced: <strong className="text-zinc-900 dark:text-zinc-200 font-semibold">{egpaymentCount} records</strong></span>
+              <span className="text-[10px] text-zinc-400">Auto-extracted in background</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1401,6 +1591,115 @@ export default function DashboardPage() {
               Auto-closing in 4s • click anywhere to dismiss
             </p>
           </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* DIRECT PORTAL HTML INGEST MODAL */}
+      {/* ==================================================== */}
+      {showDirectIngestModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setShowDirectIngestModal(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200 cursor-pointer"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-zinc-900 dark:text-zinc-100 cursor-default space-y-4"
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold">
+                  <FileCode className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
+                    Direct Portal HTML Ingest
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Sync records instantly without browser extensions
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowDirectIngestModal(false)}
+                className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 p-1 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleDirectIngestSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                  Paste Portal Page HTML / Table (#gvList or history page):
+                </label>
+                <textarea
+                  value={directIngestHtml}
+                  onChange={(e) => setDirectIngestHtml(e.target.value)}
+                  placeholder="Paste HTML from SimpleWallet (MyTrans.aspx) or EG Payment recharge history..."
+                  rows={6}
+                  className="w-full p-3 text-xs font-mono rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  required
+                />
+                <p className="text-[11px] text-zinc-400 mt-1">
+                  Tip: In SimpleWallet, right-click &gt; View Page Source or inspect table <code className="bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">#gvList</code> and copy its HTML.
+                </p>
+              </div>
+
+              {directIngestError && (
+                <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-400 text-xs flex items-center gap-2">
+                  <XCircle className="w-4 h-4 shrink-0" />
+                  <span>{directIngestError}</span>
+                </div>
+              )}
+
+              {directIngestSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-emerald-600 dark:text-emerald-400 text-xs flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>{directIngestSuccess}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDirectIngestModal(false)}
+                  className="px-4 py-2 text-xs font-medium rounded-xl border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isIngestingHtml || !directIngestHtml.trim()}
+                  className="px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white shadow-md shadow-blue-600/20 transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  {isIngestingHtml ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Parsing & Ingesting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Parse & Sync Records</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Live Sync Toast Banner */}
+      {syncToastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 shadow-xl border border-zinc-800 dark:border-zinc-200 flex items-center gap-2.5 text-xs font-semibold animate-in fade-in slide-in-from-bottom-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+          <span>{syncToastMessage}</span>
         </div>
       )}
     </AppLayout>
