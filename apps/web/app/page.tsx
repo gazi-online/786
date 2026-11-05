@@ -850,21 +850,35 @@ export default function DashboardPage() {
 
           {/* Transactions Table or Empty State */}
           {filtered.length === 0 ? (
-            <div className="p-12 text-center border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900">
+            <div className="p-12 text-center border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 shadow-2xs">
               <Smartphone className="w-10 h-10 mx-auto text-zinc-400 mb-3" />
               <h3 className="font-medium text-sm text-zinc-900 dark:text-zinc-100">
                 {t.dashboard.noRecentTxns}
               </h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-sm mx-auto">
-                {t.dashboard.noRecentTxnsDesc}
+                {deviceHeartbeat.status !== 'not_paired'
+                  ? 'Your terminal is connected and ready. Open SimpleWallet or EG Payment in your browser and click "Sync Both Portals" in the extension to capture transactions.'
+                  : t.dashboard.noRecentTxnsDesc}
               </p>
-              <button
-                onClick={openPairingModal}
-                className="mt-4 px-4 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors inline-flex items-center gap-2"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                {t.dashboard.connectExtension}
-              </button>
+              {deviceHeartbeat.status !== 'not_paired' ? (
+                <button
+                  type="button"
+                  onClick={() => setShowDeviceDetailsModal(true)}
+                  className="mt-4 px-4 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors inline-flex items-center gap-2 cursor-pointer shadow-xs"
+                >
+                  <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                  View Connected Terminal
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={openPairingModal}
+                  className="mt-4 px-4 py-2 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors inline-flex items-center gap-2 cursor-pointer shadow-xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {t.dashboard.connectExtension}
+                </button>
+              )}
             </div>
           ) : (
             <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden bg-white dark:bg-zinc-900 shadow-2xs">
