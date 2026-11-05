@@ -160,22 +160,22 @@ export default function App() {
 
   async function handleOpenPortal(url: string) {
     try {
-      const isSimpleWallet = url.includes('simplewallet');
-      const queryPattern = isSimpleWallet
-        ? ['*://simplewallet.in/*', '*://*.simplewallet.in/*']
-        : ['*://egpayment.com/*', '*://*.egpayment.com/*'];
-
       if (typeof chrome !== 'undefined' && chrome.tabs) {
-        const existingTabs = await chrome.tabs.query({ url: queryPattern });
-        const targetTab = existingTabs[0];
+        const isSimpleWallet = url.includes('simplewallet');
+        const queryPattern = isSimpleWallet
+          ? ['*://simplewallet.in/*', '*://*.simplewallet.in/*']
+          : ['*://egpayment.com/*', '*://*.egpayment.com/*'];
+
+        const existingTabs = await chrome.tabs.query({ url: queryPattern }).catch(() => []);
+        const targetTab = existingTabs?.[0];
+
         if (targetTab && targetTab.id !== undefined) {
-          // Switch to existing open tab
-          await chrome.tabs.update(targetTab.id, { active: true });
-          if (targetTab.windowId !== undefined) {
-            await chrome.windows.update(targetTab.windowId, { focused: true });
+          // Switch to existing open tab AND navigate it to the exact portal URL
+          await chrome.tabs.update(targetTab.id, { url, active: true });
+          if (targetTab.windowId !== undefined && typeof chrome.windows !== 'undefined' && chrome.windows.update) {
+            chrome.windows.update(targetTab.windowId, { focused: true }).catch(() => {});
           }
           if (isSimpleWallet) {
-            // Signal content script to auto-click Show button immediately
             chrome.tabs.sendMessage(targetTab.id, {
               type: 'TRIGGER_SHOW_CLICK',
               refresh: true,
@@ -183,11 +183,18 @@ export default function App() {
           }
           return;
         }
-        chrome.tabs.create({ url });
-      } else {
-        window.open(url, '_blank');
+
+        // No existing tab open: create new active tab
+        chrome.tabs.create({ url, active: true });
+        return;
       }
-    } catch {
+    } catch (e) {
+      console.warn('[WalletSync] Falling back to direct chrome.tabs.create:', e);
+    }
+
+    if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
+      chrome.tabs.create({ url, active: true });
+    } else {
       window.open(url, '_blank');
     }
   }
@@ -563,15 +570,19 @@ export default function App() {
               </div>
 
               {/* CARD 1: SimpleWallet */}
-              <div className="p-3 rounded-2xl bg-[#0D1017] border border-white/[0.08] hover:border-blue-500/40 transition-all shadow-sm group">
+              <div
+                onClick={() => handleOpenPortal(SIMPLEWALLET_URL)}
+                className="p-3 rounded-2xl bg-[#0D1017] border border-white/[0.08] hover:border-blue-500/50 hover:bg-[#0E121B] transition-all shadow-sm group cursor-pointer"
+                title="Click to open or switch to SimpleWallet portal"
+              >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center font-black text-xs text-blue-400 shadow-inner">
+                    <div className="w-8 h-8 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center font-black text-xs text-blue-400 shadow-inner group-hover:scale-105 transition-transform">
                       SW
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-xs text-white">SimpleWallet</h3>
+                        <h3 className="font-bold text-xs text-white group-hover:text-blue-400 transition-colors">SimpleWallet</h3>
                         {swTabOpen ? (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -588,8 +599,11 @@ export default function App() {
                   </div>
 
                   <button
-                    onClick={() => handleOpenPortal(SIMPLEWALLET_URL)}
-                    className="px-2.5 py-1 rounded-xl bg-white/[0.05] hover:bg-blue-600 hover:text-white border border-white/[0.08] text-zinc-300 text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenPortal(SIMPLEWALLET_URL);
+                    }}
+                    className="px-2.5 py-1 rounded-xl bg-white/[0.05] hover:bg-blue-600 hover:text-white border border-white/[0.08] text-zinc-300 text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-xs"
                   >
                     <span>Launch</span>
                     <ArrowUpRight className="w-3 h-3" />
@@ -603,15 +617,19 @@ export default function App() {
               </div>
 
               {/* CARD 2: EG Payment */}
-              <div className="p-3 rounded-2xl bg-[#0D1017] border border-white/[0.08] hover:border-amber-500/40 transition-all shadow-sm group">
+              <div
+                onClick={() => handleOpenPortal(EGPAYMENT_URL)}
+                className="p-3 rounded-2xl bg-[#0D1017] border border-white/[0.08] hover:border-amber-500/50 hover:bg-[#121118] transition-all shadow-sm group cursor-pointer"
+                title="Click to open or switch to EG Payment portal"
+              >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center font-black text-xs text-amber-400 shadow-inner">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center font-black text-xs text-amber-400 shadow-inner group-hover:scale-105 transition-transform">
                       EG
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-xs text-white">EG Payment</h3>
+                        <h3 className="font-bold text-xs text-white group-hover:text-amber-400 transition-colors">EG Payment</h3>
                         {egTabOpen ? (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -628,8 +646,11 @@ export default function App() {
                   </div>
 
                   <button
-                    onClick={() => handleOpenPortal(EGPAYMENT_URL)}
-                    className="px-2.5 py-1 rounded-xl bg-white/[0.05] hover:bg-amber-600 hover:text-white border border-white/[0.08] text-zinc-300 text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenPortal(EGPAYMENT_URL);
+                    }}
+                    className="px-2.5 py-1 rounded-xl bg-white/[0.05] hover:bg-amber-600 hover:text-white border border-white/[0.08] text-zinc-300 text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-xs"
                   >
                     <span>Launch</span>
                     <ArrowUpRight className="w-3 h-3" />
