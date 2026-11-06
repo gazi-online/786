@@ -37,6 +37,9 @@ function isValidStatusTransition(
   incoming: TransactionStatus,
 ): boolean {
   if (current === incoming) return true;
+  if (current === 'unknown') {
+    return true; // Resolving an undetermined status is always permitted
+  }
   if (current === 'pending') {
     return incoming === 'success' || incoming === 'failed';
   }
@@ -176,6 +179,27 @@ export async function POST(req: NextRequest) {
       const rejected: Array<{ txnId: string; reason: string }> = [];
 
       for (const row of data.rows) {
+        // Resolve status if 'unknown' but statusRaw contains identifiable keywords
+        let resolvedStatus: TransactionStatus = row.status;
+        if (resolvedStatus === 'unknown' && row.statusRaw) {
+          const rawLower = row.statusRaw.toLowerCase().trim();
+          if (
+            rawLower.includes('fail') ||
+            rawLower.includes('declin') ||
+            rawLower.includes('reject') ||
+            rawLower.includes('cancel') ||
+            rawLower.includes('error')
+          ) {
+            resolvedStatus = 'failed';
+          } else if (rawLower.includes('success') || rawLower === 'done' || rawLower === 'ok') {
+            resolvedStatus = 'success';
+          } else if (rawLower.includes('refund') || rawLower.includes('revers')) {
+            resolvedStatus = 'refunded';
+          } else if (rawLower.includes('pend') || rawLower.includes('process')) {
+            resolvedStatus = 'pending';
+          }
+        }
+
         const existingRows = await tx
           .select()
           .from(transactions)
@@ -205,7 +229,7 @@ export async function POST(req: NextRequest) {
             customerLast4,
             customerNoHash,
             occurredAt: new Date(row.occurredAt),
-            status: row.status,
+            status: resolvedStatus,
             statusRaw: row.statusRaw,
             operatorRef: row.operatorRef || '',
             amountPaise: row.amountPaise,
@@ -215,19 +239,19 @@ export async function POST(req: NextRequest) {
           });
           inserted++;
         } else {
-          if (!isValidStatusTransition(existing.status, row.status)) {
+          if (!isValidStatusTransition(existing.status, resolvedStatus)) {
             rejected.push({
               txnId: row.txnId,
-              reason: `Disallowed status downgrade from ${existing.status} to ${row.status}`,
+              reason: `Disallowed status downgrade from ${existing.status} to ${resolvedStatus}`,
             });
             continue;
           }
 
-          if (existing.status !== row.status) {
+          if (existing.status !== resolvedStatus) {
             await tx
               .update(transactions)
               .set({
-                status: row.status,
+                status: resolvedStatus,
                 statusRaw: row.statusRaw,
                 updatedAt: now,
                 operatorRef: row.operatorRef || existing.operatorRef,

@@ -68,6 +68,25 @@ export async function GET(req: NextRequest) {
       formatted = rows.map((r) => {
         const last4 = r.customerLast4;
         const masked = `••••••${last4}`;
+        let status = r.status;
+        if (status === 'unknown' && r.statusRaw) {
+          const rawLower = r.statusRaw.toLowerCase().trim();
+          if (
+            rawLower.includes('fail') ||
+            rawLower.includes('declin') ||
+            rawLower.includes('reject') ||
+            rawLower.includes('cancel') ||
+            rawLower.includes('error')
+          ) {
+            status = 'failed';
+          } else if (rawLower.includes('success') || rawLower === 'done' || rawLower === 'ok') {
+            status = 'success';
+          } else if (rawLower.includes('refund') || rawLower.includes('revers')) {
+            status = 'refunded';
+          } else if (rawLower.includes('pend') || rawLower.includes('process')) {
+            status = 'pending';
+          }
+        }
         return {
           id: r.id,
           tenantId: r.tenantId,
@@ -78,7 +97,7 @@ export async function GET(req: NextRequest) {
           customerLast4: last4,
           customerNoMasked: masked,
           occurredAt: r.occurredAt.toISOString(),
-          status: r.status,
+          status,
           statusRaw: r.statusRaw,
           operatorRef: r.operatorRef,
           amountPaise: r.amountPaise,

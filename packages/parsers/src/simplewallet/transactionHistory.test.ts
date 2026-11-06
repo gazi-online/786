@@ -15,7 +15,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { parse, PARSER_VERSION } from './transactionHistory.js';
+import { parse, normalizeStatus, PARSER_VERSION } from './transactionHistory.js';
 
 // ---------------------------------------------------------------------------
 // Fixture loader
@@ -190,6 +190,29 @@ describe('status normalisation', () => {
     if (!result.ok) return;
     const row = result.rows.find((r) => r.txnId === '55000005');
     expect(row?.status).toBe('success');
+  });
+
+  it('maps Operator Failed and variants → failed', () => {
+    expect(normalizeStatus('Operator Failed')).toBe('failed');
+    expect(normalizeStatus('Failed')).toBe('failed');
+    expect(normalizeStatus('Failure')).toBe('failed');
+    expect(normalizeStatus('Operator Error')).toBe('failed');
+    expect(normalizeStatus('Declined')).toBe('failed');
+    expect(normalizeStatus('Cancelled')).toBe('failed');
+    expect(normalizeStatus('Rejected')).toBe('failed');
+  });
+
+  it('maps Pending and variants → pending', () => {
+    expect(normalizeStatus('Pending')).toBe('pending');
+    expect(normalizeStatus('Processing')).toBe('pending');
+    expect(normalizeStatus('In Process')).toBe('pending');
+    expect(normalizeStatus('Queued')).toBe('pending');
+  });
+
+  it('maps Refunded and variants → refunded', () => {
+    expect(normalizeStatus('Refunded')).toBe('refunded');
+    expect(normalizeStatus('Refund')).toBe('refunded');
+    expect(normalizeStatus('Reversed')).toBe('refunded');
   });
 });
 

@@ -14,6 +14,9 @@ function isValidStatusTransition(
   incoming: TransactionStatus,
 ): boolean {
   if (current === incoming) return true;
+  if (current === 'unknown') {
+    return true; // Resolving an undetermined status is always permitted
+  }
   if (current === 'pending') {
     return incoming === 'success' || incoming === 'failed';
   }
@@ -50,6 +53,13 @@ describe('M2 Ingest Rules & Status Transitions (GUIDE.md §3)', () => {
 
     it('forbids failed -> pending', () => {
       expect(isValidStatusTransition('failed', 'pending')).toBe(false);
+    });
+
+    it('allows unknown -> failed and unknown -> success (resolving undetermined status)', () => {
+      expect(isValidStatusTransition('unknown', 'failed')).toBe(true);
+      expect(isValidStatusTransition('unknown', 'success')).toBe(true);
+      expect(isValidStatusTransition('unknown', 'pending')).toBe(true);
+      expect(isValidStatusTransition('unknown', 'refunded')).toBe(true);
     });
 
     it('forbids refunded -> success', () => {

@@ -44,11 +44,36 @@ function parseDate(rawDate: string): string | null {
 }
 
 function mapStatus(raw: string): TransactionStatus {
-  const upper = raw.toUpperCase();
-  if (upper.includes('SUCCESS')) return 'success';
-  if (upper.includes('PENDING') || upper.includes('PROCESS')) return 'pending';
-  if (upper.includes('FAIL')) return 'failed';
-  if (upper.includes('REFUND')) return 'refunded';
+  const upper = (raw || '').toUpperCase().trim();
+  if (!upper) return 'unknown';
+
+  if (upper.includes('SUCCESS') || upper === 'DONE' || upper === 'COMPLETED' || upper === 'OK') {
+    return 'success';
+  }
+  if (
+    upper.includes('FAIL') ||
+    upper.includes('DECLIN') ||
+    upper.includes('REJECT') ||
+    upper.includes('CANCEL') ||
+    upper.includes('ERROR') ||
+    upper.includes('INVALID') ||
+    upper.includes('DISPUTE')
+  ) {
+    return 'failed';
+  }
+  if (upper.includes('REFUND') || upper.includes('REVERS') || upper.includes('CREDIT BACK')) {
+    return 'refunded';
+  }
+  if (
+    upper.includes('PEND') ||
+    upper.includes('PROCESS') ||
+    upper.includes('QUEUE') ||
+    upper.includes('WAIT') ||
+    upper.includes('SUBMIT') ||
+    upper.includes('HOLD')
+  ) {
+    return 'pending';
+  }
   return 'unknown';
 }
 
