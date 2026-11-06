@@ -216,7 +216,8 @@ export function updateMemoryDeviceHeartbeat(
 }
 
 export function addMemoryTransactions(txns: ApiTransaction[]) {
-  const getKey = (t: ApiTransaction) => `${t.source || 'simplewallet'}_${t.txnId}`;
+  const getKey = (t: ApiTransaction) =>
+    `${(t.source || 'simplewallet').toLowerCase().trim()}_${String(t.txnId || '').trim()}`;
   const map = new Map(transactionsList.map((t) => [getKey(t), t]));
   for (const t of txns) {
     map.set(getKey(t), t);

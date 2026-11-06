@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import type { ApiTransaction } from '@walletsync/contract';
 import { AppLayout } from '@/components/AppLayout';
@@ -34,6 +34,18 @@ interface Stats {
   successCount: number;
   discountPaise: number;
   walletBalancePaise: number | null;
+}
+
+function getTxnCompositeKey(t: { source?: string | null; txnId: string | number }): string {
+  const src = (t.source || 'simplewallet').toLowerCase().trim();
+  const id = String(t.txnId || '').trim();
+  return `${src}_${id}`;
+}
+
+function getTimeMs(d?: string | null): number {
+  if (!d) return 0;
+  const val = new Date(d).getTime();
+  return isNaN(val) ? 0 : val;
 }
 
 export default function DashboardPage() {
@@ -116,9 +128,19 @@ export default function DashboardPage() {
   useEffect(() => {
     const cached = getClientCache<ApiTransaction[]>('dashboard_txns');
     if (cached && cached.length > 0) {
-      setTransactions(cached);
+      // Deduplicate cached records immediately in case previous sessions saved duplicates
+      const dedupMap = new Map<string, ApiTransaction>();
+      for (const c of cached) {
+        dedupMap.set(getTxnCompositeKey(c), c);
+      }
+      const cleanCached = Array.from(dedupMap.values()).sort((a, b) => {
+        const diff = getTimeMs(b.occurredAt) - getTimeMs(a.occurredAt);
+        if (diff !== 0) return diff;
+        return getTimeMs(b.createdAt) - getTimeMs(a.createdAt);
+      });
+      setTransactions(cleanCached);
       setLoading(false);
-      setLastSyncTime(cached[0]?.occurredAt || null);
+      setLastSyncTime(cleanCached[0]?.occurredAt || null);
     }
     fetchTransactions(false);
 
@@ -228,29 +250,20 @@ export default function DashboardPage() {
       const data = await res.json();
       const items: ApiTransaction[] = data.items || [];
 
-      const getTxnKey = (t: ApiTransaction) =>
-        t.id ? `id_${t.id}` : `${t.source || 'simplewallet'}_${t.txnId}`;
-
-      const getTime = (d?: string | null) => {
-        if (!d) return 0;
-        const val = new Date(d).getTime();
-        return isNaN(val) ? 0 : val;
-      };
-
       setTransactions((prev) => {
         // If background silent poll returns empty, preserve previous transactions to prevent flash of empty state
         if (silent && items.length === 0 && prev.length > 0) {
           return prev;
         }
 
-        if (items.length === 0) {
+        if (items.length === 0 && prev.length === 0) {
           return [];
         }
 
         // Highlight brand new transactions that were not present previously
         if (prev.length > 0) {
-          const prevKeys = new Set(prev.map(getTxnKey));
-          const newTxnIds = items.filter((it) => !prevKeys.has(getTxnKey(it))).map((it) => it.txnId);
+          const prevKeys = new Set(prev.map(getTxnCompositeKey));
+          const newTxnIds = items.filter((it) => !prevKeys.has(getTxnCompositeKey(it))).map((it) => it.txnId);
           if (newTxnIds.length > 0) {
             setHighlightedIds(new Set(newTxnIds));
             setTimeout(() => {
@@ -260,16 +273,20 @@ export default function DashboardPage() {
         }
 
         // Merge incoming transactions across all portals (SimpleWallet + EG Payment)
-        // Composite key ensures numeric ID collisions never overwrite transactions from another portal
-        const txnMap = new Map(prev.map((t) => [getTxnKey(t), t]));
+        // Deduplicate strictly by natural key (source + txnId) so identical records NEVER duplicate
+        const txnMap = new Map<string, ApiTransaction>();
+        for (const p of prev) {
+          txnMap.set(getTxnCompositeKey(p), p);
+        }
         for (const item of items) {
-          txnMap.set(getTxnKey(item), item);
+          // Fresh server item replaces any stale/partial previous item
+          txnMap.set(getTxnCompositeKey(item), item);
         }
 
         const merged = Array.from(txnMap.values()).sort((a, b) => {
-          const diff = getTime(b.occurredAt) - getTime(a.occurredAt);
+          const diff = getTimeMs(b.occurredAt) - getTimeMs(a.occurredAt);
           if (diff !== 0) return diff;
-          return getTime(b.createdAt) - getTime(a.createdAt);
+          return getTimeMs(b.createdAt) - getTimeMs(a.createdAt);
         });
 
         // Keep local cache in sync with full merged stream
@@ -483,8 +500,21 @@ export default function DashboardPage() {
     };
   }, [showPairModal, pairingCode]);
 
-  // 3. Stats calculation
-  const stats: Stats = transactions.reduce(
+  // 3. Guaranteed deduplicated transactions (zero duplicate rows)
+  const deduplicatedTxns: ApiTransaction[] = useMemo(() => {
+    const map = new Map<string, ApiTransaction>();
+    for (const t of transactions) {
+      map.set(getTxnCompositeKey(t), t);
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      const diff = getTimeMs(b.occurredAt) - getTimeMs(a.occurredAt);
+      if (diff !== 0) return diff;
+      return getTimeMs(b.createdAt) - getTimeMs(a.createdAt);
+    });
+  }, [transactions]);
+
+  // Stats calculation from deduplicated stream
+  const stats: Stats = deduplicatedTxns.reduce(
     (acc, t) => {
       acc.totalAmountPaise += t.amountPaise;
       acc.totalCount += 1;
@@ -564,9 +594,9 @@ export default function DashboardPage() {
     }
   }
 
-  // Portal Counts
-  const simplewalletCount = transactions.filter((t) => t.source === 'simplewallet' || !t.source).length;
-  const egpaymentCount = transactions.filter((t) => t.source === 'egpayment').length;
+  // Portal Counts from deduplicated stream
+  const simplewalletCount = deduplicatedTxns.filter((t) => t.source === 'simplewallet' || !t.source).length;
+  const egpaymentCount = deduplicatedTxns.filter((t) => t.source === 'egpayment').length;
 
   // Master Sync All Portals
   async function handleSyncAllDataNow() {
@@ -577,11 +607,20 @@ export default function DashboardPage() {
         const data = await res.json();
         const items: ApiTransaction[] = data.items || [];
         if (items.length > 0) {
-          setTransactions(items);
-          setClientCache('dashboard_txns', items);
-          setClientCache('txns_all_all_all', items);
-          setLastSyncTime(items[0]?.occurredAt || null);
-          setSyncToastMessage(`Synchronized ${items.length} live transactions successfully ✓`);
+          const dedupMap = new Map<string, ApiTransaction>();
+          for (const item of items) {
+            dedupMap.set(getTxnCompositeKey(item), item);
+          }
+          const cleanItems = Array.from(dedupMap.values()).sort((a, b) => {
+            const diff = getTimeMs(b.occurredAt) - getTimeMs(a.occurredAt);
+            if (diff !== 0) return diff;
+            return getTimeMs(b.createdAt) - getTimeMs(a.createdAt);
+          });
+          setTransactions(cleanItems);
+          setClientCache('dashboard_txns', cleanItems);
+          setClientCache('txns_all_all_all', cleanItems);
+          setLastSyncTime(cleanItems[0]?.occurredAt || null);
+          setSyncToastMessage(`Synchronized ${cleanItems.length} live transactions successfully ✓`);
         } else {
           setSyncToastMessage(
             deviceHeartbeat.status === 'connected'
@@ -638,8 +677,8 @@ export default function DashboardPage() {
     }
   }
 
-  // Filtered transactions
-  const filtered = transactions.filter((t) => {
+  // Filtered transactions derived from deduplicated stream
+  const filtered = deduplicatedTxns.filter((t) => {
     if (portalFilter !== 'all' && t.source !== portalFilter) return false;
     if (statusFilter !== 'all' && t.status !== statusFilter) return false;
     if (serviceFilter !== 'all' && t.service !== serviceFilter) return false;
@@ -1157,7 +1196,7 @@ export default function DashboardPage() {
 
                       return (
                         <tr
-                          key={item.id}
+                          key={getTxnCompositeKey(item)}
                           onClick={() => setSelectedTxn(item)}
                           className={`transition-colors cursor-pointer hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 ${
                             isHighlighted ? 'animate-row-highlight bg-blue-50 dark:bg-blue-950/40' : ''

@@ -22,6 +22,12 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
+function getTxnCompositeKey(t: { source?: string | null; txnId: string | number }): string {
+  const src = (t.source || 'simplewallet').toLowerCase().trim();
+  const id = String(t.txnId || '').trim();
+  return `${src}_${id}`;
+}
+
 export default function TransactionsPage() {
   const { t } = useI18n();
   const [items, setItems] = useState<ApiTransaction[]>([]);
@@ -115,7 +121,11 @@ export default function TransactionsPage() {
       setItems((prev) => {
         // If filter changed, take new items directly without mixing old filter items
         if (isFilterChanged) {
-          return newItems;
+          const dedup = new Map<string, ApiTransaction>();
+          for (const item of newItems) {
+            dedup.set(getTxnCompositeKey(item), item);
+          }
+          return Array.from(dedup.values());
         }
         // If background silent poll returns empty, preserve previous transactions to prevent flash
         if (silent && newItems.length === 0 && prev.length > 0) {
@@ -124,10 +134,13 @@ export default function TransactionsPage() {
         if (newItems.length === 0) {
           return [];
         }
-        // Non-destructive merge by txnId
-        const txnMap = new Map(prev.map((t) => [t.txnId, t]));
+        // Non-destructive merge and deduplicate by natural key (source + txnId)
+        const txnMap = new Map<string, ApiTransaction>();
+        for (const p of prev) {
+          txnMap.set(getTxnCompositeKey(p), p);
+        }
         for (const item of newItems) {
-          txnMap.set(item.txnId, item);
+          txnMap.set(getTxnCompositeKey(item), item);
         }
         return Array.from(txnMap.values()).sort(
           (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime(),
@@ -377,7 +390,7 @@ export default function TransactionsPage() {
                     const isRevealed = Boolean(revealedNumbers[item.id]);
                     return (
                       <tr
-                        key={item.id}
+                        key={getTxnCompositeKey(item)}
                         onClick={() => setSelectedTxn(item)}
                         className="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors"
                       >

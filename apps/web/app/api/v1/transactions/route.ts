@@ -93,10 +93,12 @@ export async function GET(req: NextRequest) {
       // Merge memory transactions
     }
 
+    const getCompositeKey = (t: { source?: string | null; txnId: string | number }) =>
+      `${(t.source || 'simplewallet').toLowerCase().trim()}_${String(t.txnId || '').trim()}`;
+
+    // Deduplicate any records and optionally merge memory store (in dev/demo only if DB returned empty)
     const memList = getMemoryTransactions();
-    if (memList.length > 0) {
-      const getCompositeKey = (t: { source?: string | null; txnId: string }) =>
-        `${t.source || 'simplewallet'}_${t.txnId}`;
+    if (memList.length > 0 && (process.env.NODE_ENV !== 'production' || formatted.length === 0)) {
       const seen = new Set(formatted.map(getCompositeKey));
       for (const m of memList) {
         if (m.tenantId && m.tenantId !== session.tenant.id && m.tenantId !== '00000000-0000-0000-0000-000000000001') {
@@ -111,17 +113,26 @@ export async function GET(req: NextRequest) {
           seen.add(mKey);
         }
       }
-      formatted.sort((a, b) => {
-        const timeA = new Date(a.occurredAt).getTime();
-        const timeB = new Date(b.occurredAt).getTime();
-        return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
-      });
     }
 
-    const nextCursor =
-      formatted.length === limit ? formatted[formatted.length - 1]?.occurredAt : null;
+    // Final deduplication pass to strictly guarantee no duplicate (source, txnId) records in the response
+    const dedupMap = new Map<string, ApiTransaction>();
+    for (const item of formatted) {
+      const key = getCompositeKey(item);
+      if (!dedupMap.has(key)) {
+        dedupMap.set(key, item);
+      }
+    }
+    const cleanList = Array.from(dedupMap.values()).sort((a, b) => {
+      const timeA = new Date(a.occurredAt).getTime();
+      const timeB = new Date(b.occurredAt).getTime();
+      return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+    });
 
-    const itemsToReturn = formatted.slice(0, limit);
+    const nextCursor =
+      cleanList.length === limit ? cleanList[cleanList.length - 1]?.occurredAt : null;
+
+    const itemsToReturn = cleanList.slice(0, limit);
 
     // Compute max(updatedAt) across the filtered result set
     let maxUpdatedAt = '0';
