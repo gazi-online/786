@@ -66,6 +66,10 @@ async function runMigrations() {
     const syncEventsSql = fs.readFileSync(path.join(rootDir, 'apps/web/drizzle/0003_sync_events_fix.sql'), 'utf8');
     await sql.unsafe(syncEventsSql);
 
+    console.log('Applying 0004_transactions_parser_version.sql (Transactions schema fix)...');
+    const transSql = fs.readFileSync(path.join(rootDir, 'apps/web/drizzle/0004_transactions_parser_version.sql'), 'utf8');
+    await sql.unsafe(transSql);
+
     console.log('✓ All migrations applied successfully.');
   } catch (err) {
     console.error('Migration failed:', err);
