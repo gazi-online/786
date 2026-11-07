@@ -118,6 +118,7 @@ export default defineBackground(() => {
     }
 
     if (parsedAnyTab) {
+      triggerRechargeDispatcherCycle();
       return;
     }
 
@@ -139,6 +140,8 @@ export default defineBackground(() => {
         chrome.action.setBadgeBackgroundColor({ color: '#f59e0b' });
       }
     }
+
+    triggerRechargeDispatcherCycle();
   }
 
   // 3. Handle parser results (Fail Closed: send nothing if not ok)
@@ -356,7 +359,10 @@ export default defineBackground(() => {
       }
 
       if (message.type === 'SYNC_NOW') {
-        triggerSyncCycle().then(() => sendResponse({ success: true }));
+        Promise.all([
+          triggerSyncCycle(),
+          triggerRechargeDispatcherCycle(),
+        ]).then(() => sendResponse({ success: true }));
         return true;
       }
 
@@ -372,6 +378,10 @@ export default defineBackground(() => {
           if (sender.tab?.id) {
             await closeDedicatedTab(sender.tab.id);
           }
+          // After completing one order, immediately check for consecutive queued orders
+          setTimeout(() => {
+            triggerRechargeDispatcherCycle();
+          }, 1000);
         });
         return true;
       }
@@ -398,6 +408,26 @@ export default defineBackground(() => {
   // 6. Recharge Dispatcher Engine (Milestone R3)
   // -------------------------------------------------------------------------
   let isRechargeDispatcherBusy = false;
+
+  async function sendMessageWithRetry(
+    tabId: number,
+    message: unknown,
+    maxAttempts = 6,
+    delayMs = 500,
+  ): Promise<unknown> {
+    let lastError: Error | null = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await chrome.tabs.sendMessage(tabId, message);
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
+    }
+    throw lastError;
+  }
 
   async function triggerRechargeDispatcherCycle() {
     if (isRechargeDispatcherBusy) return;
@@ -434,19 +464,27 @@ export default defineBackground(() => {
       // 2. Lock order on server to 'submitting' (prevents re-leasing)
       await sendRechargeStatusUpdate(storage, order.id, { status: 'submitting' });
 
-      // 3. Dispatch execution command to content script in dedicated background tab
-      chrome.tabs.sendMessage(tabId, {
-        type: 'EXECUTE_PORTAL_RECHARGE',
-        order,
-      }).catch(async () => {
-        // Communication failed; record failure and close tab
+      // 3. Dispatch execution command to content script in dedicated background tab with retry backoff
+      try {
+        await sendMessageWithRetry(
+          tabId,
+          {
+            type: 'EXECUTE_PORTAL_RECHARGE',
+            order,
+          },
+          6,
+          500,
+        );
+      } catch (err: unknown) {
+        // Communication failed after all attempts; record failure and close tab
+        const errDetail = err instanceof Error ? err.message : 'Timeout waiting for content script';
         await sendRechargeStatusUpdate(storage, order.id, {
           status: 'failed',
           failureCode: 'tab_dispatch_error',
-          failureDetail: 'Failed to communicate with recharge content script in background tab',
+          failureDetail: `Failed to communicate with recharge content script in background tab: ${errDetail.slice(0, 100)}`,
         });
         await closeDedicatedTab(tabId);
-      });
+      }
     } catch {
       // Ignore background dispatch errors
     } finally {
@@ -522,6 +560,9 @@ export default defineBackground(() => {
         },
         body: JSON.stringify(payload),
       });
+
+      // Automatically dispatch pending recharge orders on every heartbeat tick
+      triggerRechargeDispatcherCycle();
     } catch {
       // Handle failures silently without retry storms
     }

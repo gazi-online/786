@@ -680,6 +680,31 @@ export default function App() {
               </div>
             </div>
 
+            {/* RECHARGE ENGINE DISPATCH HUB */}
+            <div className="p-3 rounded-2xl bg-gradient-to-r from-violet-950/40 via-indigo-950/30 to-purple-950/20 border border-violet-500/25 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-violet-600/20 border border-violet-500/30 flex items-center justify-center">
+                    <Zap className="w-3.5 h-3.5 text-violet-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-[11px]">Recharge Automation Engine</h3>
+                    <p className="text-[9px] text-zinc-400">Auto-claims & dispatches web recharge queue</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSyncNow}
+                  disabled={isSyncing || data.isPaused}
+                  className="px-2.5 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-md shadow-violet-600/30 disabled:opacity-40"
+                  title="Click to process queued recharge orders immediately"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>{isSyncing ? 'Dispatching...' : 'Dispatch Queue'}</span>
+                </button>
+              </div>
+            </div>
+
             {/* Quick Mini Feed Preview */}
             <div className="pt-1">
               <div className="flex items-center justify-between mb-1.5 px-1">
@@ -1058,7 +1083,7 @@ export default function App() {
             className="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold tracking-wide uppercase shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'Scanning Portals...' : 'Sync Both Portals'}</span>
+            <span>{isSyncing ? 'Syncing & Dispatching...' : 'Sync & Dispatch Portals'}</span>
           </button>
 
           {/* Pause / Resume Button */}
