@@ -42,45 +42,48 @@ export default defineContentScript({
       if (msg.type === 'EXECUTE_PORTAL_RECHARGE') {
         const order = msg.order;
 
-        try {
-          const result =
-            order.source === 'egpayment'
-              ? executeEgPaymentRecharge(document, {
-                  customerNo: order.customerNo,
-                  operator: order.operator,
-                  amountPaise: order.amountPaise,
-                })
-              : executeSimpleWalletRecharge(document, {
-                  customerNo: order.customerNo,
-                  operator: order.operator,
-                  amountPaise: order.amountPaise,
-                });
+        (async () => {
+          try {
+            const result =
+              order.source === 'egpayment'
+                ? await executeEgPaymentRecharge(document, {
+                    customerNo: order.customerNo,
+                    operator: order.operator,
+                    amountPaise: order.amountPaise,
+                  })
+                : await executeSimpleWalletRecharge(document, {
+                    customerNo: order.customerNo,
+                    operator: order.operator,
+                    amountPaise: order.amountPaise,
+                  });
 
-          const responsePayload: PortalRechargeResultMessage = {
-            type: 'PORTAL_RECHARGE_RESULT',
-            orderId: order.id,
-            status: result.status,
-            failureCode: !result.ok ? result.failureCode : undefined,
-            failureDetail: !result.ok ? result.failureDetail : undefined,
-          };
+            const responsePayload: PortalRechargeResultMessage = {
+              type: 'PORTAL_RECHARGE_RESULT',
+              orderId: order.id,
+              status: result.status,
+              failureCode: !result.ok ? result.failureCode : undefined,
+              failureDetail: !result.ok ? result.failureDetail : undefined,
+            };
 
-          chrome.runtime.sendMessage(responsePayload).catch(() => {});
-          sendResponse({ received: true });
-        } catch (err: unknown) {
-          const errDetail =
-            err instanceof Error ? err.message.slice(0, 100) : 'Execution error';
+            chrome.runtime.sendMessage(responsePayload).catch(() => {});
+            sendResponse({ received: true });
+          } catch (err: unknown) {
+            const errDetail =
+              err instanceof Error ? err.message.slice(0, 100) : 'Execution error';
 
-          const failurePayload: PortalRechargeResultMessage = {
-            type: 'PORTAL_RECHARGE_RESULT',
-            orderId: order.id,
-            status: 'failed',
-            failureCode: 'execution_exception',
-            failureDetail: errDetail,
-          };
+            const failurePayload: PortalRechargeResultMessage = {
+              type: 'PORTAL_RECHARGE_RESULT',
+              orderId: order.id,
+              status: 'failed',
+              failureCode: 'execution_exception',
+              failureDetail: errDetail,
+            };
 
-          chrome.runtime.sendMessage(failurePayload).catch(() => {});
-          sendResponse({ received: false, error: errDetail });
-        }
+            chrome.runtime.sendMessage(failurePayload).catch(() => {});
+            sendResponse({ received: false, error: errDetail });
+          }
+        })();
+        return true;
       }
     });
   },

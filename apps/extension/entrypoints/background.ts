@@ -309,6 +309,9 @@ export default defineBackground(() => {
     chrome.action.setBadgeBackgroundColor({ color: '#f59e0b' });
   }
 
+  // Dedicated tabs opened by background dispatcher (never closes user working tabs)
+  const dedicatedTabIds = new Set<number>();
+
   // 5. Message listener from Popup, Options & Content scripts
   chrome.runtime.onMessage.addListener(
     (
@@ -380,7 +383,8 @@ export default defineBackground(() => {
               failureDetail: message.failureDetail,
             });
           }
-          if (sender.tab?.id) {
+          if (sender.tab?.id && dedicatedTabIds.has(sender.tab.id)) {
+            dedicatedTabIds.delete(sender.tab.id);
             await closeDedicatedTab(sender.tab.id);
           }
           // After completing one order, immediately check for consecutive queued orders
@@ -503,11 +507,25 @@ export default defineBackground(() => {
       const targetUrl =
         order.source === 'egpayment'
           ? 'https://egpayment.com/users/recharge'
-          : 'https://simplewallet.in/web/MobileRecharge.aspx?mID=822';
+          : 'https://simplewallet.in/web/MobileRecharge.aspx?mID=822&PID=821';
 
-      // 1. Open dedicated background tab (guaranteed active: false; never interrupts working tab)
-      console.log(`[WalletSync Recharge Dispatcher] Opening background tab: ${targetUrl}`);
-      const { tabId } = await openDedicatedBackgroundTab(targetUrl);
+      // 1. Reuse existing open portal recharge tab if available; otherwise open dedicated background tab
+      const pattern =
+        order.source === 'egpayment'
+          ? '*://egpayment.com/users/recharge*'
+          : '*://simplewallet.in/web/MobileRecharge.aspx*';
+
+      let tabId: number;
+      const existingTabs = await chrome.tabs.query({ url: pattern });
+      if (existingTabs.length > 0 && existingTabs[0]?.id) {
+        tabId = existingTabs[0].id;
+        console.log(`[WalletSync Recharge Dispatcher] Reusing existing portal tab ${tabId}`);
+      } else {
+        console.log(`[WalletSync Recharge Dispatcher] Opening background tab: ${targetUrl}`);
+        const res = await openDedicatedBackgroundTab(targetUrl);
+        tabId = res.tabId;
+        dedicatedTabIds.add(tabId);
+      }
 
       // 2. Lock order on server to 'submitting' (prevents re-leasing)
       await sendRechargeStatusUpdate(storage, order.id, { status: 'submitting' });
@@ -547,7 +565,10 @@ export default defineBackground(() => {
           failureCode: 'tab_dispatch_error',
           failureDetail: `Failed to communicate with recharge content script in background tab: ${errDetail.slice(0, 100)}`,
         });
-        await closeDedicatedTab(tabId);
+        if (dedicatedTabIds.has(tabId)) {
+          dedicatedTabIds.delete(tabId);
+          await closeDedicatedTab(tabId);
+        }
 
         await setStorage({
           lastRechargeLog: {

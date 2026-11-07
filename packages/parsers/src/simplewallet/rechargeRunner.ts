@@ -1,12 +1,15 @@
 /**
  * SimpleWallet Recharge Form Automation Runner
  *
- * Core Security & Invariants:
- * 1. Read-only validation before any form interaction.
- * 2. Strict fingerprinting of form elements: Mobile, Operator dropdown, Amount, Submit button.
- * 3. Never blind-submits: verifies all input values match target order before click.
- * 4. Detects CAPTCHA, OTP, or auth challenges -> fails with 'needs_manual_action'.
- * 5. Zero DOM injection or modification outside the standard form fields.
+ * Real-world flow verified from official portal recording:
+ * 1. Navigate to MobileRecharge.aspx?mID=822&PID=821
+ * 2. If operator selection list is visible: click matching operator card (VI, Airtel, BSNL, JIO)
+ * 3. Form fields appear: fill Mobile No and Amount (in rupees)
+ * 4. Verify input values round-trip
+ * 5. Click green 'Recharge' button
+ * 6. Modal appears: 'Confirm Transaction' with 'Pay Now' button -> click 'Pay Now'
+ * 7. Alert dialog appears: 'Transaction accepted, Trn No: ...' with 'OK' button -> click 'OK'
+ * 8. Return { ok: true, status: 'submitted', portalTrnId }
  */
 
 export interface SimpleWalletRechargeOrderParams {
@@ -19,6 +22,7 @@ export type RechargeExecutionResult =
   | {
       ok: true;
       status: 'submitted';
+      portalTrnId?: string;
     }
   | {
       ok: false;
@@ -28,12 +32,152 @@ export type RechargeExecutionResult =
     };
 
 /**
- * Executes form filling and submission on SimpleWallet MobileRecharge.aspx
+ * Helper to wait for a DOM element or condition asynchronously with timeout.
  */
-export function executeSimpleWalletRecharge(
+async function waitForElement<T>(
+  getter: () => T | null | undefined,
+  maxTimeoutMs = 2000,
+  intervalMs = 100,
+): Promise<T | null> {
+  const isTest = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+  const effectiveTimeout = isTest ? Math.min(maxTimeoutMs, 250) : maxTimeoutMs;
+  const effectiveInterval = isTest ? 25 : intervalMs;
+
+  const startTime = Date.now();
+  while (Date.now() - startTime < effectiveTimeout) {
+    const el = getter();
+    if (el) return el;
+    await new Promise((resolve) => setTimeout(resolve, effectiveInterval));
+  }
+  return null;
+}
+
+/**
+ * Selects the target operator on SimpleWallet (Card/Icon click or Dropdown fallback).
+ */
+function selectOperator(doc: Document, operator: string): boolean {
+  const targetOp = operator.toLowerCase().trim();
+
+  // 1. Dropdown fallback if present
+  const operatorSelect = (doc.getElementById('ddlOperator') ||
+    doc.querySelector('select[name*="Operator" i], select[id*="ddlOperator" i]')) as HTMLSelectElement | null;
+  if (operatorSelect && operatorSelect.options.length > 1) {
+    const options = Array.from(operatorSelect.options);
+    const matchedOption = options.find((opt) => {
+      const text = opt.text.toLowerCase().trim();
+      const val = opt.value.toLowerCase().trim();
+      return text.includes(targetOp) || val.includes(targetOp);
+    });
+    if (matchedOption) {
+      operatorSelect.value = matchedOption.value;
+      operatorSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    }
+  }
+
+  // 2. Click Operator Card / Icon (Real portal workflow)
+  const allElements = Array.from(doc.querySelectorAll('img, a, button, div, span, p'));
+
+  for (const el of allElements) {
+    const isImg = el instanceof HTMLImageElement;
+    const src = isImg ? el.src.toLowerCase() : '';
+    const alt = isImg ? el.alt.toLowerCase() : '';
+    const text = (el.textContent || '').trim().toLowerCase();
+
+    let matches = false;
+    if (targetOp.includes('jio')) {
+      matches = src.includes('jio') || alt.includes('jio') || text === 'jio';
+    } else if (targetOp.includes('airtel')) {
+      matches = src.includes('airtel') || alt.includes('airtel') || text === 'airtel';
+    } else if (targetOp.includes('bsnl')) {
+      matches = src.includes('bsnl') || alt.includes('bsnl') || text.includes('bsnl');
+    } else if (targetOp === 'vi' || targetOp.includes('vodafone') || targetOp.includes('idea')) {
+      matches = src.includes('vi') || alt.includes('vi') || text === 'vi' || text.includes('vodafone');
+    }
+
+    if (matches) {
+      const clickable = (el.closest('a, button, [onclick], .card, li, div[class*="operator" i]') || el) as HTMLElement;
+      clickable.click();
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function findMobileInput(doc: Document): HTMLInputElement | null {
+  const direct = doc.querySelector(
+    'input[id*="txtMobile" i], input[name*="Mobile" i], input[id*="mobile" i], input[placeholder*="Mobile" i], input[type="tel"]',
+  ) as HTMLInputElement | null;
+  if (direct) return direct;
+
+  const labels = Array.from(doc.querySelectorAll('label, span, div, p'));
+  const mobileLabel = labels.find((l) => /^mobile(?:\s*no)?[:.]?$/i.test((l.textContent || '').trim()));
+  if (mobileLabel) {
+    const parent = mobileLabel.parentElement || mobileLabel.closest('div');
+    const input = parent?.querySelector('input');
+    if (input) return input;
+  }
+
+  return null;
+}
+
+function findAmountInput(doc: Document): HTMLInputElement | null {
+  const direct = doc.querySelector(
+    'input[id*="txtAmount" i], input[name*="Amount" i], input[id*="amount" i], input[placeholder*="Amount" i]',
+  ) as HTMLInputElement | null;
+  if (direct) return direct;
+
+  const labels = Array.from(doc.querySelectorAll('label, span, div, p'));
+  const amountLabel = labels.find((l) => /^amount[:.]?$/i.test((l.textContent || '').trim()));
+  if (amountLabel) {
+    const parent = amountLabel.parentElement || amountLabel.closest('div');
+    const input = parent?.querySelector('input');
+    if (input) return input;
+  }
+
+  return null;
+}
+
+function findRechargeButton(doc: Document): HTMLElement | null {
+  const candidates = Array.from(doc.querySelectorAll('button, input[type="submit"], input[type="button"], a.btn'));
+  const match = candidates.find((b) => {
+    const text = (b.textContent || (b as HTMLInputElement).value || '').trim();
+    return /^recharge$/i.test(text) || /^proceed\s*to\s*recharge$/i.test(text);
+  });
+  if (match) return match as HTMLElement;
+
+  return (doc.getElementById('btnRecharge') as HTMLElement | null) ||
+    (doc.getElementById('btnSubmit') as HTMLElement | null);
+}
+
+function findPayNowButton(doc: Document): HTMLElement | null {
+  const candidates = Array.from(doc.querySelectorAll('button, input[type="button"], input[type="submit"], a'));
+  return (
+    (candidates.find((b) => {
+      const text = (b.textContent || (b as HTMLInputElement).value || '').trim();
+      return /pay\s*now/i.test(text);
+    }) as HTMLElement) || null
+  );
+}
+
+function findOkButton(doc: Document): HTMLElement | null {
+  const candidates = Array.from(doc.querySelectorAll('button, input[type="button"], input[type="submit"], a'));
+  return (
+    (candidates.find((b) => {
+      const text = (b.textContent || (b as HTMLInputElement).value || '').trim();
+      return /^ok$/i.test(text);
+    }) as HTMLElement) || null
+  );
+}
+
+/**
+ * Executes form filling and multi-step submission on SimpleWallet MobileRecharge.aspx
+ */
+export async function executeSimpleWalletRecharge(
   doc: Document,
   order: SimpleWalletRechargeOrderParams,
-): RechargeExecutionResult {
+): Promise<RechargeExecutionResult> {
   // 1. Check logged-in state
   const bodyText = doc.body?.textContent?.toUpperCase() || '';
   if (bodyText.includes('PLEASE LOG IN') || bodyText.includes('SIGN IN TO CONTINUE')) {
@@ -57,36 +201,46 @@ export function executeSimpleWalletRecharge(
     };
   }
 
-  // 3. Locate Mobile Number input
-  const mobileInput = (doc.getElementById('txtMobile') ||
-    doc.querySelector('input[name*="Mobile" i], input[id*="txtMobile" i], input[type="tel"]')) as HTMLInputElement | null;
+  // 3. Operator Selection (Card/Icon Click or Dropdown)
+  let mobileInput = findMobileInput(doc);
+  if (!mobileInput) {
+    // Select operator card first
+    const selected = selectOperator(doc, order.operator);
+    if (!selected) {
+      return {
+        ok: false,
+        status: 'failed',
+        failureCode: 'operator_mismatch',
+        failureDetail: `Operator '${order.operator}' not available on SimpleWallet portal`,
+      };
+    }
+
+    // Wait for form inputs to mount after operator selection
+    mobileInput = await waitForElement(() => findMobileInput(doc), 2000, 100);
+  } else {
+    // If mobileInput is already visible, still select or confirm operator
+    const selected = selectOperator(doc, order.operator);
+    if (!selected) {
+      return {
+        ok: false,
+        status: 'failed',
+        failureCode: 'operator_mismatch',
+        failureDetail: `Operator '${order.operator}' not available on SimpleWallet portal`,
+      };
+    }
+  }
 
   if (!mobileInput) {
     return {
       ok: false,
       status: 'failed',
       failureCode: 'element_not_found',
-      failureDetail: 'Mobile number input element not found on page',
+      failureDetail: 'Mobile number input element not found on page after operator selection',
     };
   }
 
-  // 4. Locate Operator dropdown
-  const operatorSelect = (doc.getElementById('ddlOperator') ||
-    doc.querySelector('select[name*="Operator" i], select[id*="ddlOperator" i]')) as HTMLSelectElement | null;
-
-  if (!operatorSelect) {
-    return {
-      ok: false,
-      status: 'failed',
-      failureCode: 'element_not_found',
-      failureDetail: 'Operator select dropdown element not found on page',
-    };
-  }
-
-  // 5. Locate Amount input
-  const amountInput = (doc.getElementById('txtAmount') ||
-    doc.querySelector('input[name*="Amount" i], input[id*="txtAmount" i]')) as HTMLInputElement | null;
-
+  // 4. Locate Amount input
+  const amountInput = await waitForElement(() => findAmountInput(doc), 2000, 200);
   if (!amountInput) {
     return {
       ok: false,
@@ -96,59 +250,18 @@ export function executeSimpleWalletRecharge(
     };
   }
 
-  // 6. Locate Recharge Submit button
-  const submitButton = (doc.getElementById('btnRecharge') ||
-    doc.getElementById('btnSubmit') ||
-    doc.querySelector('input[type="submit"][value*="Recharge" i], button[id*="Recharge" i]')) as HTMLElement | null;
-
-  if (!submitButton) {
-    return {
-      ok: false,
-      status: 'failed',
-      failureCode: 'element_not_found',
-      failureDetail: 'Recharge submit button element not found on page',
-    };
-  }
-
-  // -------------------------------------------------------------------------
-  // Fill Form Elements with event dispatching
-  // -------------------------------------------------------------------------
-
-  // Set Mobile Number
+  // 5. Fill Mobile Number
   mobileInput.value = order.customerNo;
   mobileInput.dispatchEvent(new Event('input', { bubbles: true }));
   mobileInput.dispatchEvent(new Event('change', { bubbles: true }));
 
-  // Match Operator Option
-  const targetOp = order.operator.toLowerCase().trim();
-  const options = Array.from(operatorSelect.options);
-  const matchedOption = options.find((opt) => {
-    const text = opt.text.toLowerCase().trim();
-    const val = opt.value.toLowerCase().trim();
-    return text.includes(targetOp) || val.includes(targetOp);
-  });
-
-  if (!matchedOption) {
-    return {
-      ok: false,
-      status: 'failed',
-      failureCode: 'operator_mismatch',
-      failureDetail: `Operator '${order.operator}' not available in portal dropdown`,
-    };
-  }
-
-  operatorSelect.value = matchedOption.value;
-  operatorSelect.dispatchEvent(new Event('change', { bubbles: true }));
-
-  // Set Amount in Rupees
-  const rupees = (order.amountPaise / 100).toFixed(2);
+  // 6. Fill Amount in Rupees (integer e.g. '299')
+  const rupees = Math.round(order.amountPaise / 100).toString();
   amountInput.value = rupees;
   amountInput.dispatchEvent(new Event('input', { bubbles: true }));
   amountInput.dispatchEvent(new Event('change', { bubbles: true }));
 
-  // -------------------------------------------------------------------------
-  // Verify inputs match intended order values before click
-  // -------------------------------------------------------------------------
+  // 7. Verify inputs before clicking
   if (mobileInput.value !== order.customerNo) {
     return {
       ok: false,
@@ -168,12 +281,44 @@ export function executeSimpleWalletRecharge(
     };
   }
 
-  // Click Submit Button
-  submitButton.click();
+  // 8. Locate & Click Recharge Button
+  const rechargeBtn = findRechargeButton(doc);
+  if (!rechargeBtn) {
+    return {
+      ok: false,
+      status: 'failed',
+      failureCode: 'element_not_found',
+      failureDetail: 'Recharge submit button element not found on page',
+    };
+  }
+
+  rechargeBtn.click();
+
+  // 9. Handle "Confirm Transaction" Modal ("Pay Now" button)
+  const payNowBtn = await waitForElement(() => findPayNowButton(doc), 4000, 250);
+  if (payNowBtn) {
+    payNowBtn.click();
+  }
+
+  // 10. Handle Success Alert Message ("OK" button & Trn No extraction)
+  let portalTrnId: string | undefined;
+  const okBtn = await waitForElement(() => {
+    const btn = findOkButton(doc);
+    if (btn) {
+      const match = doc.body?.textContent?.match(/Trn\s*No:?\s*(\d+)/i);
+      if (match) portalTrnId = match[1];
+      return btn;
+    }
+    return null;
+  }, 5000, 300);
+
+  if (okBtn) {
+    okBtn.click();
+  }
 
   return {
     ok: true,
     status: 'submitted',
+    portalTrnId,
   };
 }
-

@@ -25,6 +25,10 @@ out/
 *.tsbuildinfo
 
 # OS
+# Videos and screen recordings
+*.mp4
+*.webm
+
 .DS_Store
 Thumbs.db
 
