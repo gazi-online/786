@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { parse } from '@walletsync/parsers';
+import type { TransactionStatus } from '@walletsync/contract';
 import { getTenantSession } from '@/lib/auth';
 import { withTenantContext, type AppTransaction } from '@/lib/db';
 import { transactions, syncEvents } from '@/drizzle/schema';
@@ -11,6 +12,7 @@ import {
   hashCustomerNo,
 } from '@/lib/crypto';
 import { broadcastSseEvent } from '@/lib/sse';
+import { reconcileTransactionWithRechargeOrder } from '@/lib/reconciliation';
 
 const IngestHtmlSchema = z.object({
   html: z.string().min(10, 'HTML content is required'),
@@ -73,6 +75,26 @@ export async function POST(req: NextRequest) {
             ),
           );
 
+        let resolvedStatus: TransactionStatus = row.status;
+        if (resolvedStatus === 'unknown' && row.statusRaw) {
+          const rawLower = row.statusRaw.toLowerCase().trim();
+          if (
+            rawLower.includes('fail') ||
+            rawLower.includes('declin') ||
+            rawLower.includes('reject') ||
+            rawLower.includes('cancel') ||
+            rawLower.includes('error')
+          ) {
+            resolvedStatus = 'failed';
+          } else if (rawLower.includes('success') || rawLower === 'done' || rawLower === 'ok') {
+            resolvedStatus = 'success';
+          } else if (rawLower.includes('refund') || rawLower.includes('revers')) {
+            resolvedStatus = 'refunded';
+          } else if (rawLower.includes('pend') || rawLower.includes('process')) {
+            resolvedStatus = 'pending';
+          }
+        }
+
         const existing = existingRows[0];
 
         if (!existing) {
@@ -80,31 +102,45 @@ export async function POST(req: NextRequest) {
           const customerLast4 = extractCustomerLast4(row.customerNo);
           const customerNoHash = hashCustomerNo(row.customerNo);
 
-          await tx.insert(transactions).values({
-            tenantId,
-            source: row.source,
-            txnId: row.txnId,
-            service: row.service,
-            serviceName: row.serviceName,
-            customerNo: encryptedCustomerNo,
-            customerLast4,
-            customerNoHash,
-            occurredAt: new Date(row.occurredAt),
-            status: row.status,
-            statusRaw: row.statusRaw,
-            operatorRef: row.operatorRef || '',
-            amountPaise: row.amountPaise,
-            discountPct: String(row.discountPct),
-            discountPaise: row.discountPaise,
-            parserVersion: parseResult.parserVersion,
-          });
+          const [insertedTxn] = await tx
+            .insert(transactions)
+            .values({
+              tenantId,
+              source: row.source,
+              txnId: row.txnId,
+              service: row.service,
+              serviceName: row.serviceName,
+              customerNo: encryptedCustomerNo,
+              customerLast4,
+              customerNoHash,
+              occurredAt: new Date(row.occurredAt),
+              status: resolvedStatus,
+              statusRaw: row.statusRaw,
+              operatorRef: row.operatorRef || '',
+              amountPaise: row.amountPaise,
+              discountPct: String(row.discountPct),
+              discountPaise: row.discountPaise,
+              parserVersion: parseResult.parserVersion,
+            })
+            .returning({ id: transactions.id });
           inserted++;
+
+          if (insertedTxn?.id) {
+            await reconcileTransactionWithRechargeOrder(tx, tenantId, {
+              id: insertedTxn.id,
+              source: row.source,
+              customerNoHash,
+              amountPaise: row.amountPaise,
+              status: resolvedStatus,
+              occurredAt: new Date(row.occurredAt),
+            });
+          }
         } else {
-          if (existing.status !== row.status) {
+          if (existing.status !== resolvedStatus) {
             await tx
               .update(transactions)
               .set({
-                status: row.status,
+                status: resolvedStatus,
                 statusRaw: row.statusRaw,
                 updatedAt: now,
                 operatorRef: row.operatorRef || existing.operatorRef,
@@ -114,6 +150,15 @@ export async function POST(req: NextRequest) {
           } else {
             unchanged++;
           }
+
+          await reconcileTransactionWithRechargeOrder(tx, tenantId, {
+            id: existing.id,
+            source: existing.source,
+            customerNoHash: existing.customerNoHash,
+            amountPaise: existing.amountPaise,
+            status: resolvedStatus,
+            occurredAt: existing.occurredAt,
+          });
         }
       }
 

@@ -21,6 +21,17 @@ export {
   type AutoClickExecutionResult,
 } from './simplewallet/autoClick';
 
+// Recharge automation runners (Milestone R3 & R5)
+export {
+  executeSimpleWalletRecharge,
+  type SimpleWalletRechargeOrderParams,
+  type RechargeExecutionResult,
+} from './simplewallet/rechargeRunner';
+export {
+  executeEgPaymentRecharge,
+  type EgPaymentRechargeOrderParams,
+} from './egpayment/rechargeRunner';
+
 /**
  * Unified parser entrypoint with auto-detection.
  * Inspects document indicators to dispatch to the correct portal connector.

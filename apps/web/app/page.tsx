@@ -26,6 +26,9 @@ import {
   ArrowUpRight,
   Layers,
   FileCode,
+  Zap,
+  Ban,
+  Radio,
 } from 'lucide-react';
 
 interface Stats {
@@ -46,6 +49,33 @@ function getTimeMs(d?: string | null): number {
   if (!d) return 0;
   const val = new Date(d).getTime();
   return isNaN(val) ? 0 : val;
+}
+
+function resolveDisplayStatus(item?: { status?: string; statusRaw?: string } | null): string {
+  if (!item) return 'unknown';
+  if (item.status && item.status !== 'unknown') return item.status;
+  if (item.statusRaw) {
+    const rawLower = item.statusRaw.toLowerCase().trim();
+    if (
+      rawLower.includes('fail') ||
+      rawLower.includes('declin') ||
+      rawLower.includes('reject') ||
+      rawLower.includes('cancel') ||
+      rawLower.includes('error')
+    ) {
+      return 'failed';
+    }
+    if (rawLower.includes('success') || rawLower === 'done' || rawLower === 'ok') {
+      return 'success';
+    }
+    if (rawLower.includes('refund') || rawLower.includes('revers')) {
+      return 'refunded';
+    }
+    if (rawLower.includes('pend') || rawLower.includes('process')) {
+      return 'pending';
+    }
+  }
+  return item.status || 'unknown';
 }
 
 export default function DashboardPage() {
@@ -123,6 +153,162 @@ export default function DashboardPage() {
   const [isIngestingHtml, setIsIngestingHtml] = useState(false);
   const [directIngestError, setDirectIngestError] = useState<string | null>(null);
   const [directIngestSuccess, setDirectIngestSuccess] = useState<string | null>(null);
+
+  // Recharge Orders State (Milestone R4)
+  const [showRechargeModal, setShowRechargeModal] = useState(false);
+  const [rechargePortal, setRechargePortal] = useState<'simplewallet' | 'egpayment'>('simplewallet');
+  const [rechargeOperator, setRechargeOperator] = useState('AIRTEL');
+  const [rechargeCustomerNo, setRechargeCustomerNo] = useState('');
+  const [rechargeAmount, setRechargeAmount] = useState('');
+  const [confirmDuplicate, setConfirmDuplicate] = useState(false);
+  const [isSubmittingRecharge, setIsSubmittingRecharge] = useState(false);
+  const [rechargeError, setRechargeError] = useState<string | null>(null);
+  const [rechargeDuplicateWarning, setRechargeDuplicateWarning] = useState(false);
+  const [rechargeSuccess, setRechargeSuccess] = useState<string | null>(null);
+  const [rechargeIdempotencyKey, setRechargeIdempotencyKey] = useState<string>('');
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
+
+  const [rechargeOrdersList, setRechargeOrdersList] = useState<Array<{
+    id: string;
+    source: string;
+    service: string;
+    operator: string;
+    customerNoMasked: string;
+    customerLast4: string;
+    amountPaise: number;
+    status: string;
+    failureCode?: string | null;
+    failureDetail?: string | null;
+    matchedTransactionId?: string | null;
+    submittedAt?: string | null;
+    reconciledAt?: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>>([]);
+
+  async function fetchRechargeOrders() {
+    try {
+      const res = await fetch('/api/v1/recharge-orders');
+      if (res.ok) {
+        const data = await res.json();
+        setRechargeOrdersList(data.orders || []);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  function openNewRechargeModal() {
+    setShowRechargeModal(true);
+    setRechargeError(null);
+    setRechargeDuplicateWarning(false);
+    setRechargeSuccess(null);
+    setRechargeIdempotencyKey(crypto.randomUUID());
+  }
+
+  async function handleRechargeSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setRechargeError(null);
+    setRechargeSuccess(null);
+
+    const cleanNo = rechargeCustomerNo.replace(/\D/g, '');
+    if (cleanNo.length !== 10) {
+      setRechargeError('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
+    const parsedAmount = parseFloat(rechargeAmount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      setRechargeError('Please enter a valid recharge amount in ₹.');
+      return;
+    }
+    const amountPaise = Math.round(parsedAmount * 100);
+
+    setIsSubmittingRecharge(true);
+
+    try {
+      const res = await fetch('/api/v1/recharge-orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': rechargeIdempotencyKey || crypto.randomUUID(),
+        },
+        body: JSON.stringify({
+          source: rechargePortal,
+          service: 'Prepaid',
+          operator: rechargeOperator,
+          customerNo: cleanNo,
+          amountPaise,
+          confirmDuplicate,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.status === 409) {
+        if (data.code === 'DUPLICATE_ORDER_REQUIRES_CONFIRMATION' || data.error?.includes('Duplicate') || data.error?.includes('duplicate')) {
+          setRechargeDuplicateWarning(true);
+          setRechargeError(data.error || 'Duplicate order detected within 10 minutes. Check the confirmation box to proceed.');
+        } else {
+          setRechargeError(data.error || 'Conflict or duplicate order');
+        }
+        return;
+      }
+
+      if (!res.ok) {
+        setRechargeError(data.error || 'Failed to submit recharge order');
+        return;
+      }
+
+      setRechargeSuccess(`Order queued successfully! ID: ${data.order?.id?.slice(0, 8)}...`);
+      setRechargeCustomerNo('');
+      setRechargeAmount('');
+      setConfirmDuplicate(false);
+      setRechargeDuplicateWarning(false);
+      setRechargeIdempotencyKey(crypto.randomUUID());
+      await fetchRechargeOrders();
+
+      setTimeout(() => {
+        setShowRechargeModal(false);
+        setRechargeSuccess(null);
+      }, 2000);
+    } catch {
+      setRechargeError('Network error connecting to server');
+    } finally {
+      setIsSubmittingRecharge(false);
+    }
+  }
+
+  async function handleCancelOrder(orderId: string) {
+    setCancellingOrderId(orderId);
+    try {
+      const res = await fetch(`/api/v1/recharge-orders/${orderId}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      if (res.ok) {
+        await fetchRechargeOrders();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Could not cancel order');
+      }
+    } catch {
+      alert('Network error cancelling order');
+    } finally {
+      setCancellingOrderId(null);
+    }
+  }
+
+  // Poll recharge orders periodically
+  useEffect(() => {
+    fetchRechargeOrders();
+    const interval = setInterval(() => {
+      fetchRechargeOrders();
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
 
   // 1. Initial data fetch with instant 0ms client-side cache & continuous 5s auto-fetch
   useEffect(() => {
@@ -518,7 +704,7 @@ export default function DashboardPage() {
     (acc, t) => {
       acc.totalAmountPaise += t.amountPaise;
       acc.totalCount += 1;
-      if (t.status === 'success') acc.successCount += 1;
+      if (resolveDisplayStatus(t) === 'success') acc.successCount += 1;
       acc.discountPaise += t.discountPaise;
       return acc;
     },
@@ -680,7 +866,7 @@ export default function DashboardPage() {
   // Filtered transactions derived from deduplicated stream
   const filtered = deduplicatedTxns.filter((t) => {
     if (portalFilter !== 'all' && t.source !== portalFilter) return false;
-    if (statusFilter !== 'all' && t.status !== statusFilter) return false;
+    if (statusFilter !== 'all' && resolveDisplayStatus(t) !== statusFilter) return false;
     if (serviceFilter !== 'all' && t.service !== serviceFilter) return false;
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -704,6 +890,14 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={openNewRechargeModal}
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-xs transition-all cursor-pointer hover:shadow-indigo-500/20"
+          >
+            <Zap className="w-4 h-4 fill-white" />
+            <span>New Recharge</span>
+          </button>
+
           {deviceHeartbeat.status !== 'not_paired' ? (
             <button
               onClick={() => setShowDeviceDetailsModal(true)}
@@ -825,6 +1019,15 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
+              onClick={openNewRechargeModal}
+              className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+            >
+              <Zap className="w-3.5 h-3.5 fill-white" />
+              <span>New Recharge</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setShowDirectIngestModal(true)}
               className="px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
               title="Manually paste and ingest table HTML from any browser"
@@ -920,6 +1123,153 @@ export default function DashboardPage() {
               <span className="text-[10px] text-zinc-400">Auto-extracted in background</span>
             </div>
           </div>
+        </div>
+
+        {/* Recent Automated Recharge Orders (Live Tracker) */}
+        <div className="pt-3 border-t border-zinc-200/80 dark:border-zinc-800/80 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                <Radio className="w-3.5 h-3.5 text-indigo-500 animate-pulse" />
+                Recent Recharge Automation Orders
+              </span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+                {rechargeOrdersList.length} orders
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={openNewRechargeModal}
+              className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+            >
+              <span>+ Create Recharge</span>
+            </button>
+          </div>
+
+          {rechargeOrdersList.length === 0 ? (
+            <div className="p-4 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/20 text-center text-xs text-zinc-500 dark:text-zinc-400">
+              No recharge orders created yet today. Click <button type="button" onClick={openNewRechargeModal} className="text-indigo-600 dark:text-indigo-400 font-semibold underline cursor-pointer">New Recharge</button> to automate mobile recharges directly through your paired terminal.
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-zinc-50 dark:bg-zinc-900/60 border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 font-semibold">
+                  <tr>
+                    <th className="py-2.5 px-3">Status</th>
+                    <th className="py-2.5 px-3">Target Number</th>
+                    <th className="py-2.5 px-3">Operator / Portal</th>
+                    <th className="py-2.5 px-3 text-right">Amount</th>
+                    <th className="py-2.5 px-3">Created</th>
+                    <th className="py-2.5 px-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+                  {rechargeOrdersList.slice(0, 10).map((order) => {
+                    const isQueued = order.status === 'queued';
+                    const isClaimed = order.status === 'claimed';
+                    const isSubmitting = order.status === 'submitting';
+                    const isSubmitted = order.status === 'submitted';
+                    const isSuccess = order.status === 'success';
+                    const isFailed = order.status === 'failed';
+                    const isCancelled = order.status === 'cancelled';
+                    const isActionNeeded = order.status === 'needs_manual_action';
+
+                    return (
+                      <tr key={order.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30 transition-colors">
+                        <td className="py-2 px-3 whitespace-nowrap">
+                          {isQueued && (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border border-zinc-500/20">
+                              <Clock className="w-3 h-3 text-zinc-400 animate-spin" />
+                              Queued
+                            </span>
+                          )}
+                          {isClaimed && (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                              Terminal Claimed
+                            </span>
+                          )}
+                          {isSubmitting && (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                              <RefreshCw className="w-3 h-3 animate-spin text-purple-500" />
+                              Submitting Portal
+                            </span>
+                          )}
+                          {isSubmitted && (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                              Submitted (Awaiting Operator)
+                            </span>
+                          )}
+                          {isSuccess && (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                              Success
+                            </span>
+                          )}
+                          {isFailed && (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20" title={order.failureDetail || order.failureCode || 'Failed'}>
+                              <XCircle className="w-3 h-3 text-rose-500" />
+                              Failed
+                            </span>
+                          )}
+                          {isCancelled && (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
+                              <Ban className="w-3 h-3 text-zinc-400" />
+                              Cancelled
+                            </span>
+                          )}
+                          {isActionNeeded && (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
+                              <AlertTriangle className="w-3 h-3 text-orange-500" />
+                              Action Required
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-2 px-3 font-mono font-medium text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
+                          {order.customerNoMasked}
+                        </td>
+
+                        <td className="py-2 px-3 whitespace-nowrap">
+                          <span className="font-semibold text-zinc-800 dark:text-zinc-200">{order.operator}</span>
+                          <span className="text-zinc-400 mx-1">•</span>
+                          <span className="capitalize text-zinc-500">{order.source}</span>
+                        </td>
+
+                        <td className="py-2 px-3 text-right font-mono font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
+                          {formatPaise(order.amountPaise)}
+                        </td>
+
+                        <td className="py-2 px-3 text-zinc-400 whitespace-nowrap">
+                          {formatKolkataDate(order.createdAt)}
+                        </td>
+
+                        <td className="py-2 px-3 text-right whitespace-nowrap">
+                          {isQueued && (
+                            <button
+                              type="button"
+                              onClick={() => handleCancelOrder(order.id)}
+                              disabled={cancellingOrderId === order.id}
+                              className="px-2 py-1 rounded-md text-[11px] font-semibold bg-zinc-100 dark:bg-zinc-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-zinc-600 hover:text-rose-600 dark:text-zinc-400 dark:hover:text-rose-400 border border-zinc-200 dark:border-zinc-700 transition-colors cursor-pointer"
+                            >
+                              {cancellingOrderId === order.id ? 'Cancelling...' : 'Cancel'}
+                            </button>
+                          )}
+                          {order.reconciledAt && (
+                            <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded">
+                              Reconciled
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1242,33 +1592,38 @@ export default function DashboardPage() {
                             </div>
                           </td>
                           <td className="py-3 px-4">
-                            <span
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                                item.status === 'success'
-                                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
-                                    : item.status === 'pending'
-                                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
-                                    : item.status === 'failed'
-                                    ? 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300'
-                                    : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
-                              }`}
-                            >
-                              {item.status === 'success' && <CheckCircle2 className="w-3 h-3" />}
-                              {item.status === 'pending' && <Clock className="w-3 h-3" />}
-                              {item.status === 'failed' && <XCircle className="w-3 h-3" />}
-                              {item.status === 'refunded' && <RotateCcw className="w-3 h-3" />}
-                              <span>
-                                {item.status === 'success'
-                                  ? t.common.statusSuccess
-                                  : item.status === 'pending'
-                                  ? t.common.statusPending
-                                  : item.status === 'failed'
-                                  ? t.common.statusFailed
-                                  : item.status === 'refunded'
-                                  ? t.common.statusRefunded
-                                  : t.common.statusUnknown}
-                              </span>
-                            </span>
+                            {(() => {
+                              const displayStatus = resolveDisplayStatus(item);
+                              return (
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                                    displayStatus === 'success'
+                                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                      : displayStatus === 'pending'
+                                      ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
+                                      : displayStatus === 'failed'
+                                      ? 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300'
+                                      : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+                                  }`}
+                                >
+                                  {displayStatus === 'success' && <CheckCircle2 className="w-3 h-3" />}
+                                  {displayStatus === 'pending' && <Clock className="w-3 h-3" />}
+                                  {displayStatus === 'failed' && <XCircle className="w-3 h-3" />}
+                                  {displayStatus === 'refunded' && <RotateCcw className="w-3 h-3" />}
+                                  <span>
+                                    {displayStatus === 'success'
+                                      ? t.common.statusSuccess
+                                      : displayStatus === 'pending'
+                                      ? t.common.statusPending
+                                      : displayStatus === 'failed'
+                                      ? t.common.statusFailed
+                                      : displayStatus === 'refunded'
+                                      ? t.common.statusRefunded
+                                      : t.common.statusUnknown}
+                                  </span>
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="py-3 px-4 text-right font-medium text-zinc-900 dark:text-zinc-100 tabular-nums">
                             {formatPaise(item.amountPaise)}
@@ -1359,9 +1714,18 @@ export default function DashboardPage() {
               </div>
               <div>
                 <span className="text-zinc-400 block">{t.common.status}</span>
-                <span className="font-semibold uppercase text-emerald-600 dark:text-emerald-400">
-                  {selectedTxn.status}
-                </span>
+                {(() => {
+                  const s = resolveDisplayStatus(selectedTxn);
+                  const color =
+                    s === 'success'
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : s === 'pending'
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : s === 'failed'
+                      ? 'text-red-600 dark:text-red-400'
+                      : 'text-zinc-600 dark:text-zinc-400';
+                  return <span className={`font-semibold uppercase ${color}`}>{s}</span>;
+                })()}
               </div>
               <div>
                 <span className="text-zinc-400 block">{t.common.amount}</span>
@@ -1817,6 +2181,239 @@ export default function DashboardPage() {
                     <>
                       <Sparkles className="w-3.5 h-3.5" />
                       <span>Parse & Sync Records</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* NEW RETAILER RECHARGE MODAL (Milestone R4) */}
+      {/* ==================================================== */}
+      {showRechargeModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setShowRechargeModal(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200 cursor-pointer"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-zinc-900 dark:text-zinc-100 cursor-default space-y-4"
+          >
+            {/* Modal Header */}
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold">
+                  <Zap className="w-5 h-5 fill-current" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
+                    New Retailer Recharge
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Automate prepaid mobile recharge via connected POS terminal
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowRechargeModal(false)}
+                className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 p-1 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleRechargeSubmit} className="space-y-4">
+              {/* Portal Selection */}
+              <div>
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                  Recharge Portal:
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRechargePortal('simplewallet')}
+                    className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all ${
+                      rechargePortal === 'simplewallet'
+                        ? 'border-indigo-600 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                        : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300'
+                    }`}
+                  >
+                    <span>SimpleWallet</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRechargePortal('egpayment')}
+                    className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all ${
+                      rechargePortal === 'egpayment'
+                        ? 'border-indigo-600 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                        : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300'
+                    }`}
+                  >
+                    <span>EG Payment</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Operator Selection */}
+              <div>
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                  Mobile Operator:
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { id: 'AIRTEL', name: 'Airtel' },
+                    { id: 'JIO', name: 'Jio' },
+                    { id: 'VI', name: 'Vi' },
+                    { id: 'BSNL', name: 'BSNL' },
+                  ].map((op) => (
+                    <button
+                      key={op.id}
+                      type="button"
+                      onClick={() => setRechargeOperator(op.id)}
+                      className={`p-2 rounded-xl border text-xs font-semibold text-center cursor-pointer transition-all ${
+                        rechargeOperator === op.id
+                          ? 'border-indigo-600 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                          : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300'
+                      }`}
+                    >
+                      {op.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Customer Mobile Number */}
+              <div>
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                  Customer Mobile Number (10 Digits):
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-medium text-zinc-400">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    maxLength={10}
+                    value={rechargeCustomerNo}
+                    onChange={(e) => setRechargeCustomerNo(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    placeholder="10-digit mobile number"
+                    className="w-full pl-12 pr-4 py-2.5 text-sm font-mono tracking-wider rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Recharge Amount */}
+              <div>
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                  Amount (₹):
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-medium text-zinc-400">
+                    ₹
+                  </span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={rechargeAmount}
+                    onChange={(e) => setRechargeAmount(e.target.value)}
+                    placeholder="299"
+                    className="w-full pl-8 pr-4 py-2.5 text-sm font-semibold rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    required
+                  />
+                </div>
+                {/* Popular Plan Chips */}
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  <span className="text-[10px] text-zinc-400 mr-1">Popular:</span>
+                  {['19', '199', '299', '666', '799'].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setRechargeAmount(amt)}
+                      className="px-2 py-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-[11px] font-mono text-zinc-700 dark:text-zinc-300 cursor-pointer transition-colors"
+                    >
+                      ₹{amt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Duplicate Order Confirmation Warning (409 Guard) */}
+              {rechargeDuplicateWarning && (
+                <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-amber-800 dark:text-amber-300 text-xs space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold">Duplicate Recharge Warning</p>
+                      <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">
+                        An identical order for this number and amount was created within the last 10 minutes. Please confirm to prevent unintended duplicate charges.
+                      </p>
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 pt-1 font-semibold cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={confirmDuplicate}
+                      onChange={(e) => setConfirmDuplicate(e.target.checked)}
+                      className="rounded border-amber-400 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                    />
+                    <span>I confirm this is an intentional duplicate recharge</span>
+                  </label>
+                </div>
+              )}
+
+              {/* Error Banner */}
+              {rechargeError && !rechargeDuplicateWarning && (
+                <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-400 text-xs flex items-center gap-2">
+                  <XCircle className="w-4 h-4 shrink-0" />
+                  <span>{rechargeError}</span>
+                </div>
+              )}
+
+              {/* Success Banner */}
+              {rechargeSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-emerald-600 dark:text-emerald-400 text-xs flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>{rechargeSuccess}</span>
+                </div>
+              )}
+
+              {/* Footer Actions */}
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRechargeModal(false)}
+                  className="px-4 py-2 text-xs font-medium rounded-xl border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    isSubmittingRecharge ||
+                    rechargeCustomerNo.length !== 10 ||
+                    !rechargeAmount ||
+                    (rechargeDuplicateWarning && !confirmDuplicate)
+                  }
+                  className="px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 text-white shadow-md shadow-indigo-600/20 transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  {isSubmittingRecharge ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Submitting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-3.5 h-3.5 fill-current" />
+                      <span>Dispatch Recharge</span>
                     </>
                   )}
                 </button>

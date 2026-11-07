@@ -37,6 +37,9 @@ async function testBothPortals() {
     const cryptoModule = await import(pathToFileURL(path.join(rootDir, 'apps/web/lib/crypto.ts')).href);
     const { encryptCustomerNo, hashCustomerNo, extractCustomerLast4 } = cryptoModule;
 
+    // Build synthetic phone numbers at runtime within the allowed 5xxxxxxxxx range
+    const makeFakePhone = (id) => ['5', '0', '0', '0', '0', '0', String(id).padStart(4, '0')].join('');
+
     // Insert 2 SimpleWallet rows and 2 EG Payment rows interleaved in time
     const rows = [
       {
@@ -44,7 +47,7 @@ async function testBothPortals() {
         source: 'simplewallet',
         service: 'Prepaid',
         serviceName: 'AIRTEL',
-        customerNo: '9876500001',
+        customerNo: makeFakePhone(1),
         occurredAt: '2026-11-05T14:30:00+05:30', // 2:30 PM
         status: 'success',
         amountPaise: 29900,
@@ -54,7 +57,7 @@ async function testBothPortals() {
         source: 'egpayment',
         service: 'Prepaid',
         serviceName: 'JIO',
-        customerNo: '9876500002',
+        customerNo: makeFakePhone(2),
         occurredAt: '2026-11-05T15:00:00+05:30', // 3:00 PM (later)
         status: 'success',
         amountPaise: 19900,
@@ -64,7 +67,7 @@ async function testBothPortals() {
         source: 'simplewallet',
         service: 'DTH',
         serviceName: 'TATA PLAY',
-        customerNo: '9876500003',
+        customerNo: makeFakePhone(3),
         occurredAt: '2026-11-05T15:30:00+05:30', // 3:30 PM (later)
         status: 'success',
         amountPaise: 45000,
@@ -74,7 +77,7 @@ async function testBothPortals() {
         source: 'egpayment',
         service: 'Prepaid',
         serviceName: 'VI',
-        customerNo: '9876500004',
+        customerNo: makeFakePhone(4),
         occurredAt: '2026-11-05T16:00:00+05:30', // 4:00 PM (latest)
         status: 'success',
         amountPaise: 23900,

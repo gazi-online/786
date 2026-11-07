@@ -40,7 +40,53 @@ export async function GET(req: NextRequest) {
     }
 
     if (isExport) {
-      return new NextResponse('timestamp,amount,status\n', {
+      let exportRows: Array<{
+        occurredAt: Date;
+        amountPaise: number;
+        status: string;
+        service: string;
+        serviceName: string;
+        customerLast4: string | null;
+        discountPaise: number;
+      }> = [];
+
+      try {
+        exportRows = await withTenantContext(session.tenant.id, async (tx) => {
+          return await tx
+            .select({
+              occurredAt: transactions.occurredAt,
+              amountPaise: transactions.amountPaise,
+              status: transactions.status,
+              service: transactions.service,
+              serviceName: transactions.serviceName,
+              customerLast4: transactions.customerLast4,
+              discountPaise: transactions.discountPaise,
+            })
+            .from(transactions)
+            .where(eq(transactions.tenantId, session.tenant.id))
+            .orderBy(desc(transactions.occurredAt))
+            .limit(1000);
+        });
+      } catch {
+        exportRows = [];
+      }
+
+      const csvLines = [
+        'timestamp,amount,status,service,operator,customer_last4,discount',
+        ...exportRows.map((r) =>
+          [
+            (r.occurredAt instanceof Date ? r.occurredAt : new Date(r.occurredAt)).toISOString(),
+            (r.amountPaise / 100).toFixed(2),
+            r.status,
+            `"${(r.service || '').replace(/"/g, '""')}"`,
+            `"${(r.serviceName || '').replace(/"/g, '""')}"`,
+            r.customerLast4 || '',
+            (r.discountPaise / 100).toFixed(2),
+          ].join(','),
+        ),
+      ];
+
+      return new NextResponse(csvLines.join('\n') + '\n', {
         status: 200,
         headers: {
           'Content-Type': 'text/csv',
@@ -101,8 +147,9 @@ export async function GET(req: NextRequest) {
     let successCount = 0;
 
     for (const r of rows) {
-      const dateKey = r.occurredAt.toISOString().slice(0, 10);
-      const hour = r.occurredAt.getHours();
+      const occurred = r.occurredAt instanceof Date ? r.occurredAt : new Date(r.occurredAt);
+      const dateKey = occurred.toISOString().slice(0, 10);
+      const hour = occurred.getHours();
 
       const dayEntry = salesByDayMap.get(dateKey) || { date: dateKey, volumePaise: 0, count: 0, discountPaise: 0 };
       dayEntry.volumePaise += r.amountPaise;

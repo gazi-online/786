@@ -21,6 +21,7 @@ import {
 } from '@/lib/crypto';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { broadcastSseEvent } from '@/lib/sse';
+import { reconcileTransactionWithRechargeOrder } from '@/lib/reconciliation';
 import {
   findMemoryDeviceByTokenHash,
   addMemoryTransactions,
@@ -218,26 +219,40 @@ export async function POST(req: NextRequest) {
           const customerLast4 = extractCustomerLast4(row.customerNo);
           const customerNoHash = hashCustomerNo(row.customerNo);
 
-          await tx.insert(transactions).values({
-            tenantId: device!.tenantId,
-            deviceId: device!.id,
-            source: row.source,
-            txnId: row.txnId,
-            service: row.service,
-            serviceName: row.serviceName,
-            customerNo: encryptedCustomerNo,
-            customerLast4,
-            customerNoHash,
-            occurredAt: new Date(row.occurredAt),
-            status: resolvedStatus,
-            statusRaw: row.statusRaw,
-            operatorRef: row.operatorRef || '',
-            amountPaise: row.amountPaise,
-            discountPct: String(row.discountPct),
-            discountPaise: row.discountPaise,
-            parserVersion: data.parserVersion,
-          });
+          const [insertedTxn] = await tx
+            .insert(transactions)
+            .values({
+              tenantId: device!.tenantId,
+              deviceId: device!.id,
+              source: row.source,
+              txnId: row.txnId,
+              service: row.service,
+              serviceName: row.serviceName,
+              customerNo: encryptedCustomerNo,
+              customerLast4,
+              customerNoHash,
+              occurredAt: new Date(row.occurredAt),
+              status: resolvedStatus,
+              statusRaw: row.statusRaw,
+              operatorRef: row.operatorRef || '',
+              amountPaise: row.amountPaise,
+              discountPct: String(row.discountPct),
+              discountPaise: row.discountPaise,
+              parserVersion: data.parserVersion,
+            })
+            .returning({ id: transactions.id });
           inserted++;
+
+          if (insertedTxn?.id) {
+            await reconcileTransactionWithRechargeOrder(tx, device!.tenantId, {
+              id: insertedTxn.id,
+              source: row.source,
+              customerNoHash,
+              amountPaise: row.amountPaise,
+              status: resolvedStatus,
+              occurredAt: new Date(row.occurredAt),
+            });
+          }
         } else {
           if (!isValidStatusTransition(existing.status, resolvedStatus)) {
             rejected.push({
@@ -261,6 +276,15 @@ export async function POST(req: NextRequest) {
           } else {
             unchanged++;
           }
+
+          await reconcileTransactionWithRechargeOrder(tx, device!.tenantId, {
+            id: existing.id,
+            source: existing.source,
+            customerNoHash: existing.customerNoHash,
+            amountPaise: existing.amountPaise,
+            status: resolvedStatus,
+            occurredAt: existing.occurredAt,
+          });
         }
       }
 
@@ -296,6 +320,26 @@ export async function POST(req: NextRequest) {
   } catch {
     // In-memory fallback
     const apiTransactions: ApiTransaction[] = data.rows.map((row) => {
+      let resolvedStatus: TransactionStatus = row.status;
+      if (resolvedStatus === 'unknown' && row.statusRaw) {
+        const rawLower = row.statusRaw.toLowerCase().trim();
+        if (
+          rawLower.includes('fail') ||
+          rawLower.includes('declin') ||
+          rawLower.includes('reject') ||
+          rawLower.includes('cancel') ||
+          rawLower.includes('error')
+        ) {
+          resolvedStatus = 'failed';
+        } else if (rawLower.includes('success') || rawLower === 'done' || rawLower === 'ok') {
+          resolvedStatus = 'success';
+        } else if (rawLower.includes('refund') || rawLower.includes('revers')) {
+          resolvedStatus = 'refunded';
+        } else if (rawLower.includes('pend') || rawLower.includes('process')) {
+          resolvedStatus = 'pending';
+        }
+      }
+
       const last4 = extractCustomerLast4(row.customerNo);
       return {
         id: crypto.randomUUID(),
@@ -307,7 +351,7 @@ export async function POST(req: NextRequest) {
         customerLast4: last4,
         customerNoMasked: `••••••${last4}`,
         occurredAt: row.occurredAt,
-        status: row.status,
+        status: resolvedStatus,
         statusRaw: row.statusRaw,
         operatorRef: row.operatorRef || '',
         amountPaise: row.amountPaise,
@@ -337,7 +381,28 @@ export async function POST(req: NextRequest) {
       inserted: response.inserted,
       updated: response.updated,
       serverTime: response.serverTime,
-      rows: data.rows,
+      rows: data.rows.map((r) => {
+        let s = r.status;
+        if (s === 'unknown' && r.statusRaw) {
+          const rawLower = r.statusRaw.toLowerCase().trim();
+          if (
+            rawLower.includes('fail') ||
+            rawLower.includes('declin') ||
+            rawLower.includes('reject') ||
+            rawLower.includes('cancel') ||
+            rawLower.includes('error')
+          ) {
+            s = 'failed';
+          } else if (rawLower.includes('success') || rawLower === 'done' || rawLower === 'ok') {
+            s = 'success';
+          } else if (rawLower.includes('refund') || rawLower.includes('revers')) {
+            s = 'refunded';
+          } else if (rawLower.includes('pend') || rawLower.includes('process')) {
+            s = 'pending';
+          }
+        }
+        return { ...r, status: s };
+      }),
     });
   }
 

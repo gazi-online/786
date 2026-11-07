@@ -435,6 +435,22 @@ export default function App() {
           {/* Action & Health Pills */}
           <div className="flex items-center gap-2">
             <button
+              onClick={() => {
+                const targetUrl = data.apiUrl ? `${data.apiUrl.replace(/\/$/, '')}/recharge` : 'http://localhost:3000/recharge';
+                if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
+                  chrome.tabs.create({ url: targetUrl });
+                } else {
+                  window.open(targetUrl, '_blank');
+                }
+              }}
+              title="Open Recharge Automation Hub"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 transition-all cursor-pointer active:scale-95 shadow-sm shadow-indigo-500/10"
+            >
+              <Zap className="w-3 h-3 text-indigo-400 fill-current" />
+              <span>Recharge</span>
+            </button>
+
+            <button
               onClick={() => setShowPairModal(true)}
               title="Pair or update connection with Web Dashboard"
               className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border border-blue-500/30 transition-all cursor-pointer active:scale-95 shadow-sm shadow-blue-500/10"

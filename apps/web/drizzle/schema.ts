@@ -48,6 +48,17 @@ export const txnStatusEnum = pgEnum('txn_status', [
   'unknown',
 ]);
 export const txnSourceEnum = pgEnum('txn_source', ['simplewallet', 'egpayment']);
+export const rechargeOrderStatusEnum = pgEnum('recharge_order_status', [
+  'queued',
+  'claimed',
+  'submitting',
+  'submitted',
+  'success',
+  'failed',
+  'unknown',
+  'needs_manual_action',
+  'cancelled',
+]);
 
 // ---------------------------------------------------------------------------
 // tenants
@@ -240,5 +251,75 @@ export const rateLimitCounters = pgTable(
     /** Whether this record is still within its window */
     active: boolean('active').notNull().default(true),
   },
+);
+
+// ---------------------------------------------------------------------------
+// tenant_recharge_settings  (Milestone R1: Server-side recharge foundation)
+// ---------------------------------------------------------------------------
+
+export const tenantRechargeSettings = pgTable(
+  'tenant_recharge_settings',
+  {
+    tenantId: uuid('tenant_id')
+      .primaryKey()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    /** Master feature flag / kill-switch — OFF by default per tenant */
+    rechargeEnabled: boolean('recharge_enabled').notNull().default(false),
+    /** Maximum allowed paise per single order (default ₹1,000 = 100,000 paise) */
+    perOrderMaxPaise: integer('per_order_max_paise').notNull().default(100000),
+    /** Maximum allowed cumulative paise per UTC day (default ₹5,000 = 500,000 paise) */
+    dailyMaxPaise: integer('daily_max_paise').notNull().default(500000),
+    /** Rate limit: maximum recharge orders created per minute (default 5) */
+    maxOrdersPerMinute: integer('max_orders_per_minute').notNull().default(5),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+);
+
+// ---------------------------------------------------------------------------
+// recharge_orders  (Milestone R1: Server-side recharge orders)
+// ---------------------------------------------------------------------------
+
+export const rechargeOrders = pgTable(
+  'recharge_orders',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    source: txnSourceEnum('source').notNull(),
+    service: text('service').notNull().default('Prepaid'),
+    operator: text('operator').notNull(),
+    /** AES-256-GCM encrypted customer mobile number */
+    customerNoEnc: text('customer_no_enc').notNull(),
+    /** HMAC-SHA256 hash for exact lookup and duplicate checks */
+    customerNoHash: text('customer_no_hash').notNull(),
+    /** Plaintext last 4 digits for UI display/search */
+    customerLast4: text('customer_last4').notNull(),
+    amountPaise: integer('amount_paise').notNull(),
+    status: rechargeOrderStatusEnum('status').notNull().default('queued'),
+    claimedByDeviceId: uuid('claimed_by_device_id').references(() => devices.id, {
+      onDelete: 'set null',
+    }),
+    claimExpiresAt: timestamp('claim_expires_at', { withTimezone: true }),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    failureCode: text('failure_code'),
+    failureDetail: text('failure_detail'),
+    matchedTransactionId: uuid('matched_transaction_id').references(() => transactions.id, {
+      onDelete: 'set null',
+    }),
+    reconciledAt: timestamp('reconciled_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('recharge_orders_tenant_idempotency_uidx').on(t.tenantId, t.idempotencyKey),
+    index('recharge_orders_tenant_created_idx').on(t.tenantId, t.createdAt),
+    index('recharge_orders_tenant_status_idx').on(t.tenantId, t.status),
+    index('recharge_orders_customer_hash_idx').on(t.tenantId, t.customerNoHash),
+    index('recharge_orders_matched_txn_idx').on(t.tenantId, t.matchedTransactionId),
+  ],
 );
 

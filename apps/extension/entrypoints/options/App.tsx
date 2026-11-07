@@ -6,7 +6,7 @@ import {
   MIN_AUTO_CLICK_INTERVAL_SECONDS,
   type StorageData,
 } from '../../lib/storage';
-import { Check, Settings, ShieldCheck, Link as LinkIcon, Unlink, RefreshCw, AlertCircle } from 'lucide-react';
+import { Check, Settings, ShieldCheck, Link as LinkIcon, Unlink, RefreshCw, AlertCircle, Zap, ExternalLink } from 'lucide-react';
 
 export default function App() {
   const [storage, setStorageState] = useState<StorageData | null>(null);
@@ -274,6 +274,41 @@ export default function App() {
               />
             </div>
           )}
+        </div>
+
+        {/* Automated Recharge Dispatcher (ADR 006) */}
+        <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                <Zap className="w-4 h-4 fill-current" />
+              </div>
+              <div>
+                <label className="block font-medium text-sm">
+                  Automated Recharge Dispatcher
+                </label>
+                <p className="text-xs text-zinc-500">
+                  Terminal executes automated recharge jobs dispatched from the web dashboard.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const targetUrl = apiUrl ? `${apiUrl.replace(/\/$/, '')}/recharge` : 'http://localhost:3000/recharge';
+                if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
+                  chrome.tabs.create({ url: targetUrl });
+                } else {
+                  window.open(targetUrl, '_blank');
+                }
+              }}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <span>Open Recharge Hub</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         {/* Per-device URL configuration (Amd-8) */}

@@ -121,6 +121,24 @@ export default function SignInPage() {
           </button>
         </form>
 
+        <div className="mt-4 pt-4 border-t border-slate-800 text-center">
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => {
+              setEmail('retailer@walletsync.test');
+              setPassword('RetailerPass123!');
+              setTimeout(() => {
+                const form = document.querySelector('form') as HTMLFormElement | null;
+                form?.requestSubmit();
+              }, 50);
+            }}
+            className="w-full py-2 px-3 text-xs font-semibold rounded-lg bg-slate-800/80 hover:bg-slate-800 text-emerald-400 border border-slate-700/80 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            ⚡ Quick Sign In (1-Click)
+          </button>
+        </div>
+
         <p className="mt-6 text-center text-xs text-slate-400">
           Need a new store account?{' '}
           <Link href="/signup" className="text-emerald-400 hover:text-emerald-300 font-medium">

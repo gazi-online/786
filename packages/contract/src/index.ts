@@ -3,4 +3,5 @@ export * from './transaction';
 export * from './ingest';
 export * from './parse-result';
 export * from './synthetic-generator';
-
+export * from './messages';
+export * from './recharge';

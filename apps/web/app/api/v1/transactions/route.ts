@@ -123,12 +123,31 @@ export async function GET(req: NextRequest) {
         if (m.tenantId && m.tenantId !== session.tenant.id && m.tenantId !== '00000000-0000-0000-0000-000000000001') {
           continue;
         }
+        let mStatus = m.status;
+        if (mStatus === 'unknown' && m.statusRaw) {
+          const rawLower = m.statusRaw.toLowerCase().trim();
+          if (
+            rawLower.includes('fail') ||
+            rawLower.includes('declin') ||
+            rawLower.includes('reject') ||
+            rawLower.includes('cancel') ||
+            rawLower.includes('error')
+          ) {
+            mStatus = 'failed';
+          } else if (rawLower.includes('success') || rawLower === 'done' || rawLower === 'ok') {
+            mStatus = 'success';
+          } else if (rawLower.includes('refund') || rawLower.includes('revers')) {
+            mStatus = 'refunded';
+          } else if (rawLower.includes('pend') || rawLower.includes('process')) {
+            mStatus = 'pending';
+          }
+        }
         const mKey = getCompositeKey(m);
         if (!seen.has(mKey)) {
           if (source && source !== 'all' && m.source !== source) continue;
-          if (status && status !== 'all' && m.status !== status) continue;
+          if (status && status !== 'all' && mStatus !== status) continue;
           if (service && service !== 'all' && m.service !== service) continue;
-          formatted.push(m);
+          formatted.push({ ...m, status: mStatus });
           seen.add(mKey);
         }
       }

@@ -4,6 +4,7 @@ import {
   isUnambiguousCode,
 } from '@/lib/pairing-code';
 import { checkRateLimit, PostgresRateLimiter } from '@/lib/rate-limit';
+import { getTestDatabaseUrl } from './helpers/test-db';
 
 describe('Step 8 Hardening: Pairing Code Unambiguous Alphabet & Rate Limiting', () => {
   it('generates pairing codes using only unambiguous alphabet (no 0, O, 1, I)', () => {
@@ -72,8 +73,8 @@ describe('Step 8 Hardening: Pairing Code Unambiguous Alphabet & Rate Limiting', 
     expect(r6.success).toBe(false);
   });
 
-  const hasDatabase = Boolean(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL);
-  it.skipIf(!hasDatabase)('shares counter state in PostgreSQL rate_limit_counters table across instances', async () => {
+  const { hasTestDatabase } = getTestDatabaseUrl();
+  it.skipIf(!hasTestDatabase)('shares counter state in PostgreSQL rate_limit_counters table across instances', async () => {
     const limiter1 = new PostgresRateLimiter('pg-test');
     const limiter2 = new PostgresRateLimiter('pg-test');
     const pgKey = `live-pg-key-${Date.now()}`;

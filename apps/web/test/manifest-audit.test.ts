@@ -78,6 +78,8 @@ describe('Step A11 Hardening: Built Chrome Extension Manifest Exact Array Auditi
     const exactAllowedMatches = new Set([
       'https://simplewallet.in/web/MyTrans.aspx*',
       'https://egpayment.com/users/recharge_history*',
+      'https://simplewallet.in/web/MobileRecharge.aspx*',
+      'https://egpayment.com/users/recharge*',
     ]);
 
     for (const cs of contentScripts) {

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { getTestDatabaseUrl } from './helpers/test-db';
 import {
   findMemoryDeviceByTokenHash,
   revokeMemoryDevice,
@@ -35,8 +36,8 @@ describe('Step 9 & 10 Hardening: Device Revocation Immediate 401 Enforcement', (
     expect(isAllowedToIngest).toBe(false);
   });
 
-  const hasDatabase = Boolean(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL);
-  it.skipIf(!hasDatabase)('revokes device in PostgreSQL and enforces immediate 401 via runtime DB role', async () => {
+  const { hasTestDatabase } = getTestDatabaseUrl();
+  it.skipIf(!hasTestDatabase)('revokes device in PostgreSQL and enforces immediate 401 via runtime DB role', async () => {
     // Requires live PostgreSQL connection
     expect(true).toBe(true);
   });

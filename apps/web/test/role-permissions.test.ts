@@ -23,6 +23,7 @@ import {
   TEST_ISSUER,
   TEST_AUDIENCE,
 } from './helpers/jwt';
+import { getTestDatabaseUrl } from './helpers/test-db';
 
 describe('Authentication, Role Authorization & Hardening Suite', () => {
   const secret = getJwtSecret();
@@ -425,9 +426,9 @@ describe('Authentication, Role Authorization & Hardening Suite', () => {
     });
   });
 
-  const hasDatabase = Boolean(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL);
+  const { hasTestDatabase } = getTestDatabaseUrl();
   describe('7. DB-backed Role & Membership Rules under FORCE RLS (Runtime Role)', () => {
-    it.skipIf(!hasDatabase)(
+    it.skipIf(!hasTestDatabase)(
       'provisions exactly one tenant without user_id param (derives from auth.uid()) via create_tenant_and_owner',
       async () => {
         const { signUpUser } = await import('@/lib/auth');
@@ -445,7 +446,7 @@ describe('Authentication, Role Authorization & Hardening Suite', () => {
       },
     );
 
-    it.skipIf(!hasDatabase)(
+    it.skipIf(!hasTestDatabase)(
       'enforces one-tenant-per-user limit on sign-up path when user already owns a tenant',
       async () => {
         const { signUpUser } = await import('@/lib/auth');
@@ -468,7 +469,7 @@ describe('Authentication, Role Authorization & Hardening Suite', () => {
       },
     );
 
-    it.skipIf(!hasDatabase)(
+    it.skipIf(!hasTestDatabase)(
       'prevents runtime role user from inserting membership into another tenant',
       async () => {
         const { db } = await import('@/lib/db');
@@ -486,7 +487,7 @@ describe('Authentication, Role Authorization & Hardening Suite', () => {
       },
     );
 
-    it.skipIf(!hasDatabase)(
+    it.skipIf(!hasTestDatabase)(
       'prevents removing or demoting the last owner of an active tenant via trg_prevent_last_owner_loss',
       async () => {
         const { db } = await import('@/lib/db');
@@ -506,7 +507,7 @@ describe('Authentication, Role Authorization & Hardening Suite', () => {
       },
     );
 
-    it.skipIf(!hasDatabase)(
+    it.skipIf(!hasTestDatabase)(
       'allows deleting an entire tenant via delete_tenant security function while preserving last-owner trigger safety',
       async () => {
         const { db } = await import('@/lib/db');

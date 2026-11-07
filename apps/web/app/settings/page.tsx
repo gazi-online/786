@@ -12,6 +12,8 @@ import {
   Check,
   AlertCircle,
   RefreshCw,
+  Zap,
+  AlertTriangle,
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -26,9 +28,66 @@ export default function SettingsPage() {
   const [maskNumbers, setMaskNumbers] = useState(true);
   const [offlineAlert, setOfflineAlert] = useState(true);
 
+  // Recharge Automation Settings state (Milestone R1 & R5)
+  const [rechargeEnabled, setRechargeEnabled] = useState(false);
+  const [perOrderMaxRupees, setPerOrderMaxRupees] = useState(1000);
+  const [dailyMaxRupees, setDailyMaxRupees] = useState(5000);
+  const [maxOrdersPerMinute, setMaxOrdersPerMinute] = useState(5);
+  const [isSavingRechargeSettings, setIsSavingRechargeSettings] = useState(false);
+  const [rechargeSavedSuccess, setRechargeSavedSuccess] = useState(false);
+  const [rechargeSettingsError, setRechargeSettingsError] = useState<string | null>(null);
+
   useEffect(() => {
     loadSettings();
+    loadRechargeSettings();
   }, []);
+
+  async function loadRechargeSettings() {
+    try {
+      const res = await fetch('/api/v1/recharge-settings');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.settings) {
+          setRechargeEnabled(Boolean(json.settings.rechargeEnabled));
+          setPerOrderMaxRupees(Math.round(json.settings.perOrderMaxPaise / 100));
+          setDailyMaxRupees(Math.round(json.settings.dailyMaxPaise / 100));
+          setMaxOrdersPerMinute(json.settings.maxOrdersPerMinute || 5);
+        }
+      }
+    } catch {
+      // offline fallback
+    }
+  }
+
+  async function handleSaveRechargeSettings(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    setIsSavingRechargeSettings(true);
+    setRechargeSettingsError(null);
+    try {
+      const res = await fetch('/api/v1/recharge-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rechargeEnabled,
+          perOrderMaxPaise: perOrderMaxRupees * 100,
+          dailyMaxPaise: dailyMaxRupees * 100,
+          maxOrdersPerMinute,
+          cancelQueuedOnDisable: true,
+        }),
+      });
+      if (res.ok) {
+        setRechargeSavedSuccess(true);
+        setTimeout(() => setRechargeSavedSuccess(false), 2500);
+      } else {
+        const data = await res.json();
+        setRechargeSettingsError(data.error || 'Failed to save recharge settings');
+      }
+    } catch {
+      setRechargeSettingsError('Network error saving recharge settings');
+    } finally {
+      setIsSavingRechargeSettings(false);
+    }
+  }
 
   async function loadSettings() {
     setLoading(true);
@@ -154,6 +213,126 @@ export default function SettingsPage() {
                 onChange={(e) => setMaskNumbers(e.target.checked)}
                 className="w-4 h-4 rounded text-blue-600 cursor-pointer"
               />
+            </div>
+          </div>
+
+          {/* Recharge Automation & Kill Switch (Milestone R1 & R5) */}
+          <div className="p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                  <Zap className="w-4 h-4 fill-current" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                    Automated Portal Recharge
+                    <span
+                      className={`text-[10px] font-mono px-2 py-0.5 rounded-full border font-semibold ${
+                        rechargeEnabled
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                          : 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20'
+                      }`}
+                    >
+                      {rechargeEnabled ? 'Enabled' : 'Disabled (Kill Switch Active)'}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Control automated mobile recharge dispatching via paired POS terminals
+                  </p>
+                </div>
+              </div>
+
+              {/* Master Kill Switch Toggle */}
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={rechargeEnabled}
+                  onChange={(e) => setRechargeEnabled(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-zinc-200 peer-focus:outline-none rounded-full peer dark:bg-zinc-800 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-zinc-600 peer-checked:bg-indigo-600"></div>
+              </label>
+            </div>
+
+            {!rechargeEnabled && (
+              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>
+                  Feature is currently disabled. All order creation and terminal claiming are blocked. Disabling will cancel any remaining queued orders.
+                </span>
+              </div>
+            )}
+
+            {/* Threshold & Safety Limit Settings */}
+            <div className="pt-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
+                  Per-Order Max (₹):
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="10000"
+                  value={perOrderMaxRupees}
+                  onChange={(e) => setPerOrderMaxRupees(parseInt(e.target.value, 10) || 0)}
+                  className="w-full px-3 py-2 text-xs font-mono font-semibold rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 outline-hidden"
+                />
+                <span className="text-[10px] text-zinc-400 mt-0.5 block">Max amount per single order</span>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
+                  Daily Volume Limit (₹):
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100000"
+                  value={dailyMaxRupees}
+                  onChange={(e) => setDailyMaxRupees(parseInt(e.target.value, 10) || 0)}
+                  className="w-full px-3 py-2 text-xs font-mono font-semibold rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 outline-hidden"
+                />
+                <span className="text-[10px] text-zinc-400 mt-0.5 block">Max total non-failed orders/day</span>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
+                  Rate Limit (Orders/Min):
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="60"
+                  value={maxOrdersPerMinute}
+                  onChange={(e) => setMaxOrdersPerMinute(parseInt(e.target.value, 10) || 1)}
+                  className="w-full px-3 py-2 text-xs font-mono font-semibold rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 outline-hidden"
+                />
+                <span className="text-[10px] text-zinc-400 mt-0.5 block">Burst protection per minute</span>
+              </div>
+            </div>
+
+            {rechargeSettingsError && (
+              <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-400 text-xs">
+                {rechargeSettingsError}
+              </div>
+            )}
+
+            {rechargeSavedSuccess && (
+              <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-1.5 font-medium">
+                <Check className="w-3.5 h-3.5 text-emerald-500" />
+                Recharge safety controls updated successfully
+              </div>
+            )}
+
+            <div className="pt-1 flex justify-end">
+              <button
+                type="button"
+                onClick={handleSaveRechargeSettings}
+                disabled={isSavingRechargeSettings}
+                className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white shadow-xs transition-colors cursor-pointer"
+              >
+                {isSavingRechargeSettings ? 'Saving Safety Controls...' : 'Save Recharge Controls'}
+              </button>
             </div>
           </div>
 

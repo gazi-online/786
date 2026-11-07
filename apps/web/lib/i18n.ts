@@ -53,6 +53,7 @@ export interface Translations {
   };
   nav: {
     dashboard: string;
+    recharge: string;
     transactions: string;
     reports: string;
     devices: string;
@@ -227,6 +228,7 @@ export const dictionaries: Record<Locale, Translations> = {
     },
     nav: {
       dashboard: 'Dashboard',
+      recharge: 'Recharge',
       transactions: 'Transactions',
       reports: 'Reports',
       devices: 'Devices',
@@ -400,6 +402,7 @@ export const dictionaries: Record<Locale, Translations> = {
     },
     nav: {
       dashboard: 'ড্যাশবোর্ড',
+      recharge: 'রিচার্জ',
       transactions: 'ট্রানজ্যাকশন',
       reports: 'রিপোর্ট',
       devices: 'ডিভাইসসমূহ',
@@ -573,6 +576,7 @@ export const dictionaries: Record<Locale, Translations> = {
     },
     nav: {
       dashboard: 'डैशबोर्ड',
+      recharge: 'रिचार्ज',
       transactions: 'लेन-देन',
       reports: 'रिपोर्ट्स',
       devices: 'उपकरण',

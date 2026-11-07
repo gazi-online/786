@@ -25,6 +25,7 @@ import {
   Layers,
   AlertCircle,
   RefreshCw,
+  Download,
 } from 'lucide-react';
 
 interface ReportData {
@@ -83,13 +84,24 @@ export default function ReportsPage() {
           </p>
         </div>
 
-        <button
-          onClick={loadReports}
-          className="p-2 self-start sm:self-auto text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-          title={t.common.refresh}
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <a
+            href="/api/v1/reports?export=true"
+            download="transactions_export.csv"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors shadow-2xs"
+            title={t.transactions.exportCsv}
+          >
+            <Download className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400" />
+            <span>{t.transactions.exportCsv}</span>
+          </a>
+          <button
+            onClick={loadReports}
+            className="p-2 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            title={t.common.refresh}
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* STATE 1: LOADING SKELETON */}

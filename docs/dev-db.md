@@ -67,20 +67,21 @@ This applies:
 
 ---
 
-## 5. Running Database Isolation Tests (`pnpm test:db`)
+## 5. Running Database Isolation Tests (`pnpm test:db` / `pnpm test`)
 
-Configure your runtime connection string in your local shell or `.env.local`:
+> [!CAUTION]
+> **Production Safety Guard:** All DB-backed tests (`isolation.test.ts`, `role-permissions.test.ts`, `pairing-security.test.ts`, `device-revocation.test.ts`, `recharge-orders.test.ts`) strictly read `TEST_DATABASE_URL` and ignore `DATABASE_URL`.
+> If `TEST_DATABASE_URL` is identical to `DATABASE_URL`, tests abort immediately with a fatal safety breach error to prevent test data from ever polluting production.
+
+To run tests against a local throwaway database or a disposable Neon branch:
 
 ```bash
-DATABASE_URL="postgres://walletsync_app:app_password@localhost:5432/walletsync_dev" pnpm test:db
+# 1. Set TEST_DATABASE_URL pointing to your dedicated test/throwaway database
+export TEST_DATABASE_URL="postgres://walletsync_app:app_password@localhost:5432/walletsync_dev"
+
+# 2. Run test suite
+pnpm --filter @walletsync/web test
 ```
 
-This executes:
-- Runtime role `rolbypassrls = false` validation
-- Non-ownership verification
-- `FORCE ROW LEVEL SECURITY` enforcement on every table
-- Unset tenant context returning 0 rows
-- Cross-tenant isolation (Tenant A cannot view Tenant B records)
-- Direct SQL adhering to RLS
-- Rate limiter counter persistence in PostgreSQL
+If `TEST_DATABASE_URL` is omitted, all DB-backed live tests automatically skip without failing the test suite.
 

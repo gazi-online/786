@@ -43,32 +43,30 @@ async function runMigrations() {
     }
   }
 
-  const sql = postgres(connectionString, { max: 1 });
+  const sql = postgres(connectionString, { max: 1, ssl: 'require' });
 
   try {
-    console.log('Applying 0000_auth_shim.sql (Auth shim for vanilla Postgres)...');
-    const authShim = fs.readFileSync(path.join(rootDir, 'apps/web/drizzle/0000_auth_shim.sql'), 'utf8');
-    await sql.unsafe(authShim);
+    const runFile = async (name, relPath) => {
+      console.log(`Applying ${name}...`);
+      const fileSql = fs.readFileSync(path.join(rootDir, relPath), 'utf8');
+      try {
+        await sql.unsafe(fileSql);
+      } catch (err) {
+        if (err.code === '42710' || err.message?.includes('already exists')) {
+          console.log(`  (Notice: objects in ${name} already exist, skipping)`);
+        } else {
+          throw err;
+        }
+      }
+    };
 
-    console.log('Applying 0000_schema.sql (Initial table schemas)...');
-    const schemaSql = fs.readFileSync(path.join(rootDir, 'apps/web/drizzle/0000_schema.sql'), 'utf8');
-    await sql.unsafe(schemaSql);
-
-    console.log('Applying 0001_rls.sql (Row Level Security & tenant policies)...');
-    const rlsSql = fs.readFileSync(path.join(rootDir, 'apps/web/drizzle/0001_rls.sql'), 'utf8');
-    await sql.unsafe(rlsSql);
-
-    console.log('Applying 0002_device_heartbeat.sql (Heartbeat & portal metadata columns)...');
-    const heartbeatSql = fs.readFileSync(path.join(rootDir, 'apps/web/drizzle/0002_device_heartbeat.sql'), 'utf8');
-    await sql.unsafe(heartbeatSql);
-
-    console.log('Applying 0003_sync_events_fix.sql (Sync events schema fix)...');
-    const syncEventsSql = fs.readFileSync(path.join(rootDir, 'apps/web/drizzle/0003_sync_events_fix.sql'), 'utf8');
-    await sql.unsafe(syncEventsSql);
-
-    console.log('Applying 0004_transactions_parser_version.sql (Transactions schema fix)...');
-    const transSql = fs.readFileSync(path.join(rootDir, 'apps/web/drizzle/0004_transactions_parser_version.sql'), 'utf8');
-    await sql.unsafe(transSql);
+    await runFile('0000_auth_shim.sql', 'apps/web/drizzle/0000_auth_shim.sql');
+    await runFile('0000_schema.sql', 'apps/web/drizzle/0000_schema.sql');
+    await runFile('0001_rls.sql', 'apps/web/drizzle/0001_rls.sql');
+    await runFile('0002_device_heartbeat.sql', 'apps/web/drizzle/0002_device_heartbeat.sql');
+    await runFile('0003_sync_events_fix.sql', 'apps/web/drizzle/0003_sync_events_fix.sql');
+    await runFile('0004_transactions_parser_version.sql', 'apps/web/drizzle/0004_transactions_parser_version.sql');
+    await runFile('0005_recharge_orders.sql', 'apps/web/drizzle/0005_recharge_orders.sql');
 
     console.log('✓ All migrations applied successfully.');
   } catch (err) {

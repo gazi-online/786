@@ -13,6 +13,7 @@ import {
   Sparkles,
   ArrowRight,
   X,
+  Zap,
 } from 'lucide-react';
 
 export function CommandPalette() {
@@ -39,6 +40,7 @@ export function CommandPalette() {
 
   const navItems = [
     { label: t.nav.dashboard, icon: LayoutDashboard, href: '/' },
+    { label: t.nav.recharge, icon: Zap, href: '/recharge' },
     { label: t.nav.transactions, icon: ReceiptText, href: '/transactions' },
     { label: t.nav.reports, icon: BarChart3, href: '/reports' },
     { label: t.nav.devices, icon: Cpu, href: '/devices' },

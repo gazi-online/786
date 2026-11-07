@@ -4,7 +4,7 @@ import {
   attemptAutoClick,
   MIN_AUTO_CLICK_INTERVAL_SECONDS,
 } from '@walletsync/parsers';
-import type { ParseResult } from '@walletsync/contract';
+import { type ParseResult, validateContentMessage } from '@walletsync/contract';
 
 export default defineContentScript({
   // Hardening Amd-6: Content scripts match ONLY the exact history paths of each portal
@@ -97,11 +97,20 @@ export default defineContentScript({
     // 3. Listen for parse requests from background script
     chrome.runtime.onMessage.addListener(
       (
-        message: { type?: string; refresh?: boolean },
-        _sender: chrome.runtime.MessageSender,
+        rawMessage: unknown,
+        sender: chrome.runtime.MessageSender,
         sendResponse: (res?: unknown) => void,
       ) => {
-        if (message && (message.type === 'TRIGGER_PARSE' || message.type === 'TRIGGER_SHOW_CLICK')) {
+        // Validate sender and payload before executing action
+        const validation = validateContentMessage(rawMessage, sender, chrome.runtime.id);
+        if (!validation.ok) {
+          // Unknown or unauthorized messages dropped without side effects
+          return;
+        }
+
+        const message = validation.message;
+
+        if (message.type === 'TRIGGER_PARSE' || message.type === 'TRIGGER_SHOW_CLICK') {
           const currentResult = parseCurrentPage();
 
           // If refresh requested or manual TRIGGER_SHOW_CLICK on SimpleWallet, attempt safe auto-click if enabled

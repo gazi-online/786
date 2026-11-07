@@ -35,12 +35,13 @@ export type ProtectedAction =
   | 'data:export'
   | 'dashboard:view'
   | 'settings:modify'
-  | 'customer_no:reveal';
+  | 'customer_no:reveal'
+  | 'recharge:create';
 
 export function canPerformAction(role: UserRole, action: ProtectedAction): boolean {
   if (action === 'dashboard:view') return true;
   if (role === 'owner' || role === 'admin') return true;
-  // viewer is denied pairing:create, device:revoke, data:export, settings:modify, customer_no:reveal
+  // viewer is denied pairing:create, device:revoke, data:export, settings:modify, customer_no:reveal, recharge:create
   return false;
 }
 

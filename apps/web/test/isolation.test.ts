@@ -18,17 +18,19 @@ import { eq, sql } from 'drizzle-orm';
  *   6. Direct SQL as runtime role (obeys RLS)
  */
 
-const isCI = process.env.CI === 'true';
-const hasDatabase = Boolean(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL);
+import { getTestDatabaseUrl } from './helpers/test-db';
 
-if (isCI && !hasDatabase) {
+const isCI = process.env.CI === 'true';
+const { hasTestDatabase } = getTestDatabaseUrl();
+
+if (isCI && !hasTestDatabase) {
   throw new Error(
-    'FATAL: Live database connection required in CI environment (CI=true), but DATABASE_URL is missing or connection failed.',
+    'FATAL: Live database connection required in CI environment (CI=true), but TEST_DATABASE_URL is missing or connection failed.',
   );
 }
 
 describe('M2 Cross-Tenant Isolation & RLS Enforcement', () => {
-  it.skipIf(!hasDatabase)('verifies runtime DB role has NOBYPASSRLS (rolbypassrls = false)', async () => {
+  it.skipIf(!hasTestDatabase)('verifies runtime DB role has NOBYPASSRLS (rolbypassrls = false)', async () => {
     const roleInfo = await db.execute<{ rolname: string; rolbypassrls: boolean }>(
       sql`SELECT rolname, rolbypassrls FROM pg_roles WHERE rolname = current_user`,
     );
@@ -36,7 +38,7 @@ describe('M2 Cross-Tenant Isolation & RLS Enforcement', () => {
     expect(roleInfo[0]?.rolbypassrls).toBe(false);
   });
 
-  it.skipIf(!hasDatabase)('verifies runtime DB role does not own tenant tables', async () => {
+  it.skipIf(!hasTestDatabase)('verifies runtime DB role does not own tenant tables', async () => {
     const tableOwnerInfo = await db.execute<{ tablename: string; tableowner: string }>(
       sql`SELECT tablename, tableowner FROM pg_tables WHERE schemaname = 'public' AND tablename = 'transactions'`,
     );
@@ -45,7 +47,7 @@ describe('M2 Cross-Tenant Isolation & RLS Enforcement', () => {
     expect(tableOwnerInfo[0]?.tableowner).not.toBe(roleInfo[0]?.rolname);
   });
 
-  it.skipIf(!hasDatabase)('verifies FORCE ROW LEVEL SECURITY on every tenant table', async () => {
+  it.skipIf(!hasTestDatabase)('verifies FORCE ROW LEVEL SECURITY on every tenant table', async () => {
     const tenantTables = [
       'tenants',
       'memberships',
@@ -65,12 +67,12 @@ describe('M2 Cross-Tenant Isolation & RLS Enforcement', () => {
     }
   });
 
-  it.skipIf(!hasDatabase)('verifies an unset tenant context returns zero rows', async () => {
+  it.skipIf(!hasTestDatabase)('verifies an unset tenant context returns zero rows', async () => {
     const unsetContextRows = await db.select().from(transactions).limit(10);
     expect(unsetContextRows).toHaveLength(0);
   });
 
-  it.skipIf(!hasDatabase)('verifies cross-tenant reads: Tenant A cannot query Tenant B records', async () => {
+  it.skipIf(!hasTestDatabase)('verifies cross-tenant reads: Tenant A cannot query Tenant B records', async () => {
     const tenantA = '11111111-1111-1111-1111-111111111111';
     const tenantB = '22222222-2222-2222-2222-222222222222';
 
@@ -110,7 +112,7 @@ describe('M2 Cross-Tenant Isolation & RLS Enforcement', () => {
     expect(tenantAResults).toHaveLength(0);
   });
 
-  it.skipIf(!hasDatabase)('verifies direct SQL as runtime role obeys RLS policies', async () => {
+  it.skipIf(!hasTestDatabase)('verifies direct SQL as runtime role obeys RLS policies', async () => {
     const directSqlRows = await db.execute(sql`SELECT * FROM transactions LIMIT 10`);
     expect(directSqlRows).toHaveLength(0);
   });

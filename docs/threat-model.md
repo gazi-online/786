@@ -96,3 +96,44 @@ WalletSync consists of three primary trust zones:
 3. **HMAC Indexing:** Search is facilitated via plaintext last-4 digits (`customer_last4`) and HMAC-SHA256 (`customer_no_hash`). The full plaintext number is never indexed or logged in plaintext.
 4. **Data Retention Policy:** Automated data retention policies allow retailers to set retention windows (6 to 36 months) with automatic purging.
 
+---
+
+## 4. Recharge Automation Threat Analysis & Defense-in-Depth
+
+The web-initiated automated recharge subsystem introduces financial operations. The following mitigations enforce strict isolation, financial risk bounding, and zero plain PII leakage:
+
+### Threat 6: Replay & Duplicate Order Attacks
+* **Scenario:** An attacker replays an order request, or a network hiccup resends a recharge submission, potentially charging a customer twice.
+* **Mitigations:**
+  1. **Mandatory Idempotency Keys:** Every `POST /api/v1/recharge-orders` requires a client-generated `Idempotency-Key` header (unique per tenant). Identical keys with identical payloads return the existing order; conflicting payloads return `409 Conflict`.
+  2. **Per-Tenant Advisory Locking:** An atomic transaction lock (`pg_advisory_xact_lock`) serializes concurrent order creations per tenant.
+  3. **10-Minute Duplicate Guard:** Orders with identical `customer_no_hash` and `amount_paise` created within 10 minutes are rejected with `409 Conflict` unless the retailer explicitly acknowledges the warning with `confirmDuplicate: true`.
+
+### Threat 7: Lease Starvation & Double-Execution (Race Conditions)
+* **Scenario:** Multiple POS terminal extension workers attempt to claim the same queued order, or a worker crashes after clicking submit.
+* **Mitigations:**
+  1. **Atomic SKIP LOCKED Claims:** Extension claiming uses `SELECT ... FOR UPDATE SKIP LOCKED` inside `withTenantContext`. Exactly one device secures the lease.
+  2. **Irreversible `submitting` State:** Before clicking the portal submit button, the worker advances the order status to `submitting`. Under the state machine rules, `submitting` orders can **never** return to `queued` or `claimed`.
+  3. **Lease Expiry Reclamation:** If an order remains in `claimed` without reaching `submitting` before `claim_expires_at` (default 60s), the lease is safely reclaimed for re-dispatch.
+
+### Threat 8: Runaway Financial Volume & Rate Floods
+* **Scenario:** Compromised retailer credentials or an automated script attempts to drain wallet balances rapidly.
+* **Mitigations:**
+  1. **Default-Off Kill Switch:** The recharge subsystem is disabled by default (`recharge_enabled: false`). Turning it off immediately cancels all pending `queued` orders and logs to `audit_log`.
+  2. **Hard Spending Caps:** Every tenant enforces a per-order maximum (`per_order_max_paise`) and an Asia/Kolkata calendar-day cumulative maximum (`daily_max_paise`).
+  3. **Burst Rate Limiting:** Enforces `max_orders_per_minute` per tenant.
+
+### Threat 9: Portal Form Hijacking & Challenge Bypasses
+* **Scenario:** A portal injects a CAPTCHA, 2FA prompt, or alters form inputs before submission.
+* **Mitigations:**
+  1. **Pre-Submission Round-Trip Verification:** The runner validates `input.value === order.customerNo` and parsed rupees match `order.amountPaise` before firing any submit click.
+  2. **Challenge Detection:** Any detected CAPTCHA, OTP, or anti-bot challenge immediately flags the order as `needs_manual_action` and aborts automated clicking.
+  3. **Zero Portal Cookie Access:** The extension runs in dedicated background tabs without reading portal cookies or storage tokens.
+
+### Threat 10: Ingest Reconciliation & Fraudulent Status Spoofing
+* **Scenario:** An external party claims a recharge succeeded without a corresponding portal transaction record.
+* **Mitigations:**
+  1. **Strict Portal Ingest Reconciliation:** Orders in `submitted` or `unknown` transition to `success` or `failed` only when the portal's transaction history report is ingested and matched on `(tenantId, source, customer_no_hash, amount_paise)`.
+  2. **Audit Logging & Actor Identity:** All resolutions and manual interventions are recorded in `audit_log` with the responsible actor and timestamp, preserving full operational traceability.
+
+

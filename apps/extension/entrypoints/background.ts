@@ -5,14 +5,20 @@ import {
   type StorageData,
 } from '../lib/storage';
 import {
+  openDedicatedBackgroundTab,
+  closeDedicatedTab,
+} from '../lib/tab-manager';
+import {
   SCHEMA_VERSION,
   type IngestRequest,
   type ParseResult,
+  validateBackgroundMessage,
 } from '@walletsync/contract';
 import { parse } from '@walletsync/parsers';
 
 const ALARM_NAME = 'walletsync_poll_alarm';
 const HEARTBEAT_ALARM_NAME = 'walletsync_heartbeat_alarm';
+const RECHARGE_POLL_ALARM_NAME = 'walletsync_recharge_poll';
 
 export default defineBackground(() => {
   // 1. Initialize alarms on install / startup
@@ -34,6 +40,12 @@ export default defineBackground(() => {
       delayInMinutes: 0.1,
       periodInMinutes: 1,
     });
+
+    await chrome.alarms.clear(RECHARGE_POLL_ALARM_NAME);
+    chrome.alarms.create(RECHARGE_POLL_ALARM_NAME, {
+      delayInMinutes: 0.2,
+      periodInMinutes: 1,
+    });
   }
 
   setupAlarms();
@@ -53,6 +65,8 @@ export default defineBackground(() => {
       triggerSyncCycle();
     } else if (alarm.name === HEARTBEAT_ALARM_NAME) {
       sendHeartbeat();
+    } else if (alarm.name === RECHARGE_POLL_ALARM_NAME) {
+      triggerRechargeDispatcherCycle();
     }
   });
 
@@ -292,28 +306,42 @@ export default defineBackground(() => {
     chrome.action.setBadgeBackgroundColor({ color: '#f59e0b' });
   }
 
-  // 5. Message listener from Popup & Content scripts
+  // 5. Message listener from Popup, Options & Content scripts
   chrome.runtime.onMessage.addListener(
     (
-      message: { type?: string; code?: string; apiUrl?: string; result?: ParseResult },
-      _sender: chrome.runtime.MessageSender,
+      rawMessage: unknown,
+      sender: chrome.runtime.MessageSender,
       sendResponse: (res?: unknown) => void,
     ) => {
-      if (message?.type === 'CONTENT_PARSED_PAGE' && message.result) {
+      // Validate sender identity, tab origin, and payload schema before processing
+      const validation = validateBackgroundMessage(rawMessage, sender, chrome.runtime.id);
+      if (!validation.ok) {
+        // Unknown or malformed messages are dropped without side effects and without logging payload contents
+        return;
+      }
+
+      const message = validation.message;
+
+      if (message.type === 'CONTENT_PARSED_PAGE') {
         getStorage().then(async (storage) => {
           if (!storage.isPaused && storage.deviceToken && storage.deviceId) {
-            await handleParseResult(message.result!, storage);
+            await handleParseResult(message.result, storage);
           }
         });
         return true;
       }
 
-      if (message?.type === 'PAIR_DEVICE' && message.code) {
+      if (message.type === 'CONTENT_PARSER_ERROR') {
+        // Content script parser error acknowledged; dropped without logging sensitive payload
+        return;
+      }
+
+      if (message.type === 'PAIR_DEVICE') {
         handlePairing(message.code, message.apiUrl).then(sendResponse);
         return true;
       }
 
-      if (message?.type === 'UNPAIR_DEVICE') {
+      if (message.type === 'UNPAIR_DEVICE') {
         setStorage({
           deviceId: null,
           deviceToken: null,
@@ -327,12 +355,28 @@ export default defineBackground(() => {
         return true;
       }
 
-      if (message?.type === 'SYNC_NOW') {
+      if (message.type === 'SYNC_NOW') {
         triggerSyncCycle().then(() => sendResponse({ success: true }));
         return true;
       }
 
-      if (message?.type === 'TOGGLE_PAUSE') {
+      if (message.type === 'PORTAL_RECHARGE_RESULT') {
+        getStorage().then(async (storage) => {
+          if (storage.deviceToken) {
+            await sendRechargeStatusUpdate(storage, message.orderId, {
+              status: message.status,
+              failureCode: message.failureCode,
+              failureDetail: message.failureDetail,
+            });
+          }
+          if (sender.tab?.id) {
+            await closeDedicatedTab(sender.tab.id);
+          }
+        });
+        return true;
+      }
+
+      if (message.type === 'TOGGLE_PAUSE') {
         getStorage().then(async (storage) => {
           const isPaused = !storage.isPaused;
           await setStorage({ isPaused, status: isPaused ? 'paused' : 'ok' });
@@ -349,6 +393,89 @@ export default defineBackground(() => {
       }
     },
   );
+
+  // -------------------------------------------------------------------------
+  // 6. Recharge Dispatcher Engine (Milestone R3)
+  // -------------------------------------------------------------------------
+  let isRechargeDispatcherBusy = false;
+
+  async function triggerRechargeDispatcherCycle() {
+    if (isRechargeDispatcherBusy) return;
+
+    const storage = await getStorage();
+    if (storage.isPaused || !storage.deviceToken || !storage.deviceId) {
+      return;
+    }
+
+    isRechargeDispatcherBusy = true;
+    try {
+      const claimRes = await fetch(`${storage.apiUrl}/api/v1/recharge-orders/claim`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${storage.deviceToken}`,
+        },
+      });
+
+      if (!claimRes.ok) return;
+
+      const data = await claimRes.json();
+      if (!data.order) return; // No orders in queue
+
+      const order = data.order;
+      const targetUrl =
+        order.source === 'egpayment'
+          ? 'https://egpayment.com/users/recharge'
+          : 'https://simplewallet.in/web/MobileRecharge.aspx';
+
+      // 1. Open dedicated background tab (guaranteed active: false; never interrupts working tab)
+      const { tabId } = await openDedicatedBackgroundTab(targetUrl);
+
+      // 2. Lock order on server to 'submitting' (prevents re-leasing)
+      await sendRechargeStatusUpdate(storage, order.id, { status: 'submitting' });
+
+      // 3. Dispatch execution command to content script in dedicated background tab
+      chrome.tabs.sendMessage(tabId, {
+        type: 'EXECUTE_PORTAL_RECHARGE',
+        order,
+      }).catch(async () => {
+        // Communication failed; record failure and close tab
+        await sendRechargeStatusUpdate(storage, order.id, {
+          status: 'failed',
+          failureCode: 'tab_dispatch_error',
+          failureDetail: 'Failed to communicate with recharge content script in background tab',
+        });
+        await closeDedicatedTab(tabId);
+      });
+    } catch {
+      // Ignore background dispatch errors
+    } finally {
+      isRechargeDispatcherBusy = false;
+    }
+  }
+
+  async function sendRechargeStatusUpdate(
+    storage: StorageData,
+    orderId: string,
+    payload: {
+      status: string;
+      failureCode?: string;
+      failureDetail?: string;
+    },
+  ) {
+    try {
+      await fetch(`${storage.apiUrl}/api/v1/recharge-orders/${orderId}/status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${storage.deviceToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      // Ignore network errors updating status
+    }
+  }
 
   async function sendHeartbeat() {
     try {

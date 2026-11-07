@@ -25,6 +25,8 @@ describe('Round 7 Step 1: Route Auth Table & Automated Route Directory Audit', (
     path.normalize('devices/pair/route.ts'),
     path.normalize('devices/heartbeat/route.ts'),
     path.normalize('ingest/route.ts'),
+    path.normalize('recharge-orders/claim/route.ts'),
+    path.normalize('recharge-orders/[id]/status/route.ts'),
   ]);
 
   it('audits every route file and fails if any route handler lacks authentication', () => {
@@ -53,7 +55,8 @@ describe('Round 7 Step 1: Route Auth Table & Automated Route Directory Audit', (
         const hasPairingOrIngestProtection =
           content.includes('checkRateLimit') ||
           content.includes('hashDeviceToken') ||
-          content.includes('verifyDeviceToken');
+          content.includes('verifyDeviceToken') ||
+          content.includes('verifyDeviceForRecharge');
         expect(hasPairingOrIngestProtection).toBe(true);
       } else {
         // Every other route MUST invoke getTenantSession or signUpUser
