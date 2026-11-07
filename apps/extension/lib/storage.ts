@@ -46,6 +46,13 @@ export interface StorageData {
 
   // Offline buffer (last 50 payloads)
   offlineQueue: IngestRequest[];
+
+  // Recharge Engine execution audit state
+  lastRechargeLog?: {
+    time: string;
+    ok: boolean;
+    message: string;
+  };
 }
 
 // Build-time API origin injected by WXT config from WALLETSYNC_API_ORIGIN env var

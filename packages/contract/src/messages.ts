@@ -161,6 +161,11 @@ export const PortalRechargeResultMessageSchema = z.object({
 });
 export type PortalRechargeResultMessage = z.infer<typeof PortalRechargeResultMessageSchema>;
 
+export const DispatchRechargeNowMessageSchema = z.object({
+  type: z.literal('DISPATCH_RECHARGE_NOW'),
+});
+export type DispatchRechargeNowMessage = z.infer<typeof DispatchRechargeNowMessageSchema>;
+
 export const BackgroundMessageSchema = z.discriminatedUnion('type', [
   ContentParsedPageMessageSchema,
   ContentParserErrorMessageSchema,
@@ -169,6 +174,7 @@ export const BackgroundMessageSchema = z.discriminatedUnion('type', [
   SyncNowMessageSchema,
   TogglePauseMessageSchema,
   PortalRechargeResultMessageSchema,
+  DispatchRechargeNowMessageSchema,
 ]);
 export type BackgroundMessage = z.infer<typeof BackgroundMessageSchema>;
 

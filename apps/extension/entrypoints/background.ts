@@ -366,6 +366,11 @@ export default defineBackground(() => {
         return true;
       }
 
+      if (message.type === 'DISPATCH_RECHARGE_NOW') {
+        triggerRechargeDispatcherCycle().then(sendResponse);
+        return true;
+      }
+
       if (message.type === 'PORTAL_RECHARGE_RESULT') {
         getStorage().then(async (storage) => {
           if (storage.deviceToken) {
@@ -429,17 +434,36 @@ export default defineBackground(() => {
     throw lastError;
   }
 
-  async function triggerRechargeDispatcherCycle() {
-    if (isRechargeDispatcherBusy) return;
+  async function triggerRechargeDispatcherCycle(): Promise<{
+    success: boolean;
+    message: string;
+    orderId?: string;
+  }> {
+    if (isRechargeDispatcherBusy) {
+      return { success: false, message: 'Recharge dispatcher is already busy processing an order' };
+    }
 
     const storage = await getStorage();
-    if (storage.isPaused || !storage.deviceToken || !storage.deviceId) {
-      return;
+    if (!storage.deviceToken || !storage.deviceId) {
+      console.warn('[WalletSync Recharge Dispatcher] Device not paired with dashboard');
+      return { success: false, message: 'Device not paired with dashboard' };
+    }
+
+    if (storage.isPaused) {
+      console.warn('[WalletSync Recharge Dispatcher] Extension is paused');
+      return { success: false, message: 'Extension is currently paused' };
+    }
+
+    const apiUrl = (storage.apiUrl || '').trim().replace(/\/+$/, '');
+    if (!apiUrl) {
+      console.error('[WalletSync Recharge Dispatcher] Missing apiUrl in storage');
+      return { success: false, message: 'Missing API URL configuration' };
     }
 
     isRechargeDispatcherBusy = true;
     try {
-      const claimRes = await fetch(`${storage.apiUrl}/api/v1/recharge-orders/claim`, {
+      console.log(`[WalletSync Recharge Dispatcher] Calling ${apiUrl}/api/v1/recharge-orders/claim ...`);
+      const claimRes = await fetch(`${apiUrl}/api/v1/recharge-orders/claim`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -447,18 +471,42 @@ export default defineBackground(() => {
         },
       });
 
-      if (!claimRes.ok) return;
+      if (!claimRes.ok) {
+        const errText = await claimRes.text().catch(() => '');
+        console.error(`[WalletSync Recharge Dispatcher] Claim failed HTTP ${claimRes.status}:`, errText);
+        await setStorage({
+          lastRechargeLog: {
+            time: new Date().toISOString(),
+            ok: false,
+            message: `Claim failed: HTTP ${claimRes.status}`,
+          },
+        });
+        return { success: false, message: `Server error HTTP ${claimRes.status}` };
+      }
 
       const data = await claimRes.json();
-      if (!data.order) return; // No orders in queue
+      if (!data.order) {
+        console.log('[WalletSync Recharge Dispatcher] No orders queued on server');
+        await setStorage({
+          lastRechargeLog: {
+            time: new Date().toISOString(),
+            ok: true,
+            message: 'Queue empty — 0 pending orders',
+          },
+        });
+        return { success: true, message: 'No orders queued in server' };
+      }
 
       const order = data.order;
+      console.log(`[WalletSync Recharge Dispatcher] Order claimed! ID: ${order.id}, portal: ${order.source}, operator: ${order.operator}, amount: ₹${order.amountPaise / 100}`);
+
       const targetUrl =
         order.source === 'egpayment'
           ? 'https://egpayment.com/users/recharge'
-          : 'https://simplewallet.in/web/MobileRecharge.aspx';
+          : 'https://simplewallet.in/web/MobileRecharge.aspx?mID=822';
 
       // 1. Open dedicated background tab (guaranteed active: false; never interrupts working tab)
+      console.log(`[WalletSync Recharge Dispatcher] Opening background tab: ${targetUrl}`);
       const { tabId } = await openDedicatedBackgroundTab(targetUrl);
 
       // 2. Lock order on server to 'submitting' (prevents re-leasing)
@@ -466,27 +514,62 @@ export default defineBackground(() => {
 
       // 3. Dispatch execution command to content script in dedicated background tab with retry backoff
       try {
+        console.log(`[WalletSync Recharge Dispatcher] Dispatching EXECUTE_PORTAL_RECHARGE to tab ${tabId}...`);
         await sendMessageWithRetry(
           tabId,
           {
             type: 'EXECUTE_PORTAL_RECHARGE',
             order,
           },
-          6,
-          500,
+          8,
+          600,
         );
+
+        await setStorage({
+          lastRechargeLog: {
+            time: new Date().toISOString(),
+            ok: true,
+            message: `Submitted order for ${order.operator} (₹${(order.amountPaise / 100).toFixed(0)}) to ${order.source}`,
+          },
+        });
+
+        return {
+          success: true,
+          orderId: order.id,
+          message: `Dispatched ${order.operator} ₹${(order.amountPaise / 100).toFixed(0)} to ${order.source}`,
+        };
       } catch (err: unknown) {
         // Communication failed after all attempts; record failure and close tab
         const errDetail = err instanceof Error ? err.message : 'Timeout waiting for content script';
+        console.error('[WalletSync Recharge Dispatcher] Failed to communicate with content script:', errDetail);
         await sendRechargeStatusUpdate(storage, order.id, {
           status: 'failed',
           failureCode: 'tab_dispatch_error',
           failureDetail: `Failed to communicate with recharge content script in background tab: ${errDetail.slice(0, 100)}`,
         });
         await closeDedicatedTab(tabId);
+
+        await setStorage({
+          lastRechargeLog: {
+            time: new Date().toISOString(),
+            ok: false,
+            message: `Dispatch failed: ${errDetail.slice(0, 50)}`,
+          },
+        });
+
+        return { success: false, message: `Tab dispatch error: ${errDetail.slice(0, 60)}` };
       }
-    } catch {
-      // Ignore background dispatch errors
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Network failure';
+      console.error('[WalletSync Recharge Dispatcher] Unexpected dispatcher error:', err);
+      await setStorage({
+        lastRechargeLog: {
+          time: new Date().toISOString(),
+          ok: false,
+          message: `Error: ${msg.slice(0, 50)}`,
+        },
+      });
+      return { success: false, message: msg };
     } finally {
       isRechargeDispatcherBusy = false;
     }
@@ -502,7 +585,10 @@ export default defineBackground(() => {
     },
   ) {
     try {
-      await fetch(`${storage.apiUrl}/api/v1/recharge-orders/${orderId}/status`, {
+      const apiUrl = (storage.apiUrl || '').trim().replace(/\/+$/, '');
+      if (!apiUrl) return;
+
+      await fetch(`${apiUrl}/api/v1/recharge-orders/${orderId}/status`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

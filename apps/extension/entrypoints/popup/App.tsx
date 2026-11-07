@@ -54,6 +54,10 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncSuccessToast, setSyncSuccessToast] = useState(false);
 
+  // Dispatch state
+  const [isDispatching, setIsDispatching] = useState(false);
+  const [dispatchResultMsg, setDispatchResultMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   // Live browser tab states
   const [swTabOpen, setSwTabOpen] = useState(false);
   const [egTabOpen, setEgTabOpen] = useState(false);
@@ -150,6 +154,24 @@ export default function App() {
         checkOpenTabs();
       }, 1000);
     });
+  }
+
+  async function handleDispatchQueue() {
+    setIsDispatching(true);
+    setDispatchResultMsg(null);
+    chrome.runtime.sendMessage(
+      { type: 'DISPATCH_RECHARGE_NOW' },
+      (res: { success?: boolean; message?: string } | undefined) => {
+        setIsDispatching(false);
+        if (res) {
+          setDispatchResultMsg({ ok: !!res.success, text: res.message || 'Operation finished' });
+        } else {
+          setDispatchResultMsg({ ok: false, text: 'No reply from background service worker' });
+        }
+        loadData();
+        checkOpenTabs();
+      },
+    );
   }
 
   async function handleTogglePause() {
@@ -689,20 +711,42 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="font-bold text-white text-[11px]">Recharge Automation Engine</h3>
-                    <p className="text-[9px] text-zinc-400">Auto-claims & dispatches web recharge queue</p>
+                    <p className="text-[9px] text-zinc-400">Claims & executes web recharge queue</p>
                   </div>
                 </div>
                 <button
                   type="button"
-                  onClick={handleSyncNow}
-                  disabled={isSyncing || data.isPaused}
+                  onClick={handleDispatchQueue}
+                  disabled={isDispatching || data.isPaused}
                   className="px-2.5 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-md shadow-violet-600/30 disabled:opacity-40"
                   title="Click to process queued recharge orders immediately"
                 >
-                  <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
-                  <span>{isSyncing ? 'Dispatching...' : 'Dispatch Queue'}</span>
+                  <RefreshCw className={`w-3 h-3 ${isDispatching ? 'animate-spin' : ''}`} />
+                  <span>{isDispatching ? 'Dispatching...' : 'Dispatch Queue'}</span>
                 </button>
               </div>
+
+              {/* Live Dispatch Message */}
+              {(dispatchResultMsg || data.lastRechargeLog) && (
+                <div
+                  className={`mt-1 px-2.5 py-1.5 rounded-xl text-[10px] font-mono flex items-center justify-between border ${
+                    (dispatchResultMsg ? dispatchResultMsg.ok : data.lastRechargeLog?.ok)
+                      ? 'bg-emerald-950/30 border-emerald-500/25 text-emerald-300'
+                      : 'bg-rose-950/30 border-rose-500/25 text-rose-300'
+                  }`}
+                >
+                  <span className="truncate pr-2">
+                    {dispatchResultMsg ? dispatchResultMsg.text : data.lastRechargeLog?.message}
+                  </span>
+                  <span className="text-[8px] opacity-70 shrink-0">
+                    {dispatchResultMsg
+                      ? 'Just now'
+                      : data.lastRechargeLog?.time
+                        ? new Date(data.lastRechargeLog.time).toLocaleTimeString()
+                        : ''}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Quick Mini Feed Preview */}

@@ -30,9 +30,20 @@ export async function openDedicatedBackgroundTab(
 
   const tabId = tab.id;
 
+  if (tab.status === 'complete') {
+    return { tabId };
+  }
+
   // Wait for tab status === 'complete'
   await new Promise<void>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      if (pollInterval) clearInterval(pollInterval);
+      chrome.tabs.onUpdated.removeListener(listener);
+    };
 
     const listener = (
       updatedTabId: number,
@@ -44,10 +55,18 @@ export async function openDedicatedBackgroundTab(
       }
     };
 
-    const cleanup = () => {
-      if (timer) clearTimeout(timer);
-      chrome.tabs.onUpdated.removeListener(listener);
-    };
+    // Periodic check in case onUpdated fired before listener registered
+    pollInterval = setInterval(async () => {
+      try {
+        const current = await chrome.tabs.get(tabId);
+        if (current && current.status === 'complete') {
+          cleanup();
+          resolve();
+        }
+      } catch {
+        // Tab might be navigating or closed
+      }
+    }, 800);
 
     timer = setTimeout(() => {
       cleanup();
