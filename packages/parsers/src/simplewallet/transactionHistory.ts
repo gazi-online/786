@@ -27,6 +27,7 @@
  */
 
 import type { IngestTransaction, ParseResult, TransactionStatus } from '@walletsync/contract';
+import { parseSimpleWalletHeaderStats } from './rechargeRunner';
 
 /** Parser version — bumped independently of the extension version. */
 export const PARSER_VERSION = '1.0.0';
@@ -200,9 +201,11 @@ export function parse(html: string): ParseResult {
   }
 
   // -------------------------------------------------------------------------
-  // 6. Read wallet balance from page header when present.
+  // 6. Read wallet balance and commission from page header when present.
   // -------------------------------------------------------------------------
-  const balancePaise = readBalancePaise(doc);
+  const headerStats = parseSimpleWalletHeaderStats(doc);
+  const balancePaise = headerStats.regularBalancePaise ?? readBalancePaise(doc);
+  const commissionPaise = headerStats.commissionPaise;
 
   // -------------------------------------------------------------------------
   // 7. Return success.
@@ -213,6 +216,7 @@ export function parse(html: string): ParseResult {
     parserVersion: PARSER_VERSION,
     capturedAt: new Date().toISOString(),
     balancePaise,
+    commissionPaise,
     pageTotals: { amountPaise: grandTotalPaise ?? rowSumPaise },
     rows,
   };

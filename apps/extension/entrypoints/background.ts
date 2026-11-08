@@ -188,6 +188,7 @@ export default defineBackground(() => {
       parserVersion: result.parserVersion,
       capturedAt: result.capturedAt,
       balancePaise: result.balancePaise,
+      commissionPaise: result.commissionPaise ?? null,
       pageTotals: result.pageTotals,
       rows: result.rows,
     };
@@ -533,6 +534,22 @@ export default defineBackground(() => {
 
     isRechargeDispatcherBusy = true;
     try {
+      // Check lingering in-flight active order across MV3 service worker restarts
+      try {
+        const res = await chrome.storage.local.get(['activeRechargeOrder']);
+        const active = res?.activeRechargeOrder as { id?: string; dispatchedAt?: number } | undefined;
+        if (active && active.id && storage.deviceToken) {
+          const elapsedMs = Date.now() - (active.dispatchedAt || 0);
+          if (elapsedMs > 12000) {
+            console.log(`[WalletSync Recharge Dispatcher] Lingering in-flight order ${active.id} (elapsed ${elapsedMs}ms): transitioning to submitted`);
+            await chrome.storage.local.remove('activeRechargeOrder');
+            await sendRechargeStatusUpdate(storage, active.id, { status: 'submitted' });
+          }
+        }
+      } catch {
+        // ignore
+      }
+
       console.log(`[WalletSync Recharge Dispatcher] Calling ${apiUrl}/api/v1/recharge-orders/claim ...`);
       const claimRes = await fetch(`${apiUrl}/api/v1/recharge-orders/claim`, {
         method: 'POST',
@@ -650,6 +667,15 @@ export default defineBackground(() => {
 
       // 4. Dispatch execution command to content script in dedicated background tab with retry backoff
       try {
+        await chrome.storage.local.set({
+          activeRechargeOrder: {
+            id: order.id,
+            customerNo: order.customerNo,
+            amountPaise: order.amountPaise,
+            operator: order.operator,
+            dispatchedAt: Date.now(),
+          },
+        });
         console.log(`[WalletSync Recharge Dispatcher] Dispatching EXECUTE_PORTAL_RECHARGE to tab ${tabId}...`);
         await sendMessageWithRetry(
           tabId,

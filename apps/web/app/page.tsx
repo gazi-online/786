@@ -168,6 +168,15 @@ export default function DashboardPage() {
   const [rechargeIdempotencyKey, setRechargeIdempotencyKey] = useState<string>('');
   const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
 
+  // Live Portal Stats (Regular Wallet Balance & Disc Commission)
+  const [portalStats, setPortalStats] = useState<{
+    simplewallet: { balancePaise: number | null; commissionPaise: number | null; updatedAt: string | null };
+    egpayment: { balancePaise: number | null; commissionPaise: number | null; updatedAt: string | null };
+  }>({
+    simplewallet: { balancePaise: null, commissionPaise: null, updatedAt: null },
+    egpayment: { balancePaise: null, commissionPaise: null, updatedAt: null },
+  });
+
   const [rechargeOrdersList, setRechargeOrdersList] = useState<Array<{
     id: string;
     source: string;
@@ -449,6 +458,13 @@ export default function DashboardPage() {
       const data = await res.json();
       const items: ApiTransaction[] = data.items || [];
 
+      if (data.portalStats) {
+        setPortalStats((prev) => ({
+          ...prev,
+          ...data.portalStats,
+        }));
+      }
+
       setTransactions((prev) => {
         // If background silent poll returns empty, preserve previous transactions to prevent flash of empty state
         if (silent && items.length === 0 && prev.length > 0) {
@@ -530,11 +546,45 @@ export default function DashboardPage() {
           fetchRechargeOrders();
         });
 
-        eventSource.addEventListener('transaction.updated', (_event) => {
+        eventSource.addEventListener('transaction.updated', (event) => {
           lastEventTimeRef.current = Date.now();
+          try {
+            const data = JSON.parse(event.data);
+            if (data.portal && (data.balancePaise !== undefined || data.commissionPaise !== undefined)) {
+              setPortalStats((prev) => ({
+                ...prev,
+                [data.portal]: {
+                  balancePaise: data.balancePaise ?? prev[data.portal as 'simplewallet' | 'egpayment']?.balancePaise ?? null,
+                  commissionPaise: data.commissionPaise ?? prev[data.portal as 'simplewallet' | 'egpayment']?.commissionPaise ?? null,
+                  updatedAt: data.serverTime || new Date().toISOString(),
+                },
+              }));
+            }
+          } catch {
+            // ignore
+          }
           // Instant auto-fetch when event arrives
           fetchTransactions(true);
           fetchRechargeOrders();
+        });
+
+        eventSource.addEventListener('portal_stats.updated', (event) => {
+          lastEventTimeRef.current = Date.now();
+          try {
+            const data = JSON.parse(event.data);
+            if (data.portal) {
+              setPortalStats((prev) => ({
+                ...prev,
+                [data.portal]: {
+                  balancePaise: data.balancePaise ?? prev[data.portal as 'simplewallet' | 'egpayment']?.balancePaise ?? null,
+                  commissionPaise: data.commissionPaise ?? prev[data.portal as 'simplewallet' | 'egpayment']?.commissionPaise ?? null,
+                  updatedAt: data.updatedAt || new Date().toISOString(),
+                },
+              }));
+            }
+          } catch {
+            // ignore
+          }
         });
 
         eventSource.addEventListener('device.paired', (event) => {
@@ -1100,9 +1150,48 @@ export default function DashboardPage() {
               </a>
             </div>
 
+            {/* Live SimpleWallet Portal Stats: Regular Wallet Balance & Disc Commission */}
+            <div className="my-2 p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/70 border border-blue-100/80 dark:border-blue-900/30 grid grid-cols-2 gap-2 shadow-2xs">
+              <div>
+                <div className="flex items-center gap-1 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+                  <span>Regular (Wallet)</span>
+                  {portalStats.simplewallet.balancePaise !== null && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  )}
+                </div>
+                <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">
+                  {portalStats.simplewallet.balancePaise !== null
+                    ? formatPaise(portalStats.simplewallet.balancePaise)
+                    : '—'}
+                </span>
+              </div>
+              <div className="border-l border-zinc-200/60 dark:border-zinc-800/60 pl-2.5">
+                <div className="flex items-center gap-1 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+                  <span>Disc (Commission)</span>
+                  {portalStats.simplewallet.commissionPaise !== null && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  )}
+                </div>
+                <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                  {portalStats.simplewallet.commissionPaise !== null
+                    ? formatPaise(portalStats.simplewallet.commissionPaise)
+                    : '—'}
+                </span>
+              </div>
+            </div>
+
             <div className="pt-2 border-t border-zinc-200/60 dark:border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
               <span>Today's Synced: <strong className="text-zinc-900 dark:text-zinc-200 font-semibold">{simplewalletCount} records</strong></span>
-              <span className="text-[10px] text-zinc-400">Opens MyTrans.aspx directly</span>
+              <span className="text-[10px] text-zinc-400 flex items-center gap-1">
+                {portalStats.simplewallet.updatedAt ? (
+                  <>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span>Live {formatKolkataDate(portalStats.simplewallet.updatedAt)}</span>
+                  </>
+                ) : (
+                  'Opens MyTrans.aspx directly'
+                )}
+              </span>
             </div>
           </div>
 
@@ -1412,10 +1501,14 @@ export default function DashboardPage() {
                 {t.dashboard.kpiDiscount}
               </span>
               <p className="text-xl sm:text-2xl font-bold tracking-tight mt-1 text-zinc-900 dark:text-zinc-100 tabular-nums">
-                {formatPaise(stats.discountPaise)}
+                {portalStats.simplewallet.commissionPaise !== null
+                  ? formatPaise(portalStats.simplewallet.commissionPaise)
+                  : formatPaise(stats.discountPaise)}
               </p>
               <span className="text-[11px] text-zinc-500 mt-1 block">
-                {stats.totalAmountPaise > 0
+                {portalStats.simplewallet.commissionPaise !== null
+                  ? 'Portal Disc Commission'
+                  : stats.totalAmountPaise > 0
                   ? `Net margin ${((stats.discountPaise / stats.totalAmountPaise) * 100).toFixed(1)}%`
                   : '0% margin'}
               </span>
@@ -1426,10 +1519,16 @@ export default function DashboardPage() {
                 {t.dashboard.kpiWalletBalance}
               </span>
               <p className="text-xl sm:text-2xl font-bold tracking-tight mt-1 text-zinc-900 dark:text-zinc-100 tabular-nums">
-                {stats.walletBalancePaise ? formatPaise(stats.walletBalancePaise) : '—'}
+                {portalStats.simplewallet.balancePaise !== null
+                  ? formatPaise(portalStats.simplewallet.balancePaise)
+                  : stats.walletBalancePaise
+                  ? formatPaise(stats.walletBalancePaise)
+                  : '—'}
               </p>
               <span className="text-[11px] text-zinc-500 mt-1 block">
-                {lastSyncTime
+                {portalStats.simplewallet.updatedAt
+                  ? `Live synced ${formatKolkataDate(portalStats.simplewallet.updatedAt)}`
+                  : lastSyncTime
                   ? `${t.common.lastSynced} ${formatKolkataDate(lastSyncTime)}`
                   : t.common.neverSynced}
               </span>

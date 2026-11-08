@@ -122,7 +122,7 @@ function triggerClickFlow(el: HTMLElement) {
  * Finds and clicks the target operator card / icon on SimpleWallet.
  * Prioritizes cards and images over dropdowns.
  */
-function selectOperatorCard(doc: Document, operator: string): boolean {
+export function selectOperatorCard(doc: Document, operator: string): boolean {
   const target = operator.toUpperCase().trim();
 
   // 1. Look for operator image logos (alt / src / title match) - HIGHEST PRIORITY
@@ -553,24 +553,50 @@ export function parseMobileRechargeRows(doc: Document): IngestTransaction[] {
   return [];
 }
 
+export interface SimpleWalletPortalHeaderStats {
+  regularBalancePaise: number | null;
+  commissionPaise: number | null;
+}
+
+/**
+ * Extracts both regular wallet balance ("Regular : 4504.98") and portal commission ("Disc %: 299.28")
+ * from the top header on SimpleWallet pages (MobileRecharge.aspx, MyTrans.aspx).
+ */
+export function parseSimpleWalletHeaderStats(doc: Document): SimpleWalletPortalHeaderStats {
+  try {
+    const text = doc.body?.innerText || doc.body?.textContent || '';
+    let regularBalancePaise: number | null = null;
+    let commissionPaise: number | null = null;
+
+    const regMatch = text.match(/Regular\s*:\s*([\d,]+(?:\.\d+)?)/i);
+    if (regMatch && regMatch[1]) {
+      const clean = regMatch[1].replace(/,/g, '');
+      const val = parseFloat(clean);
+      if (!isNaN(val) && val >= 0) {
+        regularBalancePaise = Math.round(val * 100);
+      }
+    }
+
+    const discMatch = text.match(/Disc\s*(?:%)?\s*:\s*([\d,]+(?:\.\d+)?)/i);
+    if (discMatch && discMatch[1]) {
+      const clean = discMatch[1].replace(/,/g, '');
+      const val = parseFloat(clean);
+      if (!isNaN(val) && val >= 0) {
+        commissionPaise = Math.round(val * 100);
+      }
+    }
+
+    return { regularBalancePaise, commissionPaise };
+  } catch {
+    return { regularBalancePaise: null, commissionPaise: null };
+  }
+}
+
 /**
  * Extracts portal balance in paise from the top header on MobileRecharge.aspx (e.g. "Regular : 1299.98").
  */
 export function parseMobileRechargeBalance(doc: Document): number | null {
-  try {
-    const text = doc.body?.innerText || doc.body?.textContent || '';
-    const match = text.match(/Regular\s*:\s*([\d,]+(?:\.\d+)?)/i);
-    if (match && match[1]) {
-      const clean = match[1].replace(/,/g, '');
-      const val = parseFloat(clean);
-      if (!isNaN(val) && val >= 0) {
-        return Math.round(val * 100);
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return null;
+  return parseSimpleWalletHeaderStats(doc).regularBalancePaise;
 }
 
 function dismissAnyOpenModal(doc: Document) {

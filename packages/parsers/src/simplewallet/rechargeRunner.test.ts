@@ -4,6 +4,7 @@ import {
   findRechargeRowInTable,
   parseMobileRechargeRows,
   parseMobileRechargeBalance,
+  parseSimpleWalletHeaderStats,
 } from './rechargeRunner';
 
 function createMockRechargeDoc(options?: {
@@ -468,6 +469,36 @@ describe('SimpleWallet Recharge Form Runner (Milestone R3)', () => {
       expect(rows[1]?.txnId).toBe('27796821');
       expect(rows[1]?.status).toBe('success');
       expect(rows[1]?.operatorRef).toBe('1875703928');
+    });
+
+    it('extracts both regular balance and disc commission from SimpleWallet header', () => {
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <body>
+          <div>Regular : 4504.98 | O/S : 0.00 | DMR : 0.00 | O/S : 0.00 | Disc %: 299.28</div>
+        </body>
+        </html>
+      `;
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const stats = parseSimpleWalletHeaderStats(doc);
+      expect(stats.regularBalancePaise).toBe(450498);
+      expect(stats.commissionPaise).toBe(29928);
+    });
+
+    it('extracts stats from live portal header format', () => {
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <body>
+          <div>Regular : 1648.98 | O/S : 0.00 | DMR : 0.00 | O/S : 0.00 | Disc %: 277.12</div>
+        </body>
+        </html>
+      `;
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const stats = parseSimpleWalletHeaderStats(doc);
+      expect(stats.regularBalancePaise).toBe(164898);
+      expect(stats.commissionPaise).toBe(27712);
     });
   });
 });

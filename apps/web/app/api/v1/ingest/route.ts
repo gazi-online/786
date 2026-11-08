@@ -289,13 +289,23 @@ export async function POST(req: NextRequest) {
       }
 
       const accepted = inserted + updated + unchanged;
+      const portalName = data.rows[0]?.source || 'simplewallet';
 
       await tx.insert(syncEvents).values({
         tenantId: device!.tenantId,
         deviceId: device!.id,
         capturedAt: new Date(data.capturedAt),
         status: 'ok',
-        rowCounts: { accepted, inserted, updated, unchanged, rejected },
+        rowCounts: {
+          accepted,
+          inserted,
+          updated,
+          unchanged,
+          rejected,
+          balancePaise: data.balancePaise ?? null,
+          commissionPaise: data.commissionPaise ?? null,
+          portal: portalName,
+        },
         parserVersion: data.parserVersion,
       });
 
@@ -376,11 +386,24 @@ export async function POST(req: NextRequest) {
   }
 
   // Broadcast live SSE event to connected dashboard clients (M4)
-  if (response.inserted > 0 || response.updated > 0) {
+  const portal = data.rows[0]?.source || 'simplewallet';
+  if (data.balancePaise !== null || data.commissionPaise !== null) {
+    broadcastSseEvent('portal_stats.updated', {
+      portal,
+      balancePaise: data.balancePaise ?? null,
+      commissionPaise: data.commissionPaise ?? null,
+      updatedAt: now.toISOString(),
+    });
+  }
+
+  if (response.inserted > 0 || response.updated > 0 || data.balancePaise !== null) {
     broadcastSseEvent('transaction.updated', {
       inserted: response.inserted,
       updated: response.updated,
       serverTime: response.serverTime,
+      portal,
+      balancePaise: data.balancePaise ?? null,
+      commissionPaise: data.commissionPaise ?? null,
       rows: data.rows.map((r) => {
         let s = r.status;
         if (s === 'unknown' && r.statusRaw) {

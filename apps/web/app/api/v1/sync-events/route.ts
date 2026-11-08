@@ -18,6 +18,19 @@ export async function GET(req: NextRequest) {
       .orderBy(desc(syncEvents.capturedAt))
       .limit(30);
 
+    const portalStats: Record<string, { balancePaise: number | null; commissionPaise: number | null; updatedAt: string }> = {};
+    for (const r of rows) {
+      const counts = r.rowCounts as { portal?: string; balancePaise?: number | null; commissionPaise?: number | null };
+      const p = counts?.portal || 'simplewallet';
+      if (!portalStats[p] && (counts?.balancePaise !== undefined || counts?.commissionPaise !== undefined)) {
+        portalStats[p] = {
+          balancePaise: counts.balancePaise ?? null,
+          commissionPaise: counts.commissionPaise ?? null,
+          updatedAt: r.capturedAt.toISOString(),
+        };
+      }
+    }
+
     return NextResponse.json({
       events: rows.map((e) => ({
         id: e.id,
@@ -28,10 +41,12 @@ export async function GET(req: NextRequest) {
         parserVersion: e.parserVersion || '1.0.0',
         createdAt: e.createdAt.toISOString(),
       })),
+      portalStats,
     });
   } catch {
     return NextResponse.json({
       events: [],
+      portalStats: {},
     });
   }
 }

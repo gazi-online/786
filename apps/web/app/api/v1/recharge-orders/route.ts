@@ -366,6 +366,23 @@ export async function GET(req: NextRequest) {
         .orderBy(desc(rechargeOrders.createdAt))
         .limit(100);
 
+      const now = new Date();
+      for (const r of rows) {
+        if (r.status === 'submitting' && now.getTime() - r.updatedAt.getTime() > 25000) {
+          r.status = 'submitted';
+          r.submittedAt = now;
+          await tx
+            .update(rechargeOrders)
+            .set({ status: 'submitted', submittedAt: now, updatedAt: now })
+            .where(eq(rechargeOrders.id, r.id))
+            .catch(() => {});
+          broadcastSseEvent('recharge_order.updated', {
+            orderId: r.id,
+            status: 'submitted',
+          });
+        }
+      }
+
       const formatted = rows.map((r) => ({
         id: r.id,
         source: r.source,

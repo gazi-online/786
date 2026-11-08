@@ -4,7 +4,8 @@ import {
   executeEgPaymentRecharge,
   findRechargeRowInTable,
   parseMobileRechargeRows,
-  parseMobileRechargeBalance,
+  parseSimpleWalletHeaderStats,
+  selectOperatorCard,
 } from '@walletsync/parsers';
 import {
   validateContentMessage,
@@ -34,8 +35,10 @@ export default defineContentScript({
     function syncLiveTable() {
       try {
         const liveRows = parseMobileRechargeRows(document);
-        if (liveRows.length > 0) {
-          console.log(`[WalletSync Recharge Content] Ingesting ${liveRows.length} live transactions from MobileRecharge.aspx`);
+        const headerStats = parseSimpleWalletHeaderStats(document);
+
+        if (liveRows.length > 0 || headerStats.regularBalancePaise !== null || headerStats.commissionPaise !== null) {
+          console.log(`[WalletSync Recharge Content] Syncing: ${liveRows.length} rows, balance: ${headerStats.regularBalancePaise}, commission: ${headerStats.commissionPaise}`);
           const parsedPayload: ContentParsedPageMessage = {
             type: 'CONTENT_PARSED_PAGE',
             result: {
@@ -43,7 +46,8 @@ export default defineContentScript({
               source: 'simplewallet',
               parserVersion: '1.0.0',
               capturedAt: new Date().toISOString(),
-              balancePaise: parseMobileRechargeBalance(document) ?? null,
+              balancePaise: headerStats.regularBalancePaise ?? null,
+              commissionPaise: headerStats.commissionPaise ?? null,
               pageTotals: { amountPaise: liveRows.reduce((s, r) => s + r.amountPaise, 0) },
               rows: liveRows,
             },
@@ -51,32 +55,45 @@ export default defineContentScript({
           chrome.runtime.sendMessage(parsedPayload).catch(() => {});
         }
       } catch (err) {
-        console.warn('[WalletSync Recharge Content] Could not parse MobileRecharge table:', err);
+        console.warn('[WalletSync Recharge Content] Could not parse MobileRecharge table/header:', err);
       }
 
       // Check reload recovery for in-flight active order
       try {
-        chrome.storage.local.get(['activeRechargeOrder'], (res: { activeRechargeOrder?: { id: string; customerNo: string; amountPaise: number } }) => {
+        chrome.storage.local.get(['activeRechargeOrder'], (res: { activeRechargeOrder?: { id: string; customerNo: string; amountPaise: number; operator?: string } }) => {
           const activeOrder = res?.activeRechargeOrder;
           if (!activeOrder) return;
 
           console.log('[WalletSync Recharge Content] Checking reload recovery for in-flight order:', activeOrder.id);
-          const matchedRow = findRechargeRowInTable(document, activeOrder.customerNo, activeOrder.amountPaise);
-          if (matchedRow) {
-            console.log('[WalletSync Recharge Content] Found order result in table post-reload:', matchedRow);
-            chrome.storage.local.remove('activeRechargeOrder');
-            const recoveryPayload: PortalRechargeResultMessage = {
-              type: 'PORTAL_RECHARGE_RESULT',
-              orderId: activeOrder.id,
-              status: matchedRow.status === 'failed' ? 'failed' : 'submitted',
-              failureCode: matchedRow.status === 'failed' ? 'portal_rejected' : undefined,
-              failureDetail:
-                matchedRow.status === 'failed'
-                  ? `Official portal rejected recharge: Trn No ${matchedRow.trnNo} marked as ${matchedRow.rawStatus}`
-                  : undefined,
-            };
-            chrome.runtime.sendMessage(recoveryPayload).catch(() => {});
+          let matchedRow = findRechargeRowInTable(document, activeOrder.customerNo, activeOrder.amountPaise);
+
+          // If table is not present after postback, operator card might need clicking to mount the table
+          if (!matchedRow && activeOrder.operator) {
+            try {
+              selectOperatorCard(document, activeOrder.operator);
+            } catch {
+              // ignore
+            }
           }
+
+          setTimeout(() => {
+            const finalRow = findRechargeRowInTable(document, activeOrder.customerNo, activeOrder.amountPaise);
+            if (finalRow) {
+              console.log('[WalletSync Recharge Content] Found order result in table post-reload:', finalRow);
+              chrome.storage.local.remove('activeRechargeOrder');
+              const recoveryPayload: PortalRechargeResultMessage = {
+                type: 'PORTAL_RECHARGE_RESULT',
+                orderId: activeOrder.id,
+                status: finalRow.status === 'failed' ? 'failed' : 'submitted',
+                failureCode: finalRow.status === 'failed' ? 'portal_rejected' : undefined,
+                failureDetail:
+                  finalRow.status === 'failed'
+                    ? `Official portal rejected recharge: Trn No ${finalRow.trnNo} marked as ${finalRow.rawStatus}`
+                    : undefined,
+              };
+              chrome.runtime.sendMessage(recoveryPayload).catch(() => {});
+            }
+          }, 350);
         });
       } catch {
         // ignore
@@ -104,8 +121,31 @@ export default defineContentScript({
       }
     }
 
-    // 3. Listen for secure execution instructions from the background service worker
+    // 2. Listen for messages from background script
     chrome.runtime.onMessage.addListener((rawMessage, sender, sendResponse) => {
+      // Handle TRIGGER_PARSE sync request
+      if (rawMessage && typeof rawMessage === 'object' && (rawMessage as { type?: string }).type === 'TRIGGER_PARSE') {
+        try {
+          const liveRows = parseMobileRechargeRows(document);
+          const headerStats = parseSimpleWalletHeaderStats(document);
+          sendResponse({
+            result: {
+              ok: true,
+              source: 'simplewallet',
+              parserVersion: '1.0.0',
+              capturedAt: new Date().toISOString(),
+              balancePaise: headerStats.regularBalancePaise ?? null,
+              commissionPaise: headerStats.commissionPaise ?? null,
+              pageTotals: { amountPaise: liveRows.reduce((s, r) => s + r.amountPaise, 0) },
+              rows: liveRows,
+            },
+          });
+        } catch {
+          sendResponse({ result: null });
+        }
+        return true;
+      }
+
       const validation = validateContentMessage(
         rawMessage,
         sender,
@@ -123,12 +163,13 @@ export default defineContentScript({
         const order = msg.order;
         console.log(`[WalletSync Recharge Content] Received order for ${order.operator} ₹${order.amountPaise / 100} to ${order.source}`);
 
-        // Persist active order in case page reloads during postback
+        // Persist active order with operator in case page reloads during postback
         chrome.storage.local.set({
           activeRechargeOrder: {
             id: order.id,
             customerNo: order.customerNo,
             amountPaise: order.amountPaise,
+            operator: order.operator,
           },
         }).catch(() => {});
 
@@ -172,7 +213,8 @@ export default defineContentScript({
             if (order.source === 'simplewallet') {
               try {
                 const updatedRows = parseMobileRechargeRows(document);
-                if (updatedRows.length > 0) {
+                const headerStats = parseSimpleWalletHeaderStats(document);
+                if (updatedRows.length > 0 || headerStats.regularBalancePaise !== null) {
                   chrome.runtime.sendMessage({
                     type: 'CONTENT_PARSED_PAGE',
                     result: {
@@ -180,7 +222,8 @@ export default defineContentScript({
                       source: 'simplewallet',
                       parserVersion: '1.0.0',
                       capturedAt: new Date().toISOString(),
-                      balancePaise: parseMobileRechargeBalance(document) ?? null,
+                      balancePaise: headerStats.regularBalancePaise ?? null,
+                      commissionPaise: headerStats.commissionPaise ?? null,
                       pageTotals: { amountPaise: updatedRows.reduce((s, r) => s + r.amountPaise, 0) },
                       rows: updatedRows,
                     },
@@ -214,4 +257,3 @@ export default defineContentScript({
     });
   },
 });
-

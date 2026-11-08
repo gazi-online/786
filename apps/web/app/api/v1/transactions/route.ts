@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withTenantContext } from '@/lib/db';
-import { transactions } from '@/drizzle/schema';
+import { transactions, syncEvents } from '@/drizzle/schema';
 import { desc, and, eq, or, ilike, lt } from 'drizzle-orm';
 import type { ApiTransaction, TransactionStatus, TransactionSource } from '@walletsync/contract';
 import { getMemoryTransactions } from '@/lib/memory-store';
@@ -53,17 +53,39 @@ export async function GET(req: NextRequest) {
     }
 
     let formatted: ApiTransaction[] = [];
+    const portalStats: Record<string, { balancePaise: number | null; commissionPaise: number | null; updatedAt: string }> = {};
 
     // Query PostgreSQL using withTenantContext so PostgreSQL RLS satisfies user_has_tenant_access
     try {
-      const rows = await withTenantContext(session.tenant.id, async (tx) => {
-        return await tx
+      const { rows, recentSyncs } = await withTenantContext(session.tenant.id, async (tx) => {
+        const txRows = await tx
           .select()
           .from(transactions)
           .where(conditions.length > 0 ? and(...conditions) : undefined)
           .orderBy(desc(transactions.occurredAt))
           .limit(limit);
+
+        const syncs = await tx
+          .select()
+          .from(syncEvents)
+          .where(eq(syncEvents.tenantId, session.tenant.id))
+          .orderBy(desc(syncEvents.capturedAt))
+          .limit(10);
+
+        return { rows: txRows, recentSyncs: syncs };
       });
+
+      for (const s of recentSyncs) {
+        const counts = s.rowCounts as { portal?: string; balancePaise?: number | null; commissionPaise?: number | null };
+        const p = counts?.portal || 'simplewallet';
+        if (!portalStats[p] && (counts?.balancePaise !== undefined || counts?.commissionPaise !== undefined)) {
+          portalStats[p] = {
+            balancePaise: counts.balancePaise ?? null,
+            commissionPaise: counts.commissionPaise ?? null,
+            updatedAt: s.capturedAt.toISOString(),
+          };
+        }
+      }
 
       formatted = rows.map((r) => {
         const last4 = r.customerLast4;
@@ -204,6 +226,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         items: itemsToReturn,
+        portalStats,
         nextCursor,
         count: formatted.length,
       },

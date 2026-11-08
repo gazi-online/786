@@ -77,7 +77,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       if (existingOrders.length === 0 || !existingOrders[0]) {
         return NextResponse.json(
           { error: 'Not Found: Recharge order does not exist' },
-          { status: 404 },
+          { status: 404, headers: CORS_HEADERS },
         );
       }
 
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           {
             error: 'Forbidden: This recharge order is not claimed by your device',
           },
-          { status: 403 },
+          { status: 403, headers: CORS_HEADERS },
         );
       }
 
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
           {
             error: `Invalid status transition: Cannot transition recharge order from '${order.status}' to '${nextStatus}'`,
           },
-          { status: 400 },
+          { status: 400, headers: CORS_HEADERS },
         );
       }
 

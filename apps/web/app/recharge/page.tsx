@@ -63,6 +63,13 @@ export default function RechargePage() {
   const [terminalLabel, setTerminalLabel] = useState<string>('POS Terminal');
   const [portalLoggedIn, setPortalLoggedIn] = useState<boolean>(true);
 
+  // Live Portal Stats (Regular Balance & Disc Commission)
+  const [portalStats, setPortalStats] = useState<{
+    simplewallet: { balancePaise: number | null; commissionPaise: number | null; updatedAt: string | null };
+  }>({
+    simplewallet: { balancePaise: null, commissionPaise: null, updatedAt: null },
+  });
+
   async function fetchOrders() {
     try {
       const res = await fetch('/api/v1/recharge-orders');
@@ -79,10 +86,18 @@ export default function RechargePage() {
 
   async function fetchSettingsAndTerminal() {
     try {
-      const [settingsRes, devRes] = await Promise.all([
+      const [settingsRes, devRes, syncRes] = await Promise.all([
         fetch('/api/v1/recharge-settings'),
         fetch('/api/v1/devices'),
+        fetch('/api/v1/sync-events').catch(() => null),
       ]);
+
+      if (syncRes && syncRes.ok) {
+        const syncData = await syncRes.json();
+        if (syncData.portalStats) {
+          setPortalStats((prev) => ({ ...prev, ...syncData.portalStats }));
+        }
+      }
 
       if (settingsRes.ok) {
         const sData = await settingsRes.json();
@@ -142,8 +157,41 @@ export default function RechargePage() {
           fetchOrders();
         });
 
-        eventSource.addEventListener('transaction.updated', () => {
+        eventSource.addEventListener('transaction.updated', (event) => {
+          try {
+            const data = JSON.parse((event as MessageEvent).data);
+            if (data.portal && (data.balancePaise !== undefined || data.commissionPaise !== undefined)) {
+              setPortalStats((prev) => ({
+                ...prev,
+                [data.portal]: {
+                  balancePaise: data.balancePaise ?? prev[data.portal as 'simplewallet']?.balancePaise ?? null,
+                  commissionPaise: data.commissionPaise ?? prev[data.portal as 'simplewallet']?.commissionPaise ?? null,
+                  updatedAt: data.serverTime || new Date().toISOString(),
+                },
+              }));
+            }
+          } catch {
+            // ignore
+          }
           fetchOrders();
+        });
+
+        eventSource.addEventListener('portal_stats.updated', (event) => {
+          try {
+            const data = JSON.parse((event as MessageEvent).data);
+            if (data.portal) {
+              setPortalStats((prev) => ({
+                ...prev,
+                [data.portal]: {
+                  balancePaise: data.balancePaise ?? prev[data.portal as 'simplewallet']?.balancePaise ?? null,
+                  commissionPaise: data.commissionPaise ?? prev[data.portal as 'simplewallet']?.commissionPaise ?? null,
+                  updatedAt: data.updatedAt || new Date().toISOString(),
+                },
+              }));
+            }
+          } catch {
+            // ignore
+          }
         });
 
         eventSource.onerror = () => {
@@ -400,6 +448,37 @@ export default function RechargePage() {
                       <ArrowUpRight className="w-3 h-3" />
                     </a>
                   </div>
+
+                  {/* Live SimpleWallet Regular Balance & Disc Commission */}
+                  <div className="pt-2 border-t border-zinc-200/60 dark:border-zinc-800/60 grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <div className="flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                        <span>Regular (Wallet)</span>
+                        {portalStats.simplewallet.balancePaise !== null && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        )}
+                      </div>
+                      <span className="font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">
+                        {portalStats.simplewallet.balancePaise !== null
+                          ? formatPaise(portalStats.simplewallet.balancePaise)
+                          : '—'}
+                      </span>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                        <span>Disc (Commission)</span>
+                        {portalStats.simplewallet.commissionPaise !== null && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        )}
+                      </div>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                        {portalStats.simplewallet.commissionPaise !== null
+                          ? formatPaise(portalStats.simplewallet.commissionPaise)
+                          : '—'}
+                      </span>
+                    </div>
+                  </div>
+
                   {portalLoggedIn === false && (
                     <div className="pt-1 text-rose-600 dark:text-rose-400 text-[11px] font-semibold flex items-center gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
