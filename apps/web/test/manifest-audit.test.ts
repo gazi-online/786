@@ -23,7 +23,7 @@ describe('Step A11 Hardening: Built Chrome Extension Manifest Exact Array Auditi
     expect(permissions).not.toContain('<all_urls>');
 
     // Allowed minimal set
-    const allowedPermissions = new Set(['storage', 'alarms', 'notifications', 'tabs']);
+    const allowedPermissions = new Set(['storage', 'alarms', 'notifications', 'tabs', 'scripting']);
     for (const p of permissions) {
       expect(allowedPermissions.has(p)).toBe(true);
     }

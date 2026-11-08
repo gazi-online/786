@@ -24,8 +24,11 @@ export {
 // Recharge automation runners (Milestone R3 & R5)
 export {
   executeSimpleWalletRecharge,
+  findRechargeRowInTable,
+  parseMobileRechargeRows,
   type SimpleWalletRechargeOrderParams,
   type RechargeExecutionResult,
+  type PortalRechargeRow,
 } from './simplewallet/rechargeRunner';
 export {
   executeEgPaymentRecharge,

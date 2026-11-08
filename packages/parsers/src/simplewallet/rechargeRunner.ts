@@ -13,6 +13,8 @@
  * 9. Modal closes cleanly and return { ok: true, status: 'submitted', portalTrnId }
  */
 
+import type { IngestTransaction } from '@walletsync/contract';
+
 export interface SimpleWalletRechargeOrderParams {
   customerNo: string;
   operator: string;
@@ -352,6 +354,173 @@ function findPortalErrorMessage(doc: Document): string | null {
   return null;
 }
 
+export interface PortalRechargeRow {
+  trnNo: string;
+  trnDate?: string | undefined;
+  serviceName?: string | undefined;
+  customerNo: string;
+  amountPaise: number;
+  operatorRef?: string | undefined;
+  status: 'success' | 'failed' | 'pending';
+  rawStatus: string;
+}
+
+export function parseDateToISO(rawDate: string): string | null {
+  // Format: "08/11/2026 04:49:20 PM" or "08/11/2026 16:49:20"
+  const m = rawDate.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!m || !m[1] || !m[2] || !m[3] || !m[4] || !m[5] || !m[6]) return null;
+  const dd = m[1].padStart(2, '0');
+  const mm = m[2].padStart(2, '0');
+  const yyyy = m[3];
+  let hour = parseInt(m[4], 10);
+  const min = m[5];
+  const sec = m[6];
+  const ampm = m[7]?.toUpperCase();
+  if (ampm === 'PM' && hour < 12) hour += 12;
+  if (ampm === 'AM' && hour === 12) hour = 0;
+  const hh = String(hour).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}T${hh}:${min}:${sec}+05:30`;
+}
+
+/**
+ * Searches the live transactions table on MobileRecharge.aspx for an order row matching
+ * customer number and optional amount. Returns the extracted row if found.
+ */
+export function findRechargeRowInTable(
+  doc: Document,
+  customerNo: string,
+  amountPaise?: number,
+): PortalRechargeRow | null {
+  const tables = Array.from(doc.querySelectorAll('table'));
+  for (const table of tables) {
+    const rows = Array.from(table.querySelectorAll('tr'));
+    if (rows.length < 2) continue;
+
+    const headerRow = rows[0];
+    const headerCells = Array.from(headerRow?.querySelectorAll('th, td') || []).map((c) =>
+      (c.textContent || '').trim().toLowerCase(),
+    );
+
+    const trnNoIdx = headerCells.findIndex((h) => h.includes('trn no') || h === 'trn no');
+    const custNoIdx = headerCells.findIndex((h) => h.includes('customer') || h.includes('mobile'));
+    const statusIdx = headerCells.findIndex((h) => h.includes('status'));
+    const amountIdx = headerCells.findIndex((h) => h.includes('amount'));
+    const dateIdx = headerCells.findIndex((h) => h.includes('date'));
+    const opRefIdx = headerCells.findIndex((h) => h.includes('trn id') || h.includes('operator id'));
+    const serviceIdx = headerCells.findIndex((h) => h.includes('service') || h.includes('operator'));
+
+    if (trnNoIdx === -1 || custNoIdx === -1 || statusIdx === -1) {
+      continue;
+    }
+
+    for (let i = 1; i < rows.length; i++) {
+      const cells = Array.from(rows[i]?.querySelectorAll('td') || []);
+      if (cells.length <= Math.max(trnNoIdx, custNoIdx, statusIdx)) continue;
+
+      const rowCustNo = (cells[custNoIdx]?.textContent || '').replace(/\D/g, '');
+      const rowTrnNo = (cells[trnNoIdx]?.textContent || '').trim();
+      const rawStatus = (cells[statusIdx]?.textContent || '').trim();
+      const rowAmountStr = amountIdx !== -1 ? (cells[amountIdx]?.textContent || '').replace(/[^0-9.]/g, '') : '';
+      const rowAmountPaise = Math.round(parseFloat(rowAmountStr || '0') * 100);
+
+      const targetDigits = customerNo.replace(/\D/g, '');
+      const targetLast4 = targetDigits.slice(-4);
+      const matchesCust = rowCustNo === targetDigits || (targetLast4.length === 4 && rowCustNo.endsWith(targetLast4));
+      const matchesAmount = !amountPaise || Math.abs(rowAmountPaise - amountPaise) < 100;
+
+      if (matchesCust && matchesAmount && rowTrnNo) {
+        let status: 'success' | 'failed' | 'pending' = 'pending';
+        const stLower = rawStatus.toLowerCase();
+        if (stLower.includes('success')) status = 'success';
+        else if (stLower.includes('fail') || stLower.includes('reject')) status = 'failed';
+        else if (stLower.includes('pend') || stLower.includes('process')) status = 'pending';
+
+        return {
+          trnNo: rowTrnNo,
+          trnDate: dateIdx !== -1 ? (cells[dateIdx]?.textContent || '').trim() : undefined,
+          serviceName: serviceIdx !== -1 ? (cells[serviceIdx]?.textContent || '').trim() : undefined,
+          customerNo: rowCustNo,
+          amountPaise: rowAmountPaise,
+          operatorRef: opRefIdx !== -1 ? (cells[opRefIdx]?.textContent || '').trim() || undefined : undefined,
+          status,
+          rawStatus,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Parses all recent transaction rows from the table on MobileRecharge.aspx.
+ */
+export function parseMobileRechargeRows(doc: Document): IngestTransaction[] {
+  const tables = Array.from(doc.querySelectorAll('table'));
+  for (const table of tables) {
+    const rows = Array.from(table.querySelectorAll('tr'));
+    if (rows.length < 2) continue;
+
+    const headerRow = rows[0];
+    const headerCells = Array.from(headerRow?.querySelectorAll('th, td') || []).map((c) =>
+      (c.textContent || '').trim().toLowerCase(),
+    );
+
+    const trnNoIdx = headerCells.findIndex((h) => h.includes('trn no') || h === 'trn no');
+    const custNoIdx = headerCells.findIndex((h) => h.includes('customer') || h.includes('mobile'));
+    const statusIdx = headerCells.findIndex((h) => h.includes('status'));
+    const amountIdx = headerCells.findIndex((h) => h.includes('amount'));
+    const dateIdx = headerCells.findIndex((h) => h.includes('date'));
+    const opRefIdx = headerCells.findIndex((h) => h.includes('trn id') || h.includes('operator id'));
+    const serviceIdx = headerCells.findIndex((h) => h.includes('service') || h.includes('operator'));
+
+    if (trnNoIdx === -1 || custNoIdx === -1 || statusIdx === -1) {
+      continue;
+    }
+
+    const results: IngestTransaction[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const cells = Array.from(rows[i]?.querySelectorAll('td') || []);
+      if (cells.length <= Math.max(trnNoIdx, custNoIdx, statusIdx)) continue;
+
+      const rawTrnNo = (cells[trnNoIdx]?.textContent || '').trim();
+      const rawCustNo = (cells[custNoIdx]?.textContent || '').replace(/\D/g, '');
+      const rawStatus = (cells[statusIdx]?.textContent || '').trim();
+      if (!rawTrnNo || !rawCustNo) continue;
+
+      const rawAmount = amountIdx !== -1 ? (cells[amountIdx]?.textContent || '').replace(/[^0-9.]/g, '') : '0';
+      const amountPaise = Math.round(parseFloat(rawAmount || '0') * 100);
+      const rawDate = dateIdx !== -1 ? (cells[dateIdx]?.textContent || '').trim() : '';
+      const rawService = serviceIdx !== -1 ? (cells[serviceIdx]?.textContent || '').trim() : 'AIRTEL';
+      const opRef = opRefIdx !== -1 ? (cells[opRefIdx]?.textContent || '').trim() : '';
+
+      let status: 'success' | 'failed' | 'pending' | 'refunded' | 'unknown' = 'unknown';
+      const st = rawStatus.toLowerCase();
+      if (st.includes('success')) status = 'success';
+      else if (st.includes('fail') || st.includes('reject')) status = 'failed';
+      else if (st.includes('pend') || st.includes('process')) status = 'pending';
+
+      const occurredAt = parseDateToISO(rawDate) || new Date().toISOString();
+
+      results.push({
+        txnId: rawTrnNo,
+        source: 'simplewallet',
+        service: 'Prepaid',
+        serviceName: rawService,
+        customerNo: rawCustNo,
+        occurredAt,
+        status,
+        statusRaw: rawStatus,
+        operatorRef: opRef,
+        amountPaise,
+        discountPct: 0,
+        discountPaise: 0,
+      });
+    }
+    if (results.length > 0) return results;
+  }
+  return [];
+}
+
 function dismissAnyOpenModal(doc: Document) {
   try {
     const closeBtns = Array.from(
@@ -551,9 +720,15 @@ export async function executeSimpleWalletRecharge(
     // ignore
   }
 
-  // 11. Handle Success Alert Message ("OK" button & Trn No extraction)
+  // 11. Handle Success Alert Message ("OK" button & Trn No extraction) or Live Table Update
   let portalTrnId: string | undefined;
   const dialogResult = await waitForElement(() => {
+    // 11a. Check for table row update first (fastest and most accurate for ASP.NET postbacks)
+    const tableRow = findRechargeRowInTable(doc, order.customerNo, order.amountPaise);
+    if (tableRow) {
+      return { tableRow };
+    }
+
     const errMsg = findPortalErrorMessage(doc);
     if (errMsg) {
       return { error: errMsg };
@@ -568,7 +743,44 @@ export async function executeSimpleWalletRecharge(
     return null;
   }, 10000, 250);
 
+  if (dialogResult && 'tableRow' in dialogResult) {
+    const row = dialogResult.tableRow;
+    dismissAnyOpenModal(doc);
+    if (row.status === 'failed') {
+      return {
+        ok: false,
+        status: 'failed',
+        failureCode: 'portal_rejected',
+        failureDetail: `Official portal rejected recharge: Trn No ${row.trnNo} marked as ${row.rawStatus}`,
+      };
+    }
+    return {
+      ok: true,
+      status: 'submitted',
+      portalTrnId: row.trnNo,
+    };
+  }
+
   if (!dialogResult || 'error' in dialogResult) {
+    // Check table one final time before reporting failure
+    const finalRow = findRechargeRowInTable(doc, order.customerNo, order.amountPaise);
+    if (finalRow) {
+      dismissAnyOpenModal(doc);
+      if (finalRow.status === 'failed') {
+        return {
+          ok: false,
+          status: 'failed',
+          failureCode: 'portal_rejected',
+          failureDetail: `Official portal rejected recharge: Trn No ${finalRow.trnNo} marked as ${finalRow.rawStatus}`,
+        };
+      }
+      return {
+        ok: true,
+        status: 'submitted',
+        portalTrnId: finalRow.trnNo,
+      };
+    }
+
     const detail =
       dialogResult && 'error' in dialogResult
         ? dialogResult.error
@@ -593,9 +805,21 @@ export async function executeSimpleWalletRecharge(
   await new Promise((resolve) => setTimeout(resolve, 300));
   dismissAnyOpenModal(doc);
 
+  // Check table to see if portal transaction is already marked as failed/success
+  const postDialogRow = findRechargeRowInTable(doc, order.customerNo, order.amountPaise);
+  if (postDialogRow && postDialogRow.status === 'failed') {
+    return {
+      ok: false,
+      status: 'failed',
+      failureCode: 'portal_rejected',
+      failureDetail: `Official portal rejected recharge: Trn No ${postDialogRow.trnNo} marked as ${postDialogRow.rawStatus}`,
+    };
+  }
+
+  const resolvedTrnId = portalTrnId || postDialogRow?.trnNo;
   return {
     ok: true,
     status: 'submitted',
-    ...(portalTrnId ? { portalTrnId } : {}),
+    ...(resolvedTrnId ? { portalTrnId: resolvedTrnId } : {}),
   };
 }

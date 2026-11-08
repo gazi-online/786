@@ -730,7 +730,8 @@ export default defineBackground(() => {
       const apiUrl = (storage.apiUrl || '').trim().replace(/\/+$/, '');
       if (!apiUrl) return;
 
-      await fetch(`${apiUrl}/api/v1/recharge-orders/${orderId}/status`, {
+      console.log(`[WalletSync Recharge Dispatcher] Sending status update for ${orderId}:`, payload);
+      const res = await fetch(`${apiUrl}/api/v1/recharge-orders/${orderId}/status`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -738,8 +739,15 @@ export default defineBackground(() => {
         },
         body: JSON.stringify(payload),
       });
-    } catch {
-      // Ignore network errors updating status
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        console.error(`[WalletSync Recharge Dispatcher] Status update failed HTTP ${res.status}:`, txt);
+      } else {
+        console.log(`[WalletSync Recharge Dispatcher] Status update succeeded for ${orderId}`);
+      }
+    } catch (err) {
+      console.error('[WalletSync Recharge Dispatcher] Network error sending status update:', err);
     }
   }
 

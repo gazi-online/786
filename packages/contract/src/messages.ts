@@ -16,10 +16,10 @@ export function isAllowedPortalHistoryUrl(rawUrl?: string | null): boolean {
     const hostname = parsed.hostname.toLowerCase();
     const pathname = parsed.pathname.toLowerCase();
 
-    // simplewallet.in: origin simplewallet.in or www.simplewallet.in, path starts with /web/mytrans.aspx
+    // simplewallet.in: origin simplewallet.in or www.simplewallet.in, path starts with /web/mytrans.aspx or /web/mobilerecharge.aspx
     if (
       (hostname === 'simplewallet.in' || hostname === 'www.simplewallet.in') &&
-      pathname.startsWith('/web/mytrans.aspx')
+      (pathname.startsWith('/web/mytrans.aspx') || pathname.startsWith('/web/mobilerecharge.aspx'))
     ) {
       return true;
     }
