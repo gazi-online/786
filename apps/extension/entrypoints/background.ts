@@ -88,15 +88,12 @@ export default defineBackground(() => {
     }
 
     // Try finding open portal tabs first (simplewallet or egpayment)
-    const portalTabs = await chrome.tabs.query({
+    const portalTabs = (await chrome.tabs.query({
       url: [
-        '*://simplewallet.in/*',
-        '*://*.simplewallet.in/*',
-        '*://egpayment.com/*',
-        '*://*.egpayment.com/*',
-        '*://localhost/*',
+        'https://simplewallet.in/*',
+        'https://egpayment.com/*',
       ],
-    });
+    }).catch(() => [])) as chrome.tabs.Tab[];
 
     // Sync all open portal tabs (simplewallet and egpayment)
     let parsedAnyTab = false;
@@ -531,11 +528,11 @@ export default defineBackground(() => {
       // 1. Reuse existing open portal recharge tab if available; otherwise open dedicated background tab
       const pattern =
         order.source === 'egpayment'
-          ? '*://egpayment.com/users/recharge*'
-          : '*://simplewallet.in/web/MobileRecharge.aspx*';
+          ? 'https://egpayment.com/users/recharge*'
+          : 'https://simplewallet.in/web/MobileRecharge.aspx*';
 
       let tabId: number;
-      const existingTabs = await chrome.tabs.query({ url: pattern });
+      const existingTabs = (await chrome.tabs.query({ url: pattern }).catch(() => [])) as chrome.tabs.Tab[];
       if (existingTabs.length > 0 && existingTabs[0]?.id) {
         tabId = existingTabs[0].id;
         console.log(`[WalletSync Recharge Dispatcher] Reusing existing portal tab ${tabId}`);
@@ -689,12 +686,12 @@ export default defineBackground(() => {
 
       let portal: 'simplewallet' | 'egpayment' | null = null;
       try {
-        const swTabs = await chrome.tabs.query({
-          url: ['*://simplewallet.in/*', '*://*.simplewallet.in/*'],
-        });
-        const egTabs = await chrome.tabs.query({
-          url: ['*://egpayment.com/*', '*://*.egpayment.com/*'],
-        });
+        const swTabs = (await chrome.tabs.query({
+          url: 'https://simplewallet.in/*',
+        }).catch(() => [])) as chrome.tabs.Tab[];
+        const egTabs = (await chrome.tabs.query({
+          url: 'https://egpayment.com/*',
+        }).catch(() => [])) as chrome.tabs.Tab[];
         if (swTabs.length > 0) portal = 'simplewallet';
         else if (egTabs.length > 0) portal = 'egpayment';
         else if (storage.portalUrl?.includes('simplewallet')) portal = 'simplewallet';
