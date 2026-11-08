@@ -396,24 +396,40 @@ export function findRechargeRowInTable(
     const rows = Array.from(table.querySelectorAll('tr'));
     if (rows.length < 2) continue;
 
-    const headerRow = rows[0];
-    const headerCells = Array.from(headerRow?.querySelectorAll('th, td') || []).map((c) =>
-      (c.textContent || '').trim().toLowerCase(),
-    );
+    let headerRowIdx = -1;
+    let trnNoIdx = -1;
+    let custNoIdx = -1;
+    let statusIdx = -1;
+    let amountIdx = -1;
+    let dateIdx = -1;
+    let opRefIdx = -1;
+    let serviceIdx = -1;
 
-    const trnNoIdx = headerCells.findIndex((h) => h.includes('trn no') || h === 'trn no');
-    const custNoIdx = headerCells.findIndex((h) => h.includes('customer') || h.includes('mobile'));
-    const statusIdx = headerCells.findIndex((h) => h.includes('status'));
-    const amountIdx = headerCells.findIndex((h) => h.includes('amount'));
-    const dateIdx = headerCells.findIndex((h) => h.includes('date'));
-    const opRefIdx = headerCells.findIndex((h) => h.includes('trn id') || h.includes('operator id'));
-    const serviceIdx = headerCells.findIndex((h) => h.includes('service') || h.includes('operator'));
+    for (let r = 0; r < Math.min(rows.length, 3); r++) {
+      const headerCells = Array.from(rows[r]?.querySelectorAll('th, td') || []).map((c) =>
+        (c.textContent || '').trim().toLowerCase(),
+      );
+      const tIdx = headerCells.findIndex((h) => h.includes('trn no') || h === 'trn no');
+      const cIdx = headerCells.findIndex((h) => h.includes('customer') || h.includes('mobile'));
+      const sIdx = headerCells.findIndex((h) => h.includes('status'));
+      if (tIdx !== -1 && sIdx !== -1) {
+        headerRowIdx = r;
+        trnNoIdx = tIdx;
+        custNoIdx = cIdx !== -1 ? cIdx : headerCells.findIndex((h) => h.includes('no'));
+        statusIdx = sIdx;
+        amountIdx = headerCells.findIndex((h) => h.includes('amount'));
+        dateIdx = headerCells.findIndex((h) => h.includes('date'));
+        opRefIdx = headerCells.findIndex((h) => h.includes('trn id') || h.includes('operator id'));
+        serviceIdx = headerCells.findIndex((h) => h.includes('service') || h.includes('operator'));
+        break;
+      }
+    }
 
-    if (trnNoIdx === -1 || custNoIdx === -1 || statusIdx === -1) {
+    if (headerRowIdx === -1 || trnNoIdx === -1 || statusIdx === -1) {
       continue;
     }
 
-    for (let i = 1; i < rows.length; i++) {
+    for (let i = headerRowIdx + 1; i < rows.length; i++) {
       const cells = Array.from(rows[i]?.querySelectorAll('td') || []);
       if (cells.length <= Math.max(trnNoIdx, custNoIdx, statusIdx)) continue;
 
@@ -460,25 +476,41 @@ export function parseMobileRechargeRows(doc: Document): IngestTransaction[] {
     const rows = Array.from(table.querySelectorAll('tr'));
     if (rows.length < 2) continue;
 
-    const headerRow = rows[0];
-    const headerCells = Array.from(headerRow?.querySelectorAll('th, td') || []).map((c) =>
-      (c.textContent || '').trim().toLowerCase(),
-    );
+    let headerRowIdx = -1;
+    let trnNoIdx = -1;
+    let custNoIdx = -1;
+    let statusIdx = -1;
+    let amountIdx = -1;
+    let dateIdx = -1;
+    let opRefIdx = -1;
+    let serviceIdx = -1;
 
-    const trnNoIdx = headerCells.findIndex((h) => h.includes('trn no') || h === 'trn no');
-    const custNoIdx = headerCells.findIndex((h) => h.includes('customer') || h.includes('mobile'));
-    const statusIdx = headerCells.findIndex((h) => h.includes('status'));
-    const amountIdx = headerCells.findIndex((h) => h.includes('amount'));
-    const dateIdx = headerCells.findIndex((h) => h.includes('date'));
-    const opRefIdx = headerCells.findIndex((h) => h.includes('trn id') || h.includes('operator id'));
-    const serviceIdx = headerCells.findIndex((h) => h.includes('service') || h.includes('operator'));
+    for (let r = 0; r < Math.min(rows.length, 3); r++) {
+      const headerCells = Array.from(rows[r]?.querySelectorAll('th, td') || []).map((c) =>
+        (c.textContent || '').trim().toLowerCase(),
+      );
+      const tIdx = headerCells.findIndex((h) => h.includes('trn no') || h === 'trn no');
+      const cIdx = headerCells.findIndex((h) => h.includes('customer') || h.includes('mobile'));
+      const sIdx = headerCells.findIndex((h) => h.includes('status'));
+      if (tIdx !== -1 && sIdx !== -1) {
+        headerRowIdx = r;
+        trnNoIdx = tIdx;
+        custNoIdx = cIdx !== -1 ? cIdx : headerCells.findIndex((h) => h.includes('no'));
+        statusIdx = sIdx;
+        amountIdx = headerCells.findIndex((h) => h.includes('amount'));
+        dateIdx = headerCells.findIndex((h) => h.includes('date'));
+        opRefIdx = headerCells.findIndex((h) => h.includes('trn id') || h.includes('operator id'));
+        serviceIdx = headerCells.findIndex((h) => h.includes('service') || h.includes('operator'));
+        break;
+      }
+    }
 
-    if (trnNoIdx === -1 || custNoIdx === -1 || statusIdx === -1) {
+    if (headerRowIdx === -1 || trnNoIdx === -1 || statusIdx === -1) {
       continue;
     }
 
     const results: IngestTransaction[] = [];
-    for (let i = 1; i < rows.length; i++) {
+    for (let i = headerRowIdx + 1; i < rows.length; i++) {
       const cells = Array.from(rows[i]?.querySelectorAll('td') || []);
       if (cells.length <= Math.max(trnNoIdx, custNoIdx, statusIdx)) continue;
 
@@ -519,6 +551,26 @@ export function parseMobileRechargeRows(doc: Document): IngestTransaction[] {
     if (results.length > 0) return results;
   }
   return [];
+}
+
+/**
+ * Extracts portal balance in paise from the top header on MobileRecharge.aspx (e.g. "Regular : 1299.98").
+ */
+export function parseMobileRechargeBalance(doc: Document): number | null {
+  try {
+    const text = doc.body?.innerText || doc.body?.textContent || '';
+    const match = text.match(/Regular\s*:\s*([\d,]+(?:\.\d+)?)/i);
+    if (match && match[1]) {
+      const clean = match[1].replace(/,/g, '');
+      const val = parseFloat(clean);
+      if (!isNaN(val) && val >= 0) {
+        return Math.round(val * 100);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 function dismissAnyOpenModal(doc: Document) {

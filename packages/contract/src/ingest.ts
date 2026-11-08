@@ -12,7 +12,7 @@ export const IngestRequestSchema = z.object({
   deviceId: z.string().uuid(),
   parserVersion: z.string().min(1),
   capturedAt: z.string().datetime({ offset: true }),
-  balancePaise: z.number().int().nonnegative().nullable(),
+  balancePaise: z.number().int().nonnegative().nullable().optional().default(null),
   pageTotals: PageTotalsSchema,
   rows: z.array(IngestTransactionSchema).max(500),
 });

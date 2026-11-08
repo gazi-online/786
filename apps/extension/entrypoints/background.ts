@@ -676,6 +676,25 @@ export default defineBackground(() => {
           },
         });
 
+        // In-flight safety timeout: if content script was unloaded by portal form postback
+        // and did not report within 18s, transition order to 'submitted' so it awaits reconciliation
+        setTimeout(async () => {
+          try {
+            const currentStorage = await getStorage();
+            const res = await chrome.storage.local.get(['activeRechargeOrder']);
+            const active = res?.activeRechargeOrder as { id?: string } | undefined;
+            if (active && active.id === order.id && currentStorage.deviceToken) {
+              console.log(`[WalletSync Recharge Dispatcher] Postback safety timer: transitioning in-flight order ${order.id} to submitted`);
+              await chrome.storage.local.remove('activeRechargeOrder');
+              await sendRechargeStatusUpdate(currentStorage, order.id, {
+                status: 'submitted',
+              });
+            }
+          } catch {
+            // ignore
+          }
+        }, 18000);
+
         return {
           success: true,
           orderId: order.id,

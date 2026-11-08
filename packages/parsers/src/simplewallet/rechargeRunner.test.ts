@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { executeSimpleWalletRecharge } from './rechargeRunner';
+import {
+  executeSimpleWalletRecharge,
+  findRechargeRowInTable,
+  parseMobileRechargeRows,
+  parseMobileRechargeBalance,
+} from './rechargeRunner';
 
 function createMockRechargeDoc(options?: {
   withCaptcha?: boolean;
@@ -370,5 +375,99 @@ describe('SimpleWallet Recharge Form Runner (Milestone R3)', () => {
     if (result.ok) {
       expect(result.status).toBe('submitted');
     }
+  });
+
+  describe('MobileRecharge live table parsing and balance extraction', () => {
+    function createLiveTableDoc(): Document {
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <body>
+          <div class="header">
+            Regular : 1299.98 | O/S : 0.00 | DMR : 0.00 | O/S : 0.00 | Disc %: 282.35
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Trn No</th>
+                <th>Trn Date</th>
+                <th>Service Name</th>
+                <th>Customer No</th>
+                <th>Amount</th>
+                <th>Trn Mode</th>
+                <th>Trn ID</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>27796830</td>
+                <td>08/11/2026 04:49:20 PM</td>
+                <td>AIRTEL</td>
+                <td>9733671094</td>
+                <td>299.00</td>
+                <td>Web</td>
+                <td></td>
+                <td><span class="badge badge-danger">Failed</span></td>
+                <td></td>
+              </tr>
+              <tr>
+                <td>27796821</td>
+                <td>08/11/2026 04:45:34 PM</td>
+                <td>AIRTEL</td>
+                <td>9564923515</td>
+                <td>349.00</td>
+                <td>Web</td>
+                <td>1875703928</td>
+                <td><span class="badge badge-success">Success</span></td>
+                <td><button>Print</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </body>
+        </html>
+      `;
+      return new DOMParser().parseFromString(html, 'text/html');
+    }
+
+    it('extracts portal regular balance in paise correctly', () => {
+      const doc = createLiveTableDoc();
+      const balance = parseMobileRechargeBalance(doc);
+      expect(balance).toBe(129998);
+    });
+
+    it('finds failed recharge order row by customer number and amount', () => {
+      const doc = createLiveTableDoc();
+      const row = findRechargeRowInTable(doc, '9733671094', 29900);
+      expect(row).not.toBeNull();
+      expect(row?.trnNo).toBe('27796830');
+      expect(row?.status).toBe('failed');
+      expect(row?.amountPaise).toBe(29900);
+    });
+
+    it('finds success recharge order row and extracts operator ref', () => {
+      const doc = createLiveTableDoc();
+      const row = findRechargeRowInTable(doc, '9564923515');
+      expect(row).not.toBeNull();
+      expect(row?.trnNo).toBe('27796821');
+      expect(row?.status).toBe('success');
+      expect(row?.operatorRef).toBe('1875703928');
+    });
+
+    it('parses all rows into IngestTransaction array with valid ISO dates', () => {
+      const doc = createLiveTableDoc();
+      const rows = parseMobileRechargeRows(doc);
+      expect(rows).toHaveLength(2);
+      expect(rows[0]?.txnId).toBe('27796830');
+      expect(rows[0]?.status).toBe('failed');
+      expect(rows[0]?.customerNo).toBe('9733671094');
+      expect(rows[0]?.amountPaise).toBe(29900);
+      expect(rows[0]?.occurredAt).toBe('2026-11-08T16:49:20+05:30');
+
+      expect(rows[1]?.txnId).toBe('27796821');
+      expect(rows[1]?.status).toBe('success');
+      expect(rows[1]?.operatorRef).toBe('1875703928');
+    });
   });
 });

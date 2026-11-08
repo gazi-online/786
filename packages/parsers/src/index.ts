@@ -26,6 +26,7 @@ export {
   executeSimpleWalletRecharge,
   findRechargeRowInTable,
   parseMobileRechargeRows,
+  parseMobileRechargeBalance,
   type SimpleWalletRechargeOrderParams,
   type RechargeExecutionResult,
   type PortalRechargeRow,

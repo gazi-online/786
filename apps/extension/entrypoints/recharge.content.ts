@@ -4,6 +4,7 @@ import {
   executeEgPaymentRecharge,
   findRechargeRowInTable,
   parseMobileRechargeRows,
+  parseMobileRechargeBalance,
 } from '@walletsync/parsers';
 import {
   validateContentMessage,
@@ -29,9 +30,8 @@ export default defineContentScript({
 
     console.log('[WalletSync Recharge Content] Content script initialized on', window.location.href);
 
-    // 1. Live Sync: If on MobileRecharge.aspx, parse any live transactions in the table below and ingest
-    const curPath = window.location.pathname.toLowerCase();
-    if (curPath.includes('mobilerecharge.aspx')) {
+    // 1. Live Sync & Recovery Helper
+    function syncLiveTable() {
       try {
         const liveRows = parseMobileRechargeRows(document);
         if (liveRows.length > 0) {
@@ -43,6 +43,7 @@ export default defineContentScript({
               source: 'simplewallet',
               parserVersion: '1.0.0',
               capturedAt: new Date().toISOString(),
+              balancePaise: parseMobileRechargeBalance(document) ?? null,
               pageTotals: { amountPaise: liveRows.reduce((s, r) => s + r.amountPaise, 0) },
               rows: liveRows,
             },
@@ -53,7 +54,7 @@ export default defineContentScript({
         console.warn('[WalletSync Recharge Content] Could not parse MobileRecharge table:', err);
       }
 
-      // 2. Post-reload recovery: check if an active in-flight order finished during page reload
+      // Check reload recovery for in-flight active order
       try {
         chrome.storage.local.get(['activeRechargeOrder'], (res: { activeRechargeOrder?: { id: string; customerNo: string; amountPaise: number } }) => {
           const activeOrder = res?.activeRechargeOrder;
@@ -77,6 +78,27 @@ export default defineContentScript({
             chrome.runtime.sendMessage(recoveryPayload).catch(() => {});
           }
         });
+      } catch {
+        // ignore
+      }
+    }
+
+    const curPath = window.location.pathname.toLowerCase();
+    if (curPath.includes('mobilerecharge.aspx')) {
+      syncLiveTable();
+      setTimeout(syncLiveTable, 1200);
+      setTimeout(syncLiveTable, 3500);
+
+      try {
+        let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+        const observer = new MutationObserver(() => {
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            syncLiveTable();
+          }, 400);
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        setTimeout(() => observer.disconnect(), 60000); // active for 60s
       } catch {
         // ignore
       }
@@ -158,6 +180,7 @@ export default defineContentScript({
                       source: 'simplewallet',
                       parserVersion: '1.0.0',
                       capturedAt: new Date().toISOString(),
+                      balancePaise: parseMobileRechargeBalance(document) ?? null,
                       pageTotals: { amountPaise: updatedRows.reduce((s, r) => s + r.amountPaise, 0) },
                       rows: updatedRows,
                     },
