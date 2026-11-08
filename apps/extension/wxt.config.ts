@@ -43,7 +43,7 @@ export default defineConfig({
     // Least permissions: host_permissions lists ONLY the two portal origins and ONE API origin
     // HARD RULE: no <all_urls>, no cookies, no webRequest, no history permission
     host_permissions: hostPermissions,
-    permissions: ['storage', 'alarms', 'notifications', 'tabs'],
+    permissions: ['storage', 'alarms', 'notifications', 'tabs', 'scripting'],
   },
   vite: () => ({
     define: {

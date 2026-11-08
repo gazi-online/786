@@ -24,6 +24,8 @@ export default defineContentScript({
       // Ignore DOM cleanup errors
     }
 
+    console.log('[WalletSync Recharge Content] Content script initialized on', window.location.href);
+
     // 1. Listen for secure execution instructions from the background service worker
     chrome.runtime.onMessage.addListener((rawMessage, sender, sendResponse) => {
       const validation = validateContentMessage(
@@ -41,6 +43,7 @@ export default defineContentScript({
 
       if (msg.type === 'EXECUTE_PORTAL_RECHARGE') {
         const order = msg.order;
+        console.log(`[WalletSync Recharge Content] Received order for ${order.operator} ₹${order.amountPaise / 100} to ${order.source}`);
 
         // Immediately acknowledge receipt so background script does not timeout or close channel
         try {
@@ -51,6 +54,7 @@ export default defineContentScript({
 
         (async () => {
           try {
+            console.log('[WalletSync Recharge Content] Executing portal recharge sequence...');
             const result =
               order.source === 'egpayment'
                 ? await executeEgPaymentRecharge(document, {
@@ -64,6 +68,7 @@ export default defineContentScript({
                     amountPaise: order.amountPaise,
                   });
 
+            console.log('[WalletSync Recharge Content] Sequence finished with result:', result);
             const responsePayload: PortalRechargeResultMessage = {
               type: 'PORTAL_RECHARGE_RESULT',
               orderId: order.id,
@@ -76,6 +81,7 @@ export default defineContentScript({
           } catch (err: unknown) {
             const errDetail =
               err instanceof Error ? err.message.slice(0, 100) : 'Execution error';
+            console.error('[WalletSync Recharge Content] Exception executing recharge:', err);
 
             const failurePayload: PortalRechargeResultMessage = {
               type: 'PORTAL_RECHARGE_RESULT',

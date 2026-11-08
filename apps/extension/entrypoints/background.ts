@@ -448,11 +448,25 @@ export default defineBackground(() => {
   // -------------------------------------------------------------------------
   let isRechargeDispatcherBusy = false;
 
+  async function ensureRechargeContentScriptInjected(tabId: number): Promise<void> {
+    try {
+      if (chrome.scripting && chrome.scripting.executeScript) {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ['content-scripts/recharge.js'],
+        });
+        console.log(`[WalletSync Recharge Dispatcher] Programmatically ensured recharge.js injected in tab ${tabId}`);
+      }
+    } catch (err) {
+      console.warn(`[WalletSync Recharge Dispatcher] Could not programmatically inject recharge.js into tab ${tabId}:`, err);
+    }
+  }
+
   async function sendMessageWithRetry(
     tabId: number,
     message: unknown,
     maxAttempts = 10,
-    delayMs = 500,
+    delayMs = 600,
   ): Promise<unknown> {
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -460,6 +474,33 @@ export default defineBackground(() => {
         return await chrome.tabs.sendMessage(tabId, message);
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
+        console.warn(
+          `[WalletSync Recharge Dispatcher] sendMessage attempt ${attempt}/${maxAttempts} failed:`,
+          lastError.message,
+        );
+
+        // If content script was disconnected (e.g. extension reload), inject script programmatically
+        if (
+          attempt === 1 ||
+          lastError.message.includes('Receiving end does not exist') ||
+          lastError.message.includes('Could not establish connection')
+        ) {
+          await ensureRechargeContentScriptInjected(tabId);
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+
+        // On attempt 4, reload the tab to ensure a fresh, connected document context
+        if (attempt === 4) {
+          try {
+            console.log(`[WalletSync Recharge Dispatcher] Reloading tab ${tabId} to refresh script environment...`);
+            await chrome.tabs.reload(tabId);
+            await waitForTabComplete(tabId);
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          } catch {
+            // ignore reload failure
+          }
+        }
+
         if (attempt < maxAttempts) {
           await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
@@ -611,7 +652,10 @@ export default defineBackground(() => {
       // 2. Lock order on server to 'submitting' (prevents re-leasing)
       await sendRechargeStatusUpdate(storage, order.id, { status: 'submitting' });
 
-      // 3. Dispatch execution command to content script in dedicated background tab with retry backoff
+      // 3. Ensure content script is actively injected in tab before messaging
+      await ensureRechargeContentScriptInjected(tabId);
+
+      // 4. Dispatch execution command to content script in dedicated background tab with retry backoff
       try {
         console.log(`[WalletSync Recharge Dispatcher] Dispatching EXECUTE_PORTAL_RECHARGE to tab ${tabId}...`);
         await sendMessageWithRetry(

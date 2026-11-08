@@ -93,6 +93,29 @@ function findChangeOperatorButton(doc: Document): HTMLElement | null {
   );
 }
 
+function triggerClickFlow(el: HTMLElement) {
+  if (!el) return;
+  try {
+    el.focus?.();
+  } catch {
+    // ignore
+  }
+  try {
+    el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true }));
+    el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
+    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  } catch {
+    // ignore
+  }
+  try {
+    el.click();
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Finds and clicks the target operator card / icon on SimpleWallet.
  * Prioritizes cards and images over dropdowns.
@@ -121,21 +144,14 @@ function selectOperatorCard(doc: Document, operator: string): boolean {
     }
 
     if (isImgMatch) {
-      // Click both image and closest clickable wrapper
-      img.click();
-      try {
-        img.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      } catch {
-        // ignore
+      triggerClickFlow(img);
+      const parent = img.parentElement;
+      if (parent) {
+        triggerClickFlow(parent);
       }
       const clickableParent = img.closest('a, button, [onclick], .operator-card, .card, li, div') as HTMLElement | null;
-      if (clickableParent && clickableParent !== img) {
-        clickableParent.click();
-        try {
-          clickableParent.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        } catch {
-          // ignore
-        }
+      if (clickableParent && clickableParent !== img && clickableParent !== parent) {
+        triggerClickFlow(clickableParent);
       }
       return true;
     }
@@ -163,12 +179,22 @@ function selectOperatorCard(doc: Document, operator: string): boolean {
     }
 
     if (isMatch) {
-      const clickable = (el.closest('a, button, [onclick], .operator-card, .card, li, div[class*="operator" i]') || el) as HTMLElement;
-      clickable.click();
-      try {
-        clickable.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      } catch {
-        // ignore
+      const htmlEl = el as HTMLElement;
+      triggerClickFlow(htmlEl);
+
+      // Also trigger sibling or parent image if present
+      const container = htmlEl.closest('div, a, li, td') as HTMLElement | null;
+      if (container) {
+        const siblingImg = container.querySelector<HTMLImageElement>('img');
+        if (siblingImg) {
+          triggerClickFlow(siblingImg);
+        }
+        triggerClickFlow(container);
+      }
+
+      const clickable = htmlEl.closest('a, button, [onclick], .operator-card, .card, li, div[class*="operator" i]') as HTMLElement | null;
+      if (clickable && clickable !== htmlEl && clickable !== container) {
+        triggerClickFlow(clickable);
       }
       return true;
     }
