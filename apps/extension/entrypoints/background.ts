@@ -398,10 +398,6 @@ export default defineBackground(() => {
             });
           }
           if (message.failureCode === 'logged_out') {
-            if (sender.tab?.id) {
-              // Bring login tab to front so merchant can log in immediately
-              chrome.tabs.update(sender.tab.id, { active: true }).catch(() => {});
-            }
             try {
               chrome.notifications.create({
                 type: 'basic',
@@ -580,23 +576,22 @@ export default defineBackground(() => {
           ? 'https://egpayment.com/users/recharge'
           : 'https://simplewallet.in/web/MobileRecharge.aspx?mID=822&PID=821';
 
-      // 1. Locate or open portal tab (ensuring user visibility)
+      // 1. Locate or open portal tab (always in background: never steal user focus or switch tabs)
       let tabId: number;
       if (order.source === 'simplewallet') {
         const swTabs = (await chrome.tabs.query({ url: 'https://simplewallet.in/*' }).catch(() => [])) as chrome.tabs.Tab[];
         if (swTabs.length > 0 && swTabs[0]?.id) {
           tabId = swTabs[0].id;
-          console.log(`[WalletSync Recharge Dispatcher] Focusing existing SimpleWallet tab ${tabId}`);
-          await chrome.tabs.update(tabId, { active: true });
+          console.log(`[WalletSync Recharge Dispatcher] Using existing SimpleWallet tab ${tabId} in background (no tab switch)`);
           const curUrl = (swTabs[0].url || '').toLowerCase();
           if (!curUrl.includes('mobilerecharge.aspx')) {
-            console.log(`[WalletSync Recharge Dispatcher] Navigating tab ${tabId} to ${targetUrl}`);
+            console.log(`[WalletSync Recharge Dispatcher] Navigating background tab ${tabId} to ${targetUrl}`);
             await chrome.tabs.update(tabId, { url: targetUrl });
             await waitForTabComplete(tabId);
           }
         } else {
-          console.log(`[WalletSync Recharge Dispatcher] Opening SimpleWallet tab: ${targetUrl}`);
-          const newTab = await chrome.tabs.create({ url: targetUrl, active: true });
+          console.log(`[WalletSync Recharge Dispatcher] Opening SimpleWallet background tab: ${targetUrl}`);
+          const newTab = await chrome.tabs.create({ url: targetUrl, active: false });
           if (!newTab.id) throw new Error('Failed to create tab');
           tabId = newTab.id;
           await waitForTabComplete(tabId);
@@ -605,7 +600,6 @@ export default defineBackground(() => {
         const egTabs = (await chrome.tabs.query({ url: 'https://egpayment.com/users/recharge*' }).catch(() => [])) as chrome.tabs.Tab[];
         if (egTabs.length > 0 && egTabs[0]?.id) {
           tabId = egTabs[0].id;
-          await chrome.tabs.update(tabId, { active: true });
         } else {
           const res = await openDedicatedBackgroundTab(targetUrl);
           tabId = res.tabId;
@@ -623,7 +617,6 @@ export default defineBackground(() => {
             failureCode: 'logged_out',
             failureDetail: `Official portal not logged in: redirected to ${curUrl}`,
           });
-          chrome.tabs.update(tabId, { active: true }).catch(() => {});
           try {
             chrome.notifications.create({
               type: 'basic',
