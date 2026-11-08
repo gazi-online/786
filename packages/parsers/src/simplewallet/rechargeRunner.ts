@@ -266,7 +266,7 @@ function findSuccessDialog(doc: Document): { okBtn: HTMLElement; trnNo?: string 
   const trnNo = match ? match[1] : undefined;
 
   if (btn) {
-    return { okBtn: btn, trnNo };
+    return { okBtn: btn, ...(trnNo ? { trnNo } : {}) };
   }
   return null;
 }
@@ -497,7 +497,7 @@ export async function executeSimpleWalletRecharge(
     const success = findSuccessDialog(doc);
     if (success) {
       portalTrnId = success.trnNo;
-      return { okBtn: success.okBtn, trnNo: success.trnNo };
+      return { okBtn: success.okBtn, ...(success.trnNo ? { trnNo: success.trnNo } : {}) };
     }
 
     return null;
