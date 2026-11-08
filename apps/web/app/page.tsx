@@ -261,6 +261,12 @@ export default function DashboardPage() {
       }
 
       setRechargeSuccess(`Order queued successfully! ID: ${data.order?.id?.slice(0, 8)}...`);
+      if (data.order) {
+        setRechargeOrdersList((prev) => [
+          data.order,
+          ...prev.filter((o) => o.id !== data.order.id),
+        ]);
+      }
       setRechargeCustomerNo('');
       setRechargeAmount('');
       setConfirmDuplicate(false);
@@ -301,14 +307,21 @@ export default function DashboardPage() {
     }
   }
 
-  // Poll recharge orders periodically
+  // Poll recharge orders periodically (fast 1.2s poll when in-flight orders active, 3.5s otherwise)
+  const hasInFlightOrders = rechargeOrdersList.some(
+    (o) => o.status === 'queued' || o.status === 'claimed' || o.status === 'submitting',
+  );
+
   useEffect(() => {
     fetchRechargeOrders();
-    const interval = setInterval(() => {
-      fetchRechargeOrders();
-    }, 4000);
+    const interval = setInterval(
+      () => {
+        fetchRechargeOrders();
+      },
+      hasInFlightOrders ? 1200 : 3500,
+    );
     return () => clearInterval(interval);
-  }, []);
+  }, [hasInFlightOrders]);
 
   // 1. Initial data fetch with instant 0ms client-side cache & continuous 5s auto-fetch
   useEffect(() => {
@@ -512,10 +525,16 @@ export default function DashboardPage() {
           lastEventTimeRef.current = Date.now();
         };
 
+        eventSource.addEventListener('recharge_order.updated', (_event) => {
+          lastEventTimeRef.current = Date.now();
+          fetchRechargeOrders();
+        });
+
         eventSource.addEventListener('transaction.updated', (_event) => {
           lastEventTimeRef.current = Date.now();
           // Instant auto-fetch when event arrives
           fetchTransactions(true);
+          fetchRechargeOrders();
         });
 
         eventSource.addEventListener('device.paired', (event) => {

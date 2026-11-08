@@ -19,6 +19,7 @@ import {
   getTodayActiveRechargeTotalPaise,
   findRecentDuplicateOrder,
 } from '@/lib/recharge';
+import { broadcastSseEvent } from '@/lib/sse';
 import { eq, and, desc, sql } from 'drizzle-orm';
 
 export async function POST(req: NextRequest) {
@@ -305,6 +306,11 @@ export async function POST(req: NextRequest) {
           customerLast4,
         },
         createdAt: now,
+      });
+
+      broadcastSseEvent('recharge_order.updated', {
+        orderId: newOrder.id,
+        status: newOrder.status,
       });
 
       return NextResponse.json(

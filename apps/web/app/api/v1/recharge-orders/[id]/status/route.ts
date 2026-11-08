@@ -6,6 +6,7 @@ import {
   isValidRechargeTransition,
 } from '@walletsync/contract';
 import { verifyDeviceForRecharge } from '@/lib/recharge';
+import { broadcastSseEvent } from '@/lib/sse';
 import { eq, and } from 'drizzle-orm';
 
 const CORS_HEADERS = {
@@ -150,6 +151,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
           failureCode: failureCode || null,
         },
         createdAt: now,
+      });
+
+      broadcastSseEvent('recharge_order.updated', {
+        orderId: order.id,
+        status: nextStatus,
+        failureCode: failureCode || null,
+        failureDetail: failureDetail || null,
       });
 
       return NextResponse.json(

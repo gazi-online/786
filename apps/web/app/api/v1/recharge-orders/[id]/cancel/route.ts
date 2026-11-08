@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantSession, canPerformAction } from '@/lib/auth';
 import { withTenantContext } from '@/lib/db';
+import { broadcastSseEvent } from '@/lib/sse';
 import { rechargeOrders, auditLog } from '@/drizzle/schema';
 import { eq, and } from 'drizzle-orm';
 
@@ -96,6 +97,11 @@ export async function POST(
           newStatus: 'cancelled',
         },
         createdAt: now,
+      });
+
+      broadcastSseEvent('recharge_order.updated', {
+        orderId: order.id,
+        status: 'cancelled',
       });
 
       return NextResponse.json(

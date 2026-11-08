@@ -111,16 +111,55 @@ export default function RechargePage() {
     }
   }
 
+  const hasInFlightOrders = orders.some(
+    (o) => o.status === 'queued' || o.status === 'claimed' || o.status === 'submitting',
+  );
+
   useEffect(() => {
     fetchOrders();
     fetchSettingsAndTerminal();
 
-    const interval = setInterval(() => {
-      fetchOrders();
-      fetchSettingsAndTerminal();
-    }, 3500);
+    const interval = setInterval(
+      () => {
+        fetchOrders();
+        fetchSettingsAndTerminal();
+      },
+      hasInFlightOrders ? 1200 : 3500,
+    );
 
     return () => clearInterval(interval);
+  }, [hasInFlightOrders]);
+
+  // Real-time SSE for instant 0ms order status transitions
+  useEffect(() => {
+    let eventSource: EventSource | null = null;
+
+    function connectSSE() {
+      try {
+        eventSource = new EventSource('/api/v1/stream');
+
+        eventSource.addEventListener('recharge_order.updated', () => {
+          fetchOrders();
+        });
+
+        eventSource.addEventListener('transaction.updated', () => {
+          fetchOrders();
+        });
+
+        eventSource.onerror = () => {
+          eventSource?.close();
+          setTimeout(connectSSE, 5000);
+        };
+      } catch {
+        // fallback to polling
+      }
+    }
+
+    connectSSE();
+
+    return () => {
+      eventSource?.close();
+    };
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -176,6 +215,12 @@ export default function RechargePage() {
       }
 
       setSuccessMessage(`Recharge order queued successfully! ID: ${data.order?.id?.slice(0, 8)}...`);
+      if (data.order) {
+        setOrders((prev) => [
+          data.order,
+          ...prev.filter((o) => o.id !== data.order.id),
+        ]);
+      }
       setCustomerNo('');
       setAmount('');
       setConfirmDuplicate(false);

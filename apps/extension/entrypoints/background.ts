@@ -51,13 +51,13 @@ export default defineBackground(() => {
 
   setupAlarms();
 
-  // Active fast polling (every 3 seconds) for instant background recharge order execution
+  // Active fast polling (every 1.2s) for instant background recharge order execution
   let fastPollInterval: ReturnType<typeof setInterval> | null = null;
   function startFastPolling() {
     if (fastPollInterval) clearInterval(fastPollInterval);
     fastPollInterval = setInterval(() => {
       triggerRechargeDispatcherCycle();
-    }, 3000);
+    }, 1200);
   }
   startFastPolling();
 
@@ -416,7 +416,7 @@ export default defineBackground(() => {
           // After completing one order, immediately check for consecutive queued orders
           setTimeout(() => {
             triggerRechargeDispatcherCycle();
-          }, 1000);
+          }, 400);
         });
         return true;
       }

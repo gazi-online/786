@@ -11,6 +11,7 @@ import {
   verifyDeviceForRecharge,
   getTenantRechargeSettings,
 } from '@/lib/recharge';
+import { broadcastSseEvent } from '@/lib/sse';
 import { eq, and, or, lt, asc, sql } from 'drizzle-orm';
 
 const CORS_HEADERS = {
@@ -123,6 +124,11 @@ export async function POST(req: NextRequest) {
           leaseSeconds: DEFAULT_CLAIM_LEASE_SECONDS,
         },
         createdAt: now,
+      });
+
+      broadcastSseEvent('recharge_order.updated', {
+        orderId: order.id,
+        status: 'claimed',
       });
 
       const responsePayload: ClaimRechargeOrderResponse = {

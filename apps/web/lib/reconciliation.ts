@@ -2,6 +2,7 @@ import { eq, and, isNull, sql } from 'drizzle-orm';
 import { type AppTransaction } from '@/lib/db';
 import { rechargeOrders, auditLog } from '@/drizzle/schema';
 import { isValidRechargeTransition, type RechargeOrderStatus } from '@walletsync/contract';
+import { broadcastSseEvent } from '@/lib/sse';
 
 export interface ReconciliationResult {
   matched: boolean;
@@ -123,6 +124,12 @@ export async function reconcileTransactionWithRechargeOrder(
     });
 
     await tx.execute(sql`RELEASE SAVEPOINT sp_reconcile`).catch(() => {});
+
+    broadcastSseEvent('recharge_order.updated', {
+      orderId: order.id,
+      status: targetOrderStatus,
+      matchedTransactionId: txn.id,
+    });
 
     return {
       matched: true,
