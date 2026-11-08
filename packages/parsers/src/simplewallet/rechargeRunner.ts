@@ -152,6 +152,25 @@ function findRechargeButton(doc: Document): HTMLElement | null {
 }
 
 function findPayNowButton(doc: Document): HTMLElement | null {
+  // 1. Check modal containers first
+  const modals = Array.from(
+    doc.querySelectorAll(
+      '.modal.in, .modal.show, .modal, .bootstrap-dialog, div[role="dialog"], .modal-dialog',
+    ),
+  );
+  for (const modal of modals) {
+    const btns = Array.from(
+      modal.querySelectorAll(
+        'button, a.btn, a, input[type="button"], input[type="submit"]',
+      ),
+    );
+    const payBtn = btns.find((b) =>
+      /pay\s*now/i.test((b.textContent || (b as HTMLInputElement).value || '').trim()),
+    );
+    if (payBtn) return payBtn as HTMLElement;
+  }
+
+  // 2. Global button / link candidates
   const candidates = Array.from(doc.querySelectorAll('button, input[type="button"], input[type="submit"], a'));
   return (
     (candidates.find((b) => {
@@ -162,6 +181,26 @@ function findPayNowButton(doc: Document): HTMLElement | null {
 }
 
 function findOkButton(doc: Document): HTMLElement | null {
+  // 1. Exact icon class provided from live portal: 'bootstrap-dialog-button-icon glyphicon glyphicon-ok'
+  const glyphiconOk = doc.querySelector('.glyphicon-ok, .bootstrap-dialog-button-icon');
+  if (glyphiconOk) {
+    const btn = glyphiconOk.closest('button, a, [role="button"], .btn');
+    if (btn) return btn as HTMLElement;
+  }
+
+  // 2. Buttons inside BootstrapDialog or modal footer
+  const dialogBtns = Array.from(
+    doc.querySelectorAll(
+      '.bootstrap-dialog-footer-buttons button, .bootstrap-dialog-footer-buttons .btn, .bootstrap-dialog .modal-footer button, .bootstrap-dialog button, .modal-footer button, .modal-dialog button',
+    ),
+  );
+  const okDialogBtn = dialogBtns.find((b) => {
+    const text = (b.textContent || (b as HTMLInputElement).value || '').trim();
+    return /^ok$/i.test(text) || text.includes('OK') || b.querySelector('.glyphicon-ok') !== null;
+  });
+  if (okDialogBtn) return okDialogBtn as HTMLElement;
+
+  // 3. Fallback: Any button with 'OK' text
   const candidates = Array.from(doc.querySelectorAll('button, input[type="button"], input[type="submit"], a'));
   return (
     (candidates.find((b) => {
@@ -171,6 +210,23 @@ function findOkButton(doc: Document): HTMLElement | null {
   );
 }
 
+function dismissAnyOpenModal(doc: Document) {
+  try {
+    const closeBtns = Array.from(
+      doc.querySelectorAll(
+        '.modal.in [data-dismiss="modal"], .bootstrap-dialog.in [data-dismiss="modal"], .modal .close, .bootstrap-dialog .close, button.btn-close',
+      ),
+    );
+    for (const cb of closeBtns) {
+      (cb as HTMLElement).click();
+    }
+    const backdrops = doc.querySelectorAll('.modal-backdrop');
+    backdrops.forEach((b) => b.remove());
+  } catch {
+    // ignore DOM cleanup errors
+  }
+}
+
 /**
  * Executes form filling and multi-step submission on SimpleWallet MobileRecharge.aspx
  */
@@ -178,14 +234,32 @@ export async function executeSimpleWalletRecharge(
   doc: Document,
   order: SimpleWalletRechargeOrderParams,
 ): Promise<RechargeExecutionResult> {
-  // 1. Check logged-in state
+  // 1. Check logged-in state (URL, password fields, or session-expired text)
+  const currentUrl = doc.location?.href?.toLowerCase() || '';
+  const isLoginPageUrl =
+    currentUrl.includes('/login') ||
+    currentUrl.includes('/default.aspx') ||
+    currentUrl.includes('/logout');
+
+  const passwordField = doc.querySelector(
+    'input[type="password"], input[id*="txtPassword" i], input[name*="Password" i]',
+  );
+  const loginBtn = doc.querySelector('#btnLogin, #btnSignIn, input[value*="Login" i]');
+
   const bodyText = doc.body?.textContent?.toUpperCase() || '';
-  if (bodyText.includes('PLEASE LOG IN') || bodyText.includes('SIGN IN TO CONTINUE')) {
+  const hasLoggedOutText =
+    bodyText.includes('PLEASE LOG IN') ||
+    bodyText.includes('SIGN IN TO CONTINUE') ||
+    bodyText.includes('SESSION EXPIRED') ||
+    bodyText.includes('INVALID SESSION');
+
+  if (isLoginPageUrl || (passwordField && loginBtn) || hasLoggedOutText) {
     return {
       ok: false,
       status: 'failed',
       failureCode: 'logged_out',
-      failureDetail: 'Distributor portal session is logged out',
+      failureDetail:
+        'Official portal is not logged in. Please log in to SimpleWallet (https://simplewallet.in/web/MobileRecharge.aspx?mID=822&PID=821) and try again.',
     };
   }
 
@@ -298,6 +372,11 @@ export async function executeSimpleWalletRecharge(
   const payNowBtn = await waitForElement(() => findPayNowButton(doc), 4000, 250);
   if (payNowBtn) {
     payNowBtn.click();
+    try {
+      payNowBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    } catch {
+      // ignore
+    }
   }
 
   // 10. Handle Success Alert Message ("OK" button & Trn No extraction)
@@ -305,7 +384,9 @@ export async function executeSimpleWalletRecharge(
   const okBtn = await waitForElement(() => {
     const btn = findOkButton(doc);
     if (btn) {
-      const match = doc.body?.textContent?.match(/Trn\s*No:?\s*(\d+)/i);
+      const match =
+        doc.body?.textContent?.match(/Trn\s*No:?\s*(\d+)/i) ||
+        doc.body?.textContent?.match(/Transaction\s*accepted.*?(\d{6,})/i);
       if (match) portalTrnId = match[1];
       return btn;
     }
@@ -314,6 +395,15 @@ export async function executeSimpleWalletRecharge(
 
   if (okBtn) {
     okBtn.click();
+    try {
+      okBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    } catch {
+      // ignore
+    }
+
+    // Ensure recharge modal and backdrops close cleanly
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    dismissAnyOpenModal(doc);
   }
 
   return {

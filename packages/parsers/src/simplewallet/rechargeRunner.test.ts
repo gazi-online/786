@@ -67,16 +67,36 @@ function createMockRechargeDoc(options?: {
     submitBtn.textContent = 'Recharge';
     doc.body.appendChild(submitBtn);
 
+    const confirmModal = doc.createElement('div');
+    confirmModal.className = 'modal in bootstrap-dialog type-primary';
+    const modalTitle = doc.createElement('div');
+    modalTitle.className = 'bootstrap-dialog-title';
+    modalTitle.textContent = 'Confirm Transaction';
+    confirmModal.appendChild(modalTitle);
+
     const payNowBtn = doc.createElement('button');
+    payNowBtn.className = 'btn btn-success';
     payNowBtn.textContent = 'Pay Now';
-    doc.body.appendChild(payNowBtn);
+    confirmModal.appendChild(payNowBtn);
+    doc.body.appendChild(confirmModal);
+
+    // BootstrapDialog success alert
+    const alertDialog = doc.createElement('div');
+    alertDialog.className = 'bootstrap-dialog type-success';
+    const msg = doc.createElement('div');
+    msg.className = 'bootstrap-dialog-message';
+    msg.textContent = 'Transaction accepted, Trn No: 27795536';
+    alertDialog.appendChild(msg);
 
     const okBtn = doc.createElement('button');
-    okBtn.textContent = 'OK';
-    const msg = doc.createElement('div');
-    msg.textContent = 'Transaction accepted, Trn No: 27794218';
-    doc.body.appendChild(msg);
-    doc.body.appendChild(okBtn);
+    okBtn.className = 'btn btn-default bootstrap-dialog-button';
+    const okIcon = doc.createElement('span');
+    okIcon.className = 'bootstrap-dialog-button-icon glyphicon glyphicon-ok';
+    okBtn.appendChild(okIcon);
+    okBtn.appendChild(doc.createTextNode(' OK'));
+    alertDialog.appendChild(okBtn);
+
+    doc.body.appendChild(alertDialog);
 
     return doc;
   }
@@ -146,7 +166,7 @@ describe('SimpleWallet Recharge Form Runner (Milestone R3)', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.status).toBe('submitted');
-      expect(result.portalTrnId).toBe('27794218');
+      expect(result.portalTrnId).toBe('27795536');
     }
   });
 

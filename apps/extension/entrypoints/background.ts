@@ -383,7 +383,26 @@ export default defineBackground(() => {
               failureDetail: message.failureDetail,
             });
           }
-          if (sender.tab?.id && dedicatedTabIds.has(sender.tab.id)) {
+          if (message.failureCode === 'logged_out') {
+            if (sender.tab?.id) {
+              // Bring login tab to front so merchant can log in immediately
+              chrome.tabs.update(sender.tab.id, { active: true }).catch(() => {});
+            }
+            try {
+              chrome.notifications.create({
+                type: 'basic',
+                iconUrl: 'icon/128.png',
+                title: 'WalletSync - SimpleWallet Login Required',
+                message: 'SimpleWallet official portal is not logged in. Please log in to complete your recharge.',
+              });
+            } catch {
+              // ignore
+            }
+            await setStorage({
+              status: 'logged_out',
+              errorMessage: 'Official portal session expired or not logged in',
+            });
+          } else if (sender.tab?.id && dedicatedTabIds.has(sender.tab.id)) {
             dedicatedTabIds.delete(sender.tab.id);
             await closeDedicatedTab(sender.tab.id);
           }
@@ -525,6 +544,43 @@ export default defineBackground(() => {
         const res = await openDedicatedBackgroundTab(targetUrl);
         tabId = res.tabId;
         dedicatedTabIds.add(tabId);
+      }
+
+      // Check if tab is on login page (portal logged out guard)
+      try {
+        const tabInfo = await chrome.tabs.get(tabId);
+        const curUrl = (tabInfo.url || '').toLowerCase();
+        if (curUrl.includes('/login') || curUrl.includes('/default.aspx') || curUrl.includes('/logout')) {
+          console.warn('[WalletSync Recharge Dispatcher] Portal redirected to login page:', curUrl);
+          await sendRechargeStatusUpdate(storage, order.id, {
+            status: 'failed',
+            failureCode: 'logged_out',
+            failureDetail: `Official portal not logged in: redirected to ${curUrl}`,
+          });
+          chrome.tabs.update(tabId, { active: true }).catch(() => {});
+          try {
+            chrome.notifications.create({
+              type: 'basic',
+              iconUrl: 'icon/128.png',
+              title: 'WalletSync - SimpleWallet Login Required',
+              message: 'SimpleWallet official portal is not logged in. Please log into the portal to execute recharge orders.',
+            });
+          } catch {
+            // ignore
+          }
+          await setStorage({
+            status: 'logged_out',
+            errorMessage: 'SimpleWallet portal is logged out',
+            lastRechargeLog: {
+              time: new Date().toISOString(),
+              ok: false,
+              message: 'Portal not logged in — please log in to SimpleWallet',
+            },
+          });
+          return { success: false, message: 'Portal not logged in' };
+        }
+      } catch {
+        // ignore tab check error
       }
 
       // 2. Lock order on server to 'submitting' (prevents re-leasing)

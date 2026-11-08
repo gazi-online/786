@@ -61,6 +61,7 @@ export default function RechargePage() {
   const [rechargeEnabled, setRechargeEnabled] = useState(true);
   const [terminalStatus, setTerminalStatus] = useState<'connected' | 'offline' | 'not_paired'>('offline');
   const [terminalLabel, setTerminalLabel] = useState<string>('POS Terminal');
+  const [portalLoggedIn, setPortalLoggedIn] = useState<boolean>(true);
 
   async function fetchOrders() {
     try {
@@ -92,15 +93,17 @@ export default function RechargePage() {
 
       if (devRes.ok) {
         const dData = await devRes.json();
-        const devList: Array<{ revokedAt?: string | null; lastSeenAt?: string | null; label?: string | null }> = dData.devices || [];
+        const devList: Array<{ revokedAt?: string | null; lastSeenAt?: string | null; label?: string | null; portalLoggedIn?: boolean }> = dData.devices || [];
         if (devList.length === 0) {
           setTerminalStatus('not_paired');
+          setPortalLoggedIn(true);
         } else {
           const activeDev = devList.find((d) => !d.revokedAt) || devList[0];
           const lastSeenMs = activeDev?.lastSeenAt ? new Date(activeDev.lastSeenAt).getTime() : 0;
           const isConnected = lastSeenMs > 0 && Date.now() - lastSeenMs <= 2 * 60 * 1000;
           setTerminalStatus(isConnected ? 'connected' : 'offline');
           setTerminalLabel(activeDev?.label || 'POS Terminal');
+          setPortalLoggedIn(activeDev?.portalLoggedIn !== false);
         }
       }
     } catch {
@@ -336,6 +339,30 @@ export default function RechargePage() {
                   <span>EG Payment (egpayment.com)</span>
                 </button>
               </div>
+
+              {/* Target Portal Link & Login Sentinel */}
+              {portal === 'simplewallet' && (
+                <div className="mt-3 p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-zinc-500 dark:text-zinc-400">Target Portal Link:</span>
+                    <a
+                      href="https://simplewallet.in/web/MobileRecharge.aspx?mID=822&PID=821"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-mono inline-flex items-center gap-1"
+                    >
+                      <span>MobileRecharge.aspx</span>
+                      <ArrowUpRight className="w-3 h-3" />
+                    </a>
+                  </div>
+                  {portalLoggedIn === false && (
+                    <div className="pt-1 text-rose-600 dark:text-rose-400 text-[11px] font-semibold flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      <span>Official portal is not logged in! Please log into SimpleWallet before dispatching.</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Operator Selection */}
@@ -652,7 +679,16 @@ export default function RechargePage() {
                             Success
                           </span>
                         )}
-                        {isFailed && (
+                        {isFailed && order.failureCode === 'logged_out' && (
+                          <span
+                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
+                            title={order.failureDetail || 'Portal session logged out'}
+                          >
+                            <XCircle className="w-3 h-3 text-rose-500" />
+                            Portal Logged Out
+                          </span>
+                        )}
+                        {isFailed && order.failureCode !== 'logged_out' && (
                           <span
                             className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
                             title={order.failureDetail || order.failureCode || 'Failed'}
@@ -694,6 +730,17 @@ export default function RechargePage() {
                       </td>
 
                       <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                        {order.failureCode === 'logged_out' && (
+                          <a
+                            href={order.source === 'simplewallet' ? 'https://simplewallet.in/web/MobileRecharge.aspx?mID=822&PID=821' : 'https://egpayment.com/users/recharge'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2 py-1 rounded-md text-[11px] font-semibold bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 transition-colors inline-flex items-center gap-1 mr-1"
+                          >
+                            <span>Login</span>
+                            <ArrowUpRight className="w-3 h-3" />
+                          </a>
+                        )}
                         {isQueued && (
                           <button
                             type="button"
