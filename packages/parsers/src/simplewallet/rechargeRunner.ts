@@ -21,16 +21,16 @@ export interface SimpleWalletRechargeOrderParams {
 
 export type RechargeExecutionResult =
   | {
-      ok: true;
-      status: 'submitted';
-      portalTrnId?: string;
-    }
+    ok: true;
+    status: 'submitted';
+    portalTrnId?: string;
+  }
   | {
-      ok: false;
-      status: 'failed' | 'needs_manual_action';
-      failureCode: string;
-      failureDetail: string;
-    };
+    ok: false;
+    status: 'failed' | 'needs_manual_action';
+    failureCode: string;
+    failureDetail: string;
+  };
 
 /**
  * Helper to wait for a DOM element or condition asynchronously with timeout.
@@ -64,6 +64,23 @@ function isElementVisible(el: HTMLElement): boolean {
     // ignore
   }
   return true;
+}
+
+function isOperatorCurrentlySelected(doc: Document, operator: string): boolean {
+  const target = operator.toUpperCase().trim();
+  const changeOpBtn = findChangeOperatorButton(doc);
+  if (!changeOpBtn) return false;
+
+  const images = Array.from(doc.querySelectorAll<HTMLImageElement>('img'));
+  for (const img of images) {
+    const src = (img.src || '').toLowerCase();
+    const alt = (img.alt || '').toLowerCase();
+    if (target.includes('JIO') && (src.includes('jio') || alt.includes('jio')) && !src.includes('special')) return true;
+    if (target.includes('AIRTEL') && (src.includes('airtel') || alt.includes('airtel'))) return true;
+    if (target.includes('BSNL') && (src.includes('bsnl') || alt.includes('bsnl'))) return true;
+    if ((target === 'VI' || target.includes('VODAFONE')) && (src.includes('vi') || alt.includes('vi'))) return true;
+  }
+  return false;
 }
 
 function findChangeOperatorButton(doc: Document): HTMLElement | null {
@@ -401,7 +418,7 @@ export async function executeSimpleWalletRecharge(
   const mobileInput = await waitForElement(() => {
     const input = findMobileInput(doc);
     return input ? input : null;
-  }, 5000, 100);
+  }, 6000, 100);
 
   if (!mobileInput) {
     const allInputsSummary = Array.from(doc.querySelectorAll('input'))

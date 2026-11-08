@@ -9,10 +9,10 @@ import {
 } from '@walletsync/contract';
 
 export default defineContentScript({
-  // Dedicated content script strictly matching ONLY portal recharge forms
+  // Dedicated content script matching portals for instant, reliable command reception
   matches: [
-    'https://simplewallet.in/web/MobileRecharge.aspx*',
-    'https://egpayment.com/users/recharge*',
+    'https://simplewallet.in/*',
+    'https://egpayment.com/*',
   ],
   runAt: 'document_idle',
   main() {
@@ -42,6 +42,13 @@ export default defineContentScript({
       if (msg.type === 'EXECUTE_PORTAL_RECHARGE') {
         const order = msg.order;
 
+        // Immediately acknowledge receipt so background script does not timeout or close channel
+        try {
+          sendResponse({ received: true });
+        } catch {
+          // ignore
+        }
+
         (async () => {
           try {
             const result =
@@ -66,7 +73,6 @@ export default defineContentScript({
             };
 
             chrome.runtime.sendMessage(responsePayload).catch(() => {});
-            sendResponse({ received: true });
           } catch (err: unknown) {
             const errDetail =
               err instanceof Error ? err.message.slice(0, 100) : 'Execution error';
@@ -80,10 +86,11 @@ export default defineContentScript({
             };
 
             chrome.runtime.sendMessage(failurePayload).catch(() => {});
-            sendResponse({ received: false, error: errDetail });
           }
         })();
-        return true;
+
+        // Return false since we already sent the synchronous acknowledgement
+        return false;
       }
     });
   },

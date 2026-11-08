@@ -452,26 +452,14 @@ export default defineBackground(() => {
     tabId: number,
     message: unknown,
     maxAttempts = 10,
-    delayMs = 600,
+    delayMs = 500,
   ): Promise<unknown> {
     let lastError: Error | null = null;
-    let hasReloaded = false;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         return await chrome.tabs.sendMessage(tabId, message);
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
-        // If content script is not connected on attempt 2, reload the tab to force MV3 script injection
-        if (attempt === 2 && !hasReloaded) {
-          hasReloaded = true;
-          console.log(`[WalletSync] Tab ${tabId} not responding, reloading tab to force content script injection...`);
-          try {
-            await chrome.tabs.reload(tabId);
-            await new Promise((resolve) => setTimeout(resolve, 1500));
-          } catch {
-            // ignore reload error
-          }
-        }
         if (attempt < maxAttempts) {
           await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
