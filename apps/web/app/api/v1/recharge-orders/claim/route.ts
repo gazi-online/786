@@ -11,13 +11,26 @@ import {
   verifyDeviceForRecharge,
   getTenantRechargeSettings,
 } from '@/lib/recharge';
-import { eq, and, asc, sql } from 'drizzle-orm';
+import { eq, and, or, lt, asc, sql } from 'drizzle-orm';
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-requested-with',
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: CORS_HEADERS,
+  });
+}
 
 export async function POST(req: NextRequest) {
   // 1. Authenticate device (DB-only, strict non-revocation check)
   const auth = await verifyDeviceForRecharge(req);
   if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+    return NextResponse.json({ error: auth.error }, { status: auth.status, headers: CORS_HEADERS });
   }
 
   const device = auth.device;
@@ -27,7 +40,7 @@ export async function POST(req: NextRequest) {
   if (!rateLimit.success) {
     return NextResponse.json(
       { error: 'Rate limit exceeded: Please wait before requesting another claim' },
-      { status: 429, headers: { 'Retry-After': '60' } },
+      { status: 429, headers: { ...CORS_HEADERS, 'Retry-After': '60' } },
     );
   }
 
@@ -44,7 +57,7 @@ export async function POST(req: NextRequest) {
             order: null,
             message: 'Recharge feature is currently disabled for this tenant',
           },
-          { status: 200 },
+          { status: 200, headers: CORS_HEADERS },
         );
       }
 
@@ -56,7 +69,13 @@ export async function POST(req: NextRequest) {
         .where(
           and(
             eq(rechargeOrders.tenantId, device.tenantId),
-            sql`(${rechargeOrders.status} = 'queued' OR (${rechargeOrders.status} = 'claimed' AND ${rechargeOrders.claimExpiresAt} < ${now}))`,
+            or(
+              eq(rechargeOrders.status, 'queued'),
+              and(
+                eq(rechargeOrders.status, 'claimed'),
+                lt(rechargeOrders.claimExpiresAt, sql`NOW()`),
+              ),
+            ),
           ),
         )
         .orderBy(asc(rechargeOrders.createdAt))
@@ -69,7 +88,7 @@ export async function POST(req: NextRequest) {
           {
             order: null,
           },
-          { status: 200 },
+          { status: 200, headers: CORS_HEADERS },
         );
       }
 
@@ -120,14 +139,15 @@ export async function POST(req: NextRequest) {
         },
       };
 
-      return NextResponse.json(responsePayload, { status: 200 });
+      return NextResponse.json(responsePayload, { status: 200, headers: CORS_HEADERS });
     });
   } catch (err) {
     console.error('[Recharge Claim] Database error during claim:', err);
     return NextResponse.json(
       { error: 'Service Unavailable: Database error during order claim' },
-      { status: 503 },
+      { status: 503, headers: CORS_HEADERS },
     );
   }
 }
+
 

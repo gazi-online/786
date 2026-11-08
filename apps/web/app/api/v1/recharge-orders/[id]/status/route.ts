@@ -8,6 +8,19 @@ import {
 import { verifyDeviceForRecharge } from '@/lib/recharge';
 import { eq, and } from 'drizzle-orm';
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-requested-with',
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: CORS_HEADERS,
+  });
+}
+
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
@@ -16,7 +29,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
   // 1. Authenticate device (DB-only, strict non-revocation check)
   const auth = await verifyDeviceForRecharge(req);
   if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+    return NextResponse.json({ error: auth.error }, { status: auth.status, headers: CORS_HEADERS });
   }
 
   const device = auth.device;
@@ -27,7 +40,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
   try {
     bodyJson = await req.json();
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON request body' }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid JSON request body' }, { status: 400, headers: CORS_HEADERS });
   }
 
   const parseResult = UpdateOrderStatusRequestSchema.safeParse(bodyJson);
@@ -37,7 +50,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
         error: 'Validation failed',
         details: parseResult.error.flatten(),
       },
-      { status: 400 },
+      { status: 400, headers: CORS_HEADERS },
     );
   }
 
@@ -158,14 +171,14 @@ export async function POST(req: NextRequest, context: RouteContext) {
             updatedAt: now.toISOString(),
           },
         },
-        { status: 200 },
+        { status: 200, headers: CORS_HEADERS },
       );
     });
   } catch (err) {
     console.error('[Recharge Status] Database error during status transition:', err);
     return NextResponse.json(
       { error: 'Service Unavailable: Database error during status update' },
-      { status: 503 },
+      { status: 503, headers: CORS_HEADERS },
     );
   }
 }

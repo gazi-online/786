@@ -409,6 +409,6 @@ export async function executeSimpleWalletRecharge(
   return {
     ok: true,
     status: 'submitted',
-    portalTrnId,
+    ...(portalTrnId ? { portalTrnId } : {}),
   };
 }

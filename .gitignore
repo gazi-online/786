@@ -42,3 +42,5 @@ Thumbs.db
 .vercel
 .agents/
 graphify-out/
+
+.env*
