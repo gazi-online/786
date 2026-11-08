@@ -54,15 +54,16 @@ async function waitForElement<T>(
 }
 
 function isElementVisible(el: HTMLElement): boolean {
-  if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') {
-    return true;
-  }
   if (!el) return false;
-  const style = window.getComputedStyle ? window.getComputedStyle(el) : null;
-  if (style && (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')) {
-    return false;
+  try {
+    const style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+    if (style && (style.display === 'none' || style.visibility === 'hidden')) {
+      return false;
+    }
+  } catch {
+    // ignore
   }
-  return el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0;
+  return true;
 }
 
 function findChangeOperatorButton(doc: Document): HTMLElement | null {
@@ -77,14 +78,60 @@ function findChangeOperatorButton(doc: Document): HTMLElement | null {
 
 /**
  * Finds and clicks the target operator card / icon on SimpleWallet.
- * Prioritizes cards over dropdowns.
+ * Prioritizes cards and images over dropdowns.
  */
 function selectOperatorCard(doc: Document, operator: string): boolean {
   const target = operator.toUpperCase().trim();
 
-  // 1. Look for text labels on operator cards (exact text match)
-  const allElements = Array.from(doc.querySelectorAll('div, a, li, button, span, p'));
-  for (const el of allElements) {
+  // 1. Look for operator image logos (alt / src / title match) - HIGHEST PRIORITY
+  const images = Array.from(doc.querySelectorAll<HTMLImageElement>('img, input[type="image"]'));
+  for (const img of images) {
+    const src = (img.src || '').toLowerCase();
+    const alt = (img.alt || '').toLowerCase();
+    const title = (img.title || '').toLowerCase();
+    let isImgMatch = false;
+
+    if (target.includes('JIO')) {
+      isImgMatch = (src.includes('jio') || alt.includes('jio') || title.includes('jio')) &&
+        !src.includes('special') && !alt.includes('special') && !title.includes('special');
+    } else if (target.includes('AIRTEL')) {
+      isImgMatch = src.includes('airtel') || alt.includes('airtel') || title.includes('airtel');
+    } else if (target.includes('BSNL')) {
+      isImgMatch = src.includes('bsnl') || alt.includes('bsnl') || title.includes('bsnl');
+    } else if (target === 'VI' || target.includes('VODAFONE') || target.includes('IDEA')) {
+      isImgMatch = (src.includes('vi') || alt.includes('vi') || src.includes('vodafone') || title.includes('vi')) &&
+        !src.includes('special') && !alt.includes('special');
+    }
+
+    if (isImgMatch) {
+      // Click both image and closest clickable wrapper
+      img.click();
+      try {
+        img.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      } catch {
+        // ignore
+      }
+      const clickableParent = img.closest('a, button, [onclick], .operator-card, .card, li, div') as HTMLElement | null;
+      if (clickableParent && clickableParent !== img) {
+        clickableParent.click();
+        try {
+          clickableParent.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        } catch {
+          // ignore
+        }
+      }
+      return true;
+    }
+  }
+
+  // 2. Look for text labels on operator cards (excluding tables, gridviews, headers)
+  const candidateElements = Array.from(doc.querySelectorAll('div, a, li, button, span, p'));
+  for (const el of candidateElements) {
+    // Avoid table cells from recent transaction history table
+    if (el.closest('table, #gvList, .table, tr, td, th, nav, footer, .navbar')) {
+      continue;
+    }
+
     const text = (el.textContent || '').trim().toUpperCase();
     let isMatch = false;
 
@@ -100,35 +147,6 @@ function selectOperatorCard(doc: Document, operator: string): boolean {
 
     if (isMatch) {
       const clickable = (el.closest('a, button, [onclick], .operator-card, .card, li, div[class*="operator" i]') || el) as HTMLElement;
-      clickable.click();
-      try {
-        clickable.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      } catch {
-        // ignore
-      }
-      return true;
-    }
-  }
-
-  // 2. Look for operator image logos (alt / src match)
-  const images = Array.from(doc.querySelectorAll('img'));
-  for (const img of images) {
-    const src = (img.src || '').toLowerCase();
-    const alt = (img.alt || '').toLowerCase();
-    let isImgMatch = false;
-
-    if (target.includes('JIO')) {
-      isImgMatch = (src.includes('jio') || alt.includes('jio')) && !src.includes('special') && !alt.includes('special');
-    } else if (target.includes('AIRTEL')) {
-      isImgMatch = src.includes('airtel') || alt.includes('airtel');
-    } else if (target.includes('BSNL')) {
-      isImgMatch = src.includes('bsnl') || alt.includes('bsnl');
-    } else if (target === 'VI' || target.includes('VODAFONE') || target.includes('IDEA')) {
-      isImgMatch = (src.includes('vi') || alt.includes('vi') || src.includes('vodafone')) && !src.includes('special') && !alt.includes('special');
-    }
-
-    if (isImgMatch) {
-      const clickable = (img.closest('a, button, [onclick], .operator-card, .card, li, div') || img) as HTMLElement;
       clickable.click();
       try {
         clickable.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
@@ -164,7 +182,7 @@ function selectOperatorCard(doc: Document, operator: string): boolean {
 
 function findMobileInput(doc: Document): HTMLInputElement | null {
   const direct = doc.querySelector(
-    'input[id*="txtMobile" i], input[name*="Mobile" i], input[id*="mobile" i], input[placeholder*="Mobile" i], input[type="tel"]',
+    'input[id*="txtMobile" i], input[name*="Mobile" i], input[id*="mobile" i], input[id*="txtCust" i], input[id*="txtPhone" i], input[placeholder*="Mobile" i], input[type="tel"]',
   ) as HTMLInputElement | null;
   if (direct) return direct;
 
@@ -379,32 +397,36 @@ export async function executeSimpleWalletRecharge(
     };
   }
 
-  // 5. Wait for form inputs to mount and become visible
+  // 5. Wait for form inputs to mount
   const mobileInput = await waitForElement(() => {
     const input = findMobileInput(doc);
-    return input && isElementVisible(input) ? input : null;
-  }, 4000, 100);
+    return input ? input : null;
+  }, 5000, 100);
 
   if (!mobileInput) {
+    const allInputsSummary = Array.from(doc.querySelectorAll('input'))
+      .slice(0, 10)
+      .map((i) => `${i.id || i.name || i.type}`)
+      .join(', ');
     return {
       ok: false,
       status: 'failed',
       failureCode: 'element_not_found',
-      failureDetail: 'Mobile number input element not found or not visible after operator selection',
+      failureDetail: `Mobile number input element not found after operator selection (Inputs: ${allInputsSummary || 'none'})`,
     };
   }
 
   const amountInput = await waitForElement(() => {
     const input = findAmountInput(doc);
-    return input && isElementVisible(input) ? input : null;
-  }, 3000, 100);
+    return input ? input : null;
+  }, 4000, 100);
 
   if (!amountInput) {
     return {
       ok: false,
       status: 'failed',
       failureCode: 'element_not_found',
-      failureDetail: 'Amount input element not found or not visible on page',
+      failureDetail: 'Amount input element not found on page',
     };
   }
 
