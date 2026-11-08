@@ -208,6 +208,7 @@ export function parseEgPayment(html: string): ParseResult {
     parserVersion: PARSER_VERSION,
     capturedAt: new Date().toISOString(),
     balancePaise,
+    commissionPaise: null,
     pageTotals: {
       amountPaise: totalPaise,
     },
