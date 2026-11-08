@@ -10,6 +10,9 @@ function createMockRechargeDoc(options?: {
   missingAmount?: boolean;
   missingSubmit?: boolean;
   portalCardsFlow?: boolean;
+  withChangeOperator?: boolean;
+  missingPayNow?: boolean;
+  missingOkDialog?: boolean;
 }): Document {
   const doc = new DOMParser().parseFromString('<!DOCTYPE html><html><body></body></html>', 'text/html');
 
@@ -32,6 +35,12 @@ function createMockRechargeDoc(options?: {
     doc.body.appendChild(otp);
   }
 
+  if (options?.withChangeOperator) {
+    const changeBtn = doc.createElement('button');
+    changeBtn.textContent = 'Change Operator';
+    doc.body.appendChild(changeBtn);
+  }
+
   if (options?.portalCardsFlow) {
     // Official portal cards layout
     const container = doc.createElement('div');
@@ -43,6 +52,9 @@ function createMockRechargeDoc(options?: {
     jioImg.src = '/images/operators/jio.png';
     jioImg.alt = 'JIO';
     jioCard.appendChild(jioImg);
+    const jioText = doc.createElement('span');
+    jioText.textContent = 'JIO';
+    jioCard.appendChild(jioText);
     container.appendChild(jioCard);
 
     const airtelCard = doc.createElement('div');
@@ -51,7 +63,18 @@ function createMockRechargeDoc(options?: {
     airtelImg.src = '/images/operators/airtel.png';
     airtelImg.alt = 'AIRTEL';
     airtelCard.appendChild(airtelImg);
+    const airtelText = doc.createElement('span');
+    airtelText.textContent = 'AIRTEL';
+    airtelCard.appendChild(airtelText);
     container.appendChild(airtelCard);
+
+    // Also include a JIO SPECIAL 349 card to ensure it's not mistakenly matched
+    const specialCard = doc.createElement('div');
+    specialCard.className = 'operator-card';
+    const specialText = doc.createElement('span');
+    specialText.textContent = 'JIO SPECIAL 349';
+    specialCard.appendChild(specialText);
+    container.appendChild(specialCard);
 
     doc.body.appendChild(container);
 
@@ -67,36 +90,39 @@ function createMockRechargeDoc(options?: {
     submitBtn.textContent = 'Recharge';
     doc.body.appendChild(submitBtn);
 
-    const confirmModal = doc.createElement('div');
-    confirmModal.className = 'modal in bootstrap-dialog type-primary';
-    const modalTitle = doc.createElement('div');
-    modalTitle.className = 'bootstrap-dialog-title';
-    modalTitle.textContent = 'Confirm Transaction';
-    confirmModal.appendChild(modalTitle);
+    if (!options?.missingPayNow) {
+      const confirmModal = doc.createElement('div');
+      confirmModal.className = 'modal in bootstrap-dialog type-primary';
+      const modalTitle = doc.createElement('div');
+      modalTitle.className = 'bootstrap-dialog-title';
+      modalTitle.textContent = 'Confrim Transaction';
+      confirmModal.appendChild(modalTitle);
 
-    const payNowBtn = doc.createElement('button');
-    payNowBtn.className = 'btn btn-success';
-    payNowBtn.textContent = 'Pay Now';
-    confirmModal.appendChild(payNowBtn);
-    doc.body.appendChild(confirmModal);
+      const payNowBtn = doc.createElement('button');
+      payNowBtn.className = 'btn btn-success';
+      payNowBtn.textContent = 'Pay Now';
+      confirmModal.appendChild(payNowBtn);
+      doc.body.appendChild(confirmModal);
+    }
 
-    // BootstrapDialog success alert
-    const alertDialog = doc.createElement('div');
-    alertDialog.className = 'bootstrap-dialog type-success';
-    const msg = doc.createElement('div');
-    msg.className = 'bootstrap-dialog-message';
-    msg.textContent = 'Transaction accepted, Trn No: 27795536';
-    alertDialog.appendChild(msg);
+    if (!options?.missingOkDialog) {
+      const alertDialog = doc.createElement('div');
+      alertDialog.className = 'bootstrap-dialog type-success';
+      const msg = doc.createElement('div');
+      msg.className = 'bootstrap-dialog-message';
+      msg.textContent = 'Transaction accepted, Trn No: 27795536';
+      alertDialog.appendChild(msg);
 
-    const okBtn = doc.createElement('button');
-    okBtn.className = 'btn btn-default bootstrap-dialog-button';
-    const okIcon = doc.createElement('span');
-    okIcon.className = 'bootstrap-dialog-button-icon glyphicon glyphicon-ok';
-    okBtn.appendChild(okIcon);
-    okBtn.appendChild(doc.createTextNode(' OK'));
-    alertDialog.appendChild(okBtn);
+      const okBtn = doc.createElement('button');
+      okBtn.className = 'btn btn-default bootstrap-dialog-button';
+      const okIcon = doc.createElement('span');
+      okIcon.className = 'bootstrap-dialog-button-icon glyphicon glyphicon-ok';
+      okBtn.appendChild(okIcon);
+      okBtn.appendChild(doc.createTextNode(' OK'));
+      alertDialog.appendChild(okBtn);
 
-    doc.body.appendChild(alertDialog);
+      doc.body.appendChild(alertDialog);
+    }
 
     return doc;
   }
@@ -144,6 +170,32 @@ function createMockRechargeDoc(options?: {
     submitBtn.type = 'submit';
     submitBtn.value = 'Proceed to Recharge';
     doc.body.appendChild(submitBtn);
+  }
+
+  if (!options?.missingPayNow) {
+    const confirmModal = doc.createElement('div');
+    confirmModal.className = 'modal in bootstrap-dialog type-primary';
+    const payNowBtn = doc.createElement('button');
+    payNowBtn.textContent = 'Pay Now';
+    confirmModal.appendChild(payNowBtn);
+    doc.body.appendChild(confirmModal);
+  }
+
+  if (!options?.missingOkDialog) {
+    const alertDialog = doc.createElement('div');
+    alertDialog.className = 'bootstrap-dialog type-success';
+    const msg = doc.createElement('div');
+    msg.textContent = 'Transaction accepted, Trn No: 27795536';
+    alertDialog.appendChild(msg);
+
+    const okBtn = doc.createElement('button');
+    const okIcon = doc.createElement('span');
+    okIcon.className = 'bootstrap-dialog-button-icon glyphicon glyphicon-ok';
+    okBtn.appendChild(okIcon);
+    okBtn.appendChild(doc.createTextNode(' OK'));
+    alertDialog.appendChild(okBtn);
+
+    doc.body.appendChild(alertDialog);
   }
 
   return doc;
@@ -269,6 +321,54 @@ describe('SimpleWallet Recharge Form Runner (Milestone R3)', () => {
     if (!result.ok) {
       expect(result.status).toBe('failed');
       expect(result.failureCode).toBe('element_not_found');
+    }
+  });
+
+  it('fails with confirmation_modal_missing if Pay Now modal does not appear', async () => {
+    const doc = createMockRechargeDoc({ portalCardsFlow: true, missingPayNow: true });
+    const result = await executeSimpleWalletRecharge(doc, {
+      customerNo: makePhone(),
+      operator: 'JIO',
+      amountPaise: 29900,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe('failed');
+      expect(result.failureCode).toBe('confirmation_modal_missing');
+    }
+  });
+
+  it('fails with portal_recharge_failed if confirmation OK alert dialog does not appear', async () => {
+    const doc = createMockRechargeDoc({ portalCardsFlow: true, missingOkDialog: true });
+    const result = await executeSimpleWalletRecharge(doc, {
+      customerNo: makePhone(),
+      operator: 'JIO',
+      amountPaise: 29900,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe('failed');
+      expect(result.failureCode).toBe('portal_recharge_failed');
+    }
+  });
+
+  it('successfully clicks Change Operator button if already visible before selecting new card', async () => {
+    const doc = createMockRechargeDoc({ portalCardsFlow: true, withChangeOperator: true });
+    const changeBtn = doc.querySelector('button') as HTMLElement;
+    const changeSpy = vi.spyOn(changeBtn, 'click');
+
+    const result = await executeSimpleWalletRecharge(doc, {
+      customerNo: makePhone(),
+      operator: 'AIRTEL',
+      amountPaise: 29900,
+    });
+
+    expect(changeSpy).toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.status).toBe('submitted');
     }
   });
 });

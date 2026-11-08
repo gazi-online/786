@@ -13,6 +13,64 @@ export interface DedicatedTabResult {
 }
 
 /**
+ * Waits for a specific tab to reach status === 'complete'.
+ */
+export async function waitForTabComplete(
+  tabId: number,
+  timeoutMs = 15000,
+): Promise<void> {
+  try {
+    const initial = await chrome.tabs.get(tabId);
+    if (initial && initial.status === 'complete') {
+      return;
+    }
+  } catch {
+    // ignore
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      if (pollInterval) clearInterval(pollInterval);
+      chrome.tabs.onUpdated.removeListener(listener);
+    };
+
+    const listener = (
+      updatedTabId: number,
+      changeInfo: chrome.tabs.TabChangeInfo,
+    ) => {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') {
+        cleanup();
+        resolve();
+      }
+    };
+
+    pollInterval = setInterval(async () => {
+      try {
+        const current = await chrome.tabs.get(tabId);
+        if (current && current.status === 'complete') {
+          cleanup();
+          resolve();
+        }
+      } catch {
+        // Tab might be navigating
+      }
+    }, 500);
+
+    timer = setTimeout(() => {
+      cleanup();
+      // Resolve rather than throw to let execution proceed if page is interactive
+      resolve();
+    }, timeoutMs);
+
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
+/**
  * Creates a non-active background tab for portal automation and waits for DOM to complete loading.
  */
 export async function openDedicatedBackgroundTab(
