@@ -64,6 +64,7 @@ export const CreateRechargeOrderRequestSchema = z.object({
     .regex(/^[5-9]\d{9}$/, 'Must be a valid 10-digit mobile number'),
   amountPaise: z.number().int().positive('Amount in paise must be positive integer'),
   confirmDuplicate: z.boolean().optional(),
+  mPin: z.string().trim().regex(/^\d{4}$/, 'Must be a 4-digit M-Pin').optional(),
 });
 export type CreateRechargeOrderRequest = z.infer<typeof CreateRechargeOrderRequestSchema>;
 
@@ -104,6 +105,7 @@ export const ClaimedRechargeOrderSchema = z.object({
   customerNo: z.string().regex(/^[5-9]\d{9}$/, 'Must be a valid 10-digit mobile number'),
   amountPaise: z.number().int().positive(),
   status: z.literal('claimed'),
+  mPin: z.string().regex(/^\d{4}$/).optional(),
   claimedAt: z.string(),
   claimExpiresAt: z.string(),
 });
@@ -127,6 +129,9 @@ export const UpdateOrderStatusRequestSchema = z.object({
       { message: 'failureDetail must never contain phone numbers' },
     )
     .optional(),
+  qrDataUrl: z.string().max(100000).optional(),
+  qrAmount: z.string().max(64).optional(),
+  qrTimer: z.string().max(64).optional(),
 });
 export type UpdateOrderStatusRequest = z.infer<typeof UpdateOrderStatusRequestSchema>;
 

@@ -55,7 +55,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     );
   }
 
-  const { status: nextStatus, failureCode, failureDetail } = parseResult.data;
+  const { status: nextStatus, failureCode, failureDetail, qrDataUrl, qrAmount, qrTimer } = parseResult.data;
   const now = new Date();
 
   // 3. Execute state transition within tenant context with row lock
@@ -159,6 +159,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
         failureCode: failureCode || null,
         failureDetail: failureDetail || null,
       });
+
+      if (qrDataUrl) {
+        broadcastSseEvent('recharge_order.qr_code', {
+          orderId: order.id,
+          qrDataUrl,
+          qrAmount: qrAmount || null,
+          qrTimer: qrTimer || null,
+        });
+      }
 
       return NextResponse.json(
         {

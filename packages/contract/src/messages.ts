@@ -158,6 +158,9 @@ export const PortalRechargeResultMessageSchema = z.object({
       { message: 'failureDetail must never contain phone numbers' },
     )
     .optional(),
+  qrDataUrl: z.string().max(100000).optional(),
+  qrAmount: z.string().max(64).optional(),
+  qrTimer: z.string().max(64).optional(),
 });
 export type PortalRechargeResultMessage = z.infer<typeof PortalRechargeResultMessageSchema>;
 

@@ -13,6 +13,8 @@ function createMockEgPaymentDoc(options?: {
   missingOperator?: boolean;
   missingAmount?: boolean;
   missingSubmit?: boolean;
+  withMPinModal?: boolean;
+  withProcessTransaction?: boolean;
 }): Document {
   const doc = new DOMParser().parseFromString('<!DOCTYPE html><html><body></body></html>', 'text/html');
 
@@ -38,7 +40,7 @@ function createMockEgPaymentDoc(options?: {
   if (!options?.missingMobile) {
     const mobileInput = doc.createElement('input');
     mobileInput.id = 'mobile';
-    mobileInput.name = 'mobile';
+    mobileInput.placeholder = 'Enter Mobile Number';
     mobileInput.type = 'tel';
     doc.body.appendChild(mobileInput);
   }
@@ -69,7 +71,7 @@ function createMockEgPaymentDoc(options?: {
   if (!options?.missingAmount) {
     const amountInput = doc.createElement('input');
     amountInput.id = 'amount';
-    amountInput.name = 'amount';
+    amountInput.placeholder = 'Enter Amount';
     amountInput.type = 'text';
     doc.body.appendChild(amountInput);
   }
@@ -78,19 +80,56 @@ function createMockEgPaymentDoc(options?: {
     const submitBtn = doc.createElement('button');
     submitBtn.id = 'btnSubmit';
     submitBtn.type = 'submit';
-    submitBtn.textContent = 'Proceed to Recharge';
+    submitBtn.textContent = 'Submit';
     doc.body.appendChild(submitBtn);
+  }
+
+  if (options?.withMPinModal) {
+    const modal = doc.createElement('div');
+    modal.className = 'modal in';
+    modal.innerHTML = `
+      <div>Confirm Number & Amount</div>
+      <div>Operator : Vi</div>
+      <div>Number : 9733671094</div>
+      <div>Amount : ₹349</div>
+      <div>M Pin</div>
+      <input type="password" placeholder="Enter your 4 Digit M Pin" id="mPinInput" />
+      <button id="btnConfirm">CONFIRM</button>
+    `;
+    doc.body.appendChild(modal);
+  }
+
+  if (options?.withProcessTransaction) {
+    const payModal = doc.createElement('div');
+    payModal.innerHTML = `
+      <div>Process Transaction</div>
+      <button id="btnPayProceed">Pay ₹ 347 to proceed</button>
+    `;
+    const btn = payModal.querySelector('button');
+    btn?.addEventListener('click', () => {
+      // Simulate opening QR modal upon clicking Pay Proceed
+      const qrModal = doc.createElement('div');
+      qrModal.innerHTML = `
+        <div>Payment Processing.</div>
+        <img src="data:image/png;base64,mockQrCodeData" class="qr-code" width="200" height="200" />
+        <div>Order Expring In</div>
+        <div>9M : 58S</div>
+        <div>Scan the QR with any UPI app.</div>
+      `;
+      doc.body.appendChild(qrModal);
+    });
+    doc.body.appendChild(payModal);
   }
 
   return doc;
 }
 
-describe('EG Payment Recharge Form Automation Runner', () => {
+describe('EG Payment Recharge Form Automation Runner (Milestone R5)', () => {
   const testPhone = makeTestPhone('7777');
 
-  it('fails with logged_out when login prompt is detected', () => {
+  it('fails with logged_out when login prompt is detected', async () => {
     const doc = createMockEgPaymentDoc({ loggedOut: true });
-    const result = executeEgPaymentRecharge(doc, {
+    const result = await executeEgPaymentRecharge(doc, {
       customerNo: testPhone,
       operator: 'AIRTEL',
       amountPaise: 29900,
@@ -103,9 +142,9 @@ describe('EG Payment Recharge Form Automation Runner', () => {
     }
   });
 
-  it('fails with challenge_detected and requires manual action when CAPTCHA is present', () => {
+  it('fails with challenge_detected and requires manual action when CAPTCHA is present', async () => {
     const doc = createMockEgPaymentDoc({ withCaptcha: true });
-    const result = executeEgPaymentRecharge(doc, {
+    const result = await executeEgPaymentRecharge(doc, {
       customerNo: testPhone,
       operator: 'AIRTEL',
       amountPaise: 29900,
@@ -118,9 +157,9 @@ describe('EG Payment Recharge Form Automation Runner', () => {
     }
   });
 
-  it('fails safely when mobile input element is missing from DOM', () => {
+  it('fails safely when mobile input element is missing from DOM', async () => {
     const doc = createMockEgPaymentDoc({ missingMobile: true });
-    const result = executeEgPaymentRecharge(doc, {
+    const result = await executeEgPaymentRecharge(doc, {
       customerNo: testPhone,
       operator: 'AIRTEL',
       amountPaise: 29900,
@@ -133,27 +172,12 @@ describe('EG Payment Recharge Form Automation Runner', () => {
     }
   });
 
-  it('fails when requested operator is not present in dropdown', () => {
-    const doc = createMockEgPaymentDoc();
-    const result = executeEgPaymentRecharge(doc, {
-      customerNo: testPhone,
-      operator: 'BSNL',
-      amountPaise: 29900,
-    });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.status).toBe('failed');
-      expect(result.failureCode).toBe('operator_mismatch');
-    }
-  });
-
-  it('successfully fills form, round-trip verifies, and clicks submit button', () => {
+  it('successfully fills form and clicks submit button', async () => {
     const doc = createMockEgPaymentDoc();
     const submitBtn = doc.getElementById('btnSubmit') as HTMLButtonElement;
     const clickSpy = vi.spyOn(submitBtn, 'click');
 
-    const result = executeEgPaymentRecharge(doc, {
+    const result = await executeEgPaymentRecharge(doc, {
       customerNo: testPhone,
       operator: 'JIO',
       amountPaise: 19900,
@@ -165,13 +189,50 @@ describe('EG Payment Recharge Form Automation Runner', () => {
     }
 
     const mobileInput = doc.getElementById('mobile') as HTMLInputElement;
-    const opSelect = doc.getElementById('operator') as HTMLSelectElement;
     const amountInput = doc.getElementById('amount') as HTMLInputElement;
 
     expect(mobileInput.value).toBe(testPhone);
-    expect(opSelect.value).toBe('JIO');
-    expect(amountInput.value).toBe('199.00');
+    expect(amountInput.value).toBe('199');
     expect(clickSpy).toHaveBeenCalledTimes(1);
   });
-});
 
+  it('handles M-Pin confirmation modal by filling 4-digit pin and clicking CONFIRM', async () => {
+    const doc = createMockEgPaymentDoc({ withMPinModal: true });
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'JIO',
+      amountPaise: 34900,
+      mPin: '1234',
+    });
+
+    const pinInput = doc.getElementById('mPinInput') as HTMLInputElement;
+    expect(pinInput.value).toBe('1234');
+    expect(result.ok).toBe(true);
+  });
+
+  it('detects insufficient balance, clicks Pay Proceed, and emits dynamic QR code data', async () => {
+    const doc = createMockEgPaymentDoc({ withProcessTransaction: true });
+    const qrCallback = vi.fn();
+
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'JIO',
+      amountPaise: 34900,
+      onQrCodeDetected: qrCallback,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe('needs_manual_action');
+      expect(result.failureCode).toBe('qr_payment_required');
+    }
+
+    expect(qrCallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        qrDataUrl: 'data:image/png;base64,mockQrCodeData',
+        amountText: '₹347',
+        timerText: '9M:58S',
+      }),
+    );
+  });
+});

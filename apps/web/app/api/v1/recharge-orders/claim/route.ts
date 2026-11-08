@@ -107,8 +107,24 @@ export async function POST(req: NextRequest) {
         })
         .where(eq(rechargeOrders.id, order.id));
 
-      // Decrypt plain phone number ONLY upon successful claim for this authenticated device
-      const customerNo = decryptCustomerNo(order.customerNoEnc, device.tenantId);
+      // Decrypt customer payload ONLY upon successful claim for this authenticated device
+      const decrypted = decryptCustomerNo(order.customerNoEnc, device.tenantId);
+      let customerNo = decrypted;
+      let mPin: string | undefined = undefined;
+
+      if (decrypted.startsWith('{')) {
+        try {
+          const parsedPayload = JSON.parse(decrypted);
+          if (parsedPayload && typeof parsedPayload.customerNo === 'string') {
+            customerNo = parsedPayload.customerNo;
+            if (typeof parsedPayload.mPin === 'string') {
+              mPin = parsedPayload.mPin;
+            }
+          }
+        } catch {
+          // fallback to raw string if not JSON
+        }
+      }
 
       // Write audit log entry
       await tx.insert(auditLog).values({
@@ -142,6 +158,7 @@ export async function POST(req: NextRequest) {
           status: 'claimed',
           claimedAt: now.toISOString(),
           claimExpiresAt: claimExpiresAt.toISOString(),
+          ...(mPin ? { mPin } : {}),
         },
       };
 

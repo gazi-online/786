@@ -396,6 +396,9 @@ export default defineBackground(() => {
               status: message.status,
               failureCode: message.failureCode,
               failureDetail: message.failureDetail,
+              qrDataUrl: message.qrDataUrl,
+              qrAmount: message.qrAmount,
+              qrTimer: message.qrTimer,
             });
           }
           if (message.failureCode === 'logged_out') {
@@ -590,7 +593,7 @@ export default defineBackground(() => {
 
       const targetUrl =
         order.source === 'egpayment'
-          ? 'https://egpayment.com/users/recharge'
+          ? 'https://egpayment.com/users/recharge/Prepaid'
           : 'https://simplewallet.in/web/MobileRecharge.aspx?mID=822&PID=821';
 
       // 1. Locate or open portal tab (always in background: never steal user focus or switch tabs)
@@ -617,6 +620,12 @@ export default defineBackground(() => {
         const egTabs = (await chrome.tabs.query({ url: 'https://egpayment.com/users/recharge*' }).catch(() => [])) as chrome.tabs.Tab[];
         if (egTabs.length > 0 && egTabs[0]?.id) {
           tabId = egTabs[0].id;
+          const curUrl = (egTabs[0].url || '').toLowerCase();
+          if (!curUrl.includes('prepaid')) {
+            console.log(`[WalletSync Recharge Dispatcher] Navigating background EG Payment tab ${tabId} to ${targetUrl}`);
+            await chrome.tabs.update(tabId, { url: targetUrl });
+            await waitForTabComplete(tabId);
+          }
         } else {
           const res = await openDedicatedBackgroundTab(targetUrl);
           tabId = res.tabId;
@@ -762,6 +771,9 @@ export default defineBackground(() => {
       status: string;
       failureCode?: string;
       failureDetail?: string;
+      qrDataUrl?: string;
+      qrAmount?: string;
+      qrTimer?: string;
     },
   ) {
     try {

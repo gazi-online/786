@@ -189,6 +189,19 @@ export default defineContentScript({
                     customerNo: order.customerNo,
                     operator: order.operator,
                     amountPaise: order.amountPaise,
+                    mPin: order.mPin,
+                    onQrCodeDetected: (qrData) => {
+                      chrome.runtime.sendMessage({
+                        type: 'PORTAL_RECHARGE_RESULT',
+                        orderId: order.id,
+                        status: 'needs_manual_action',
+                        failureCode: 'qr_payment_required',
+                        failureDetail: `Dynamic UPI QR code generated (${qrData.amountText || 'UPI'}). Scan from web portal to complete.`,
+                        qrDataUrl: qrData.qrDataUrl,
+                        qrAmount: qrData.amountText,
+                        qrTimer: qrData.timerText,
+                      }).catch(() => {});
+                    },
                   })
                 : await executeSimpleWalletRecharge(document, {
                     customerNo: order.customerNo,

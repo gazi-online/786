@@ -17,6 +17,7 @@ import {
   Ban,
   Radio,
   Sliders,
+  X,
 } from 'lucide-react';
 
 interface RechargeOrder {
@@ -69,6 +70,40 @@ export default function RechargePage() {
   }>({
     simplewallet: { balancePaise: null, commissionPaise: null, updatedAt: null },
   });
+
+  // EG Payment Review & 4-Digit M-Pin Modal State
+  const [showEgReviewModal, setShowEgReviewModal] = useState(false);
+  const [egMPin, setEgMPin] = useState('');
+  const [egCircle, _setEgCircle] = useState('West Bengal');
+
+  // Dynamic QR Code Payment Modal State (When EG Payment balance is insufficient)
+  const [activeQrPayment, setActiveQrPayment] = useState<{
+    orderId: string;
+    qrDataUrl: string;
+    qrAmount: string | null;
+    qrTimer: string | null;
+    paid?: boolean;
+  } | null>(null);
+
+  // Auto-detect operator from Indian mobile prefix
+  function detectMobileOperator(cleanNo: string): string | null {
+    if (cleanNo.length < 4) return null;
+    const p4 = cleanNo.slice(0, 4);
+    const p2 = cleanNo.slice(0, 2);
+    if (['9733', '9732', '9734', '9735', '9832', '9831', '9830', '9874', '9875', '9088', '9091', '9093', '7595', '7596'].includes(p4)) {
+      return 'VI';
+    }
+    if (['7029', '8509', '7001', '7002', '6290', '6291', '6294', '6295', '6296', '6297'].includes(p4) || ['62', '63', '70'].includes(p2)) {
+      return 'JIO';
+    }
+    if (['8967', '9564', '8013', '8016', '8240'].includes(p4) || ['98', '99', '89', '95', '84', '86'].includes(p2)) {
+      return 'AIRTEL';
+    }
+    if (['94', '93'].includes(p2)) {
+      return 'BSNL';
+    }
+    return null;
+  }
 
   async function fetchOrders() {
     try {
@@ -153,7 +188,39 @@ export default function RechargePage() {
       try {
         eventSource = new EventSource('/api/v1/stream');
 
-        eventSource.addEventListener('recharge_order.updated', () => {
+        eventSource.addEventListener('recharge_order.qr_code', (event) => {
+          try {
+            const data = JSON.parse((event as MessageEvent).data);
+            if (data.qrDataUrl) {
+              setActiveQrPayment({
+                orderId: data.orderId,
+                qrDataUrl: data.qrDataUrl,
+                qrAmount: data.qrAmount || null,
+                qrTimer: data.qrTimer || '9M : 58S',
+              });
+            }
+          } catch {
+            // ignore
+          }
+        });
+
+        eventSource.addEventListener('recharge_order.updated', (event) => {
+          try {
+            const data = JSON.parse((event as MessageEvent).data);
+            if (data.status === 'success' || data.status === 'submitted') {
+              setActiveQrPayment((prev) => {
+                if (prev && prev.orderId === data.orderId) {
+                  return { ...prev, paid: true };
+                }
+                return prev;
+              });
+              setTimeout(() => {
+                setActiveQrPayment((prev) => (prev?.paid ? null : prev));
+              }, 2500);
+            }
+          } catch {
+            // ignore
+          }
           fetchOrders();
         });
 
@@ -210,8 +277,7 @@ export default function RechargePage() {
     };
   }, []);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function dispatchOrder(mPinOverride?: string) {
     setErrorMessage(null);
     setSuccessMessage(null);
 
@@ -231,6 +297,7 @@ export default function RechargePage() {
     setIsSubmitting(true);
 
     try {
+      const pinToSend = mPinOverride || (portal === 'egpayment' ? egMPin : undefined);
       const res = await fetch('/api/v1/recharge-orders', {
         method: 'POST',
         headers: {
@@ -244,6 +311,7 @@ export default function RechargePage() {
           customerNo: cleanNo,
           amountPaise,
           confirmDuplicate,
+          ...(pinToSend ? { mPin: pinToSend } : {}),
         }),
       });
 
@@ -271,6 +339,7 @@ export default function RechargePage() {
       }
       setCustomerNo('');
       setAmount('');
+      setEgMPin('');
       setConfirmDuplicate(false);
       setDuplicateWarning(false);
       setIdempotencyKey(crypto.randomUUID());
@@ -284,6 +353,31 @@ export default function RechargePage() {
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    const cleanNo = customerNo.replace(/\D/g, '');
+    if (cleanNo.length !== 10) {
+      setErrorMessage('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      setErrorMessage('Please enter a valid recharge amount in ₹.');
+      return;
+    }
+
+    if (portal === 'egpayment') {
+      setShowEgReviewModal(true);
+      return;
+    }
+
+    await dispatchOrder();
   }
 
   async function handleCancelOrder(orderId: string) {
@@ -421,7 +515,11 @@ export default function RechargePage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPortal('egpayment')}
+                  onClick={() => {
+                    setPortal('egpayment');
+                    const detected = detectMobileOperator(customerNo);
+                    if (detected) setOperator(detected);
+                  }}
                   className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all ${
                     portal === 'egpayment'
                       ? 'border-indigo-600 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 shadow-xs'
@@ -432,6 +530,28 @@ export default function RechargePage() {
                   <span>EG Payment (egpayment.com)</span>
                 </button>
               </div>
+
+              {/* Target Portal Link for EG Payment */}
+              {portal === 'egpayment' && (
+                <div className="mt-3 p-3 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-zinc-500 dark:text-zinc-400">Target Portal Link:</span>
+                    <a
+                      href="https://egpayment.com/users/recharge/Prepaid"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] text-amber-600 dark:text-amber-400 hover:underline font-mono inline-flex items-center gap-1"
+                    >
+                      <span>recharge/Prepaid</span>
+                      <ArrowUpRight className="w-3 h-3" />
+                    </a>
+                  </div>
+                  <div className="pt-1 flex items-center justify-between text-[11px]">
+                    <span className="text-zinc-500 dark:text-zinc-400">Target Circle:</span>
+                    <span className="font-semibold text-zinc-800 dark:text-zinc-200">{egCircle}</span>
+                  </div>
+                </div>
+              )}
 
               {/* Target Portal Link & Login Sentinel */}
               {portal === 'simplewallet' && (
@@ -531,7 +651,14 @@ export default function RechargePage() {
                     type="tel"
                     maxLength={10}
                     value={customerNo}
-                    onChange={(e) => setCustomerNo(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    onChange={(e) => {
+                      const clean = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setCustomerNo(clean);
+                      if (portal === 'egpayment') {
+                        const detected = detectMobileOperator(clean);
+                        if (detected) setOperator(detected);
+                      }
+                    }}
                     placeholder="10-digit mobile number"
                     className="w-full pl-12 pr-4 py-2.5 text-sm font-mono tracking-wider rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     required
@@ -889,6 +1016,175 @@ export default function RechargePage() {
           </div>
         )}
       </div>
+
+      {/* ==================================================== */}
+      {/* EG PAYMENT CONFIRM NUMBER & AMOUNT MODAL WITH M-PIN */}
+      {/* ==================================================== */}
+      {showEgReviewModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => {
+            setShowEgReviewModal(false);
+            setEgMPin('');
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200 cursor-pointer"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden text-zinc-900 dark:text-zinc-100 cursor-default space-y-5"
+          >
+            <div className="text-center pb-2 border-b border-zinc-100 dark:border-zinc-800">
+              <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-50 tracking-tight">
+                Confirm Number & Amount
+              </h3>
+            </div>
+
+            <div className="text-center space-y-1.5 py-1">
+              <div className="text-lg font-bold text-zinc-800 dark:text-zinc-200">
+                Operator : <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{operator === 'VI' ? 'Vi' : operator === 'JIO' ? 'Jio' : operator === 'AIRTEL' ? 'Airtel' : 'BSNL'}</span>
+              </div>
+              <div className="text-2xl font-extrabold tracking-wider text-zinc-900 dark:text-white font-mono">
+                Number : {customerNo}
+              </div>
+              <div className="text-2xl font-black text-zinc-900 dark:text-white">
+                Amount : ₹{amount}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                M Pin
+              </label>
+              <input
+                type="password"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={4}
+                autoFocus
+                value={egMPin}
+                onChange={(e) => setEgMPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="Enter your 4 Digit M Pin"
+                className="w-full px-4 py-3 text-center text-lg font-bold tracking-widest rounded-2xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent placeholder:text-xs placeholder:tracking-normal placeholder:font-normal"
+              />
+              <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 text-center leading-tight">
+                Read carefully! Wrong number successful recharge will not be refunded.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEgReviewModal(false);
+                  setEgMPin('');
+                }}
+                className="py-3 px-4 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors uppercase tracking-wider cursor-pointer"
+              >
+                CANCEL
+              </button>
+              <button
+                type="button"
+                disabled={egMPin.length !== 4 || isSubmitting}
+                onClick={async () => {
+                  await dispatchOrder(egMPin);
+                  setShowEgReviewModal(false);
+                }}
+                className="py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold transition-all uppercase tracking-wider cursor-pointer shadow-md shadow-blue-600/30 flex items-center justify-center gap-1.5"
+              >
+                {isSubmitting ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  'CONFIRM'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* EG PAYMENT DYNAMIC UPI QR PAYMENT MODAL */}
+      {/* ==================================================== */}
+      {activeQrPayment && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => {
+            if (!activeQrPayment.paid) setActiveQrPayment(null);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in zoom-in-95 duration-200 cursor-pointer"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden text-zinc-900 dark:text-zinc-100 cursor-default space-y-4 text-center"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800">
+              <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400">
+                EG Payment Gateway
+              </span>
+              <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
+                Payment Processing.
+              </h3>
+              <button
+                type="button"
+                onClick={() => setActiveQrPayment(null)}
+                className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 p-1 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {activeQrPayment.paid ? (
+              <div className="py-8 space-y-3 animate-in zoom-in-90 duration-300">
+                <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20">
+                  <CheckCircle2 className="w-10 h-10" />
+                </div>
+                <h4 className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                  Payment Received!
+                </h4>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Recharge successfully processed on official portal.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex justify-center">
+                  <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                </div>
+
+                <div className="flex justify-center p-2 bg-white rounded-2xl shadow-inner border border-zinc-200 max-w-[280px] mx-auto">
+                  <img
+                    src={activeQrPayment.qrDataUrl}
+                    alt="EG Payment UPI QR Code"
+                    className="w-64 h-64 object-contain rounded-xl"
+                  />
+                </div>
+
+                <div>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">Order Expiring In</p>
+                  <p className="text-lg font-extrabold text-blue-600 tracking-wider">
+                    {activeQrPayment.qrTimer || '9M : 58S'}
+                  </p>
+                </div>
+
+                {activeQrPayment.qrAmount && (
+                  <div className="inline-block px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-blue-600 dark:text-blue-400 font-bold text-xs">
+                    Pay ₹{activeQrPayment.qrAmount}
+                  </div>
+                )}
+
+                <p className="text-sm font-bold text-zinc-900 dark:text-white">
+                  Scan the QR with any UPI app.
+                </p>
+                <p className="text-[11px] text-zinc-400">
+                  If you are not able to view Qr Scanner, please use different browser.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }

@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { source, service, operator, customerNo, amountPaise, confirmDuplicate } =
+  const { source, service, operator, customerNo, amountPaise, confirmDuplicate, mPin } =
     parsed.data;
 
   // DB-only operation inside tenant context
@@ -198,7 +198,8 @@ export async function POST(req: NextRequest) {
       }
 
       // 7. Create the order in 'queued' status
-      const customerNoEnc = encryptCustomerNo(customerNo, session.tenant.id);
+      const customerPayload = mPin ? JSON.stringify({ customerNo, mPin }) : customerNo;
+      const customerNoEnc = encryptCustomerNo(customerPayload, session.tenant.id);
       const now = new Date();
 
       let newOrder;
