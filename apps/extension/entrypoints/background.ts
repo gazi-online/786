@@ -50,13 +50,29 @@ export default defineBackground(() => {
 
   setupAlarms();
 
+  // Active fast polling (every 3 seconds) for instant background recharge order execution
+  let fastPollInterval: ReturnType<typeof setInterval> | null = null;
+  function startFastPolling() {
+    if (fastPollInterval) clearInterval(fastPollInterval);
+    fastPollInterval = setInterval(() => {
+      triggerRechargeDispatcherCycle();
+    }, 3000);
+  }
+  startFastPolling();
+
+  chrome.tabs.onActivated.addListener(() => {
+    triggerRechargeDispatcherCycle();
+  });
+
   chrome.runtime.onInstalled.addListener(() => {
     setupAlarms();
+    startFastPolling();
   });
 
   if (chrome.runtime.onStartup) {
     chrome.runtime.onStartup.addListener(() => {
       setupAlarms();
+      startFastPolling();
     });
   }
 
@@ -437,15 +453,27 @@ export default defineBackground(() => {
   async function sendMessageWithRetry(
     tabId: number,
     message: unknown,
-    maxAttempts = 6,
-    delayMs = 500,
+    maxAttempts = 10,
+    delayMs = 600,
   ): Promise<unknown> {
     let lastError: Error | null = null;
+    let hasReloaded = false;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         return await chrome.tabs.sendMessage(tabId, message);
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
+        // If content script is not connected on attempt 2, reload the tab to force MV3 script injection
+        if (attempt === 2 && !hasReloaded) {
+          hasReloaded = true;
+          console.log(`[WalletSync] Tab ${tabId} not responding, reloading tab to force content script injection...`);
+          try {
+            await chrome.tabs.reload(tabId);
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+          } catch {
+            // ignore reload error
+          }
+        }
         if (attempt < maxAttempts) {
           await new Promise((resolve) => setTimeout(resolve, delayMs));
         }

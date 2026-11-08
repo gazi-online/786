@@ -9,13 +9,10 @@ import {
 } from '@walletsync/contract';
 
 export default defineContentScript({
-  // Dedicated content script matching portal recharge and session guard forms
+  // Dedicated content script strictly matching ONLY portal recharge forms
   matches: [
     'https://simplewallet.in/web/MobileRecharge.aspx*',
-    'https://simplewallet.in/web/Login.aspx*',
-    'https://simplewallet.in/web/Default.aspx*',
     'https://egpayment.com/users/recharge*',
-    'https://egpayment.com/login*',
   ],
   runAt: 'document_idle',
   main() {
