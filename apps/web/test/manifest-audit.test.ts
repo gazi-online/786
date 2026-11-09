@@ -80,6 +80,8 @@ describe('Step A11 Hardening: Built Chrome Extension Manifest Exact Array Auditi
       'https://egpayment.com/users/recharge_history*',
       'https://simplewallet.in/web/MobileRecharge.aspx*',
       'https://egpayment.com/users/recharge*',
+      'https://egpayment.com/users/recharge',
+      'https://egpayment.com/users/recharge/*',
       'https://walletsync-seven.vercel.app/*',
       'http://localhost:3000/*',
     ]);

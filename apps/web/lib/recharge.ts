@@ -18,10 +18,10 @@ export interface TenantRechargeSettingsData {
 }
 
 export const DEFAULT_RECHARGE_SETTINGS: Omit<TenantRechargeSettingsData, 'tenantId'> = {
-  rechargeEnabled: false,
-  perOrderMaxPaise: 100000, // ₹1,000.00
-  dailyMaxPaise: 500000, // ₹5,000.00
-  maxOrdersPerMinute: 5,
+  rechargeEnabled: true,
+  perOrderMaxPaise: 500000, // ₹5,000.00
+  dailyMaxPaise: 2500000, // ₹25,000.00
+  maxOrdersPerMinute: 10,
 };
 
 /**
@@ -47,7 +47,35 @@ export async function getTenantRechargeSettings(
     };
   }
 
-  // Not yet created in DB; return conservative defaults
+  // Not yet created in DB; auto-provision active defaults
+  try {
+    const inserted = await tx
+      .insert(tenantRechargeSettings)
+      .values({
+        tenantId,
+        rechargeEnabled: true,
+        perOrderMaxPaise: DEFAULT_RECHARGE_SETTINGS.perOrderMaxPaise,
+        dailyMaxPaise: DEFAULT_RECHARGE_SETTINGS.dailyMaxPaise,
+        maxOrdersPerMinute: DEFAULT_RECHARGE_SETTINGS.maxOrdersPerMinute,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .onConflictDoNothing()
+      .returning();
+
+    if (inserted.length > 0 && inserted[0]) {
+      return {
+        tenantId: inserted[0].tenantId,
+        rechargeEnabled: inserted[0].rechargeEnabled,
+        perOrderMaxPaise: inserted[0].perOrderMaxPaise,
+        dailyMaxPaise: inserted[0].dailyMaxPaise,
+        maxOrdersPerMinute: inserted[0].maxOrdersPerMinute,
+      };
+    }
+  } catch {
+    // ignore
+  }
+
   return {
     tenantId,
     ...DEFAULT_RECHARGE_SETTINGS,
