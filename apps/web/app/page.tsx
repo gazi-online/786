@@ -280,7 +280,7 @@ export default function DashboardPage() {
     }
 
     if (clean.length === 10) {
-      queryLiveOperatorFromPortal(clean, rechargePortal);
+      queryLiveOperatorFromPortal(clean, 'egpayment');
     }
   }
 
@@ -2555,7 +2555,12 @@ export default function DashboardPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setRechargePortal('simplewallet')}
+                    onClick={() => {
+                      setRechargePortal('simplewallet');
+                      if (rechargeCustomerNo.length === 10 && !telecomLookupData) {
+                        queryLiveOperatorFromPortal(rechargeCustomerNo, 'egpayment');
+                      }
+                    }}
                     className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all ${
                       rechargePortal === 'simplewallet'
                         ? 'border-indigo-600 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 shadow-xs'

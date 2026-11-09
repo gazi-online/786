@@ -442,17 +442,14 @@ export default defineBackground(() => {
       }
 
       if (message.type === 'LOOKUP_OPERATOR_ON_PORTAL') {
-        const portal = message.portal || 'egpayment';
-        const targetUrl =
-          portal === 'egpayment'
-            ? 'https://egpayment.com/users/recharge'
-            : 'https://simplewallet.in/web/MobileRecharge.aspx?mID=822&PID=821';
-        const targetUrlPattern =
-          portal === 'egpayment' ? 'https://egpayment.com/*' : 'https://simplewallet.in/*';
+        // EG Payment is our designated live telecom lookup provider for all portals (including SimpleWallet)
+        const portal = 'egpayment';
+        const targetUrl = 'https://egpayment.com/users/recharge';
+        const targetUrlPattern = 'https://egpayment.com/*';
 
         (async () => {
           try {
-            console.log(`[WalletSync Operator Lookup] Starting portal lookup for mobile: ${message.mobile} on ${portal}`);
+            console.log(`[WalletSync Operator Lookup] Starting portal lookup for mobile: ${message.mobile} via EG Payment`);
 
             // 1. Locate existing portal tab or open in background
             const tabs = (await chrome.tabs.query({ url: targetUrlPattern }).catch(() => [])) as chrome.tabs.Tab[];

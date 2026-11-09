@@ -184,7 +184,7 @@ export default function RechargePage() {
     }
 
     if (clean.length === 10) {
-      queryLiveOperatorFromPortal(clean, portal);
+      queryLiveOperatorFromPortal(clean, 'egpayment');
     }
   }
 
@@ -590,7 +590,12 @@ export default function RechargePage() {
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setPortal('simplewallet')}
+                  onClick={() => {
+                    setPortal('simplewallet');
+                    if (customerNo.length === 10 && !telecomLookupData) {
+                      queryLiveOperatorFromPortal(customerNo, 'egpayment');
+                    }
+                  }}
                   className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all ${
                     portal === 'simplewallet'
                       ? 'border-indigo-600 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 shadow-xs'
