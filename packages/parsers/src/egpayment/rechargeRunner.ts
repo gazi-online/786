@@ -53,7 +53,7 @@ function isElementVisible(el: HTMLElement): boolean {
   return true;
 }
 
-function findMobileInput(doc: Document): HTMLInputElement | null {
+export function findMobileInput(doc: Document): HTMLInputElement | null {
   const byPlaceholder = doc.querySelector<HTMLInputElement>(
     'input[placeholder*="Enter Mobile" i], input[placeholder*="Mobile Number" i], input[placeholder*="Mobile" i]',
   );
@@ -193,6 +193,106 @@ function findQRCodeDetails(doc: Document): { qrDataUrl: string; amountText?: str
   };
 }
 
+export interface PortalTelecomDetails {
+  operator?: string | undefined;
+  circle?: string | undefined;
+}
+
+/**
+ * Reads the auto-detected or selected Operator and Circle from the official EG Payment portal DOM.
+ * Supports standard <select>, <input>, and custom dropdown markup.
+ */
+export function extractPortalOperatorAndCircle(doc: Document): PortalTelecomDetails {
+  let operator: string | undefined;
+  let circle: string | undefined;
+
+  // 1. Try Operator Select
+  const opSelect = doc.querySelector<HTMLSelectElement>(
+    'select#operator, select[name="operator"], select[name*="operator" i], select#op, select[name="op"]',
+  );
+  if (opSelect) {
+    const opt = opSelect.options[opSelect.selectedIndex];
+    const text = (opt?.text || '').trim();
+    const val = (opSelect.value || '').trim();
+    if (text && !/select\s*operator/i.test(text) && val !== '' && val !== '0') {
+      operator = text;
+    }
+  }
+
+  // 2. Try Operator Input (including readonly / disabled populated inputs)
+  if (!operator) {
+    const opInput = doc.querySelector<HTMLInputElement>(
+      'input#operator, input[name="operator"], input[name*="operator" i], input#op, input[name="op"]',
+    );
+    if (opInput) {
+      const val = (opInput.value || '').trim();
+      if (val && !/select\s*operator/i.test(val)) {
+        operator = val;
+      }
+    }
+  }
+
+  // 3. Try custom dropdown / text container near Operator label
+  if (!operator) {
+    const labels = Array.from(doc.querySelectorAll('label, div, span, h5, h6, strong'));
+    const opLabel = labels.find((l) => /^\s*operator\s*$/i.test(l.textContent || ''));
+    if (opLabel) {
+      const parent = opLabel.closest('.form-group, .mb-3, .col-md-6, div') || opLabel.parentElement;
+      if (parent) {
+        const textElem = parent.querySelector('.select2-selection__rendered, .chosen-single, .dropdown-toggle, input, select, p, span');
+        const txt = (textElem?.textContent || (textElem as HTMLInputElement)?.value || '').trim();
+        if (txt && !/select\s*operator/i.test(txt)) {
+          operator = txt;
+        }
+      }
+    }
+  }
+
+  // 4. Try Circle Select
+  const circleSelect = doc.querySelector<HTMLSelectElement>(
+    'select#circle, select[name="circle"], select[name*="circle" i]',
+  );
+  if (circleSelect) {
+    const opt = circleSelect.options[circleSelect.selectedIndex];
+    const text = (opt?.text || '').trim();
+    const val = (circleSelect.value || '').trim();
+    if (text && !/select\s*circle/i.test(text) && val !== '' && val !== '0') {
+      circle = text;
+    }
+  }
+
+  // 5. Try Circle Input
+  if (!circle) {
+    const circleInput = doc.querySelector<HTMLInputElement>(
+      'input#circle, input[name="circle"], input[name*="circle" i]',
+    );
+    if (circleInput) {
+      const val = (circleInput.value || '').trim();
+      if (val && !/select\s*circle/i.test(val)) {
+        circle = val;
+      }
+    }
+  }
+
+  // 6. Try custom dropdown / text container near Circle label
+  if (!circle) {
+    const labels = Array.from(doc.querySelectorAll('label, div, span, h5, h6, strong'));
+    const circleLabel = labels.find((l) => /^\s*circle\s*$/i.test(l.textContent || ''));
+    if (circleLabel) {
+      const parent = circleLabel.closest('.form-group, .mb-3, .col-md-6, div') || circleLabel.parentElement;
+      if (parent) {
+        const textElem = parent.querySelector('.select2-selection__rendered, .chosen-single, .dropdown-toggle, input, select, p, span');
+        const txt = (textElem?.textContent || (textElem as HTMLInputElement)?.value || '').trim();
+        if (txt && !/select\s*circle/i.test(txt)) {
+          circle = txt;
+        }
+      }
+    }
+  }
+
+  return { operator, circle };
+}
+
 /**
  * Executes form filling, M-Pin confirmation, and QR code handling on EG Payment Prepaid Recharge
  */
@@ -300,40 +400,70 @@ export async function executeEgPaymentRecharge(
   // Brief pause for AJAX auto-detection of Operator & Circle
   await new Promise((resolve) => setTimeout(resolve, 400));
 
-  // 5. If operator select exists and is still empty, manually select target operator
+  // 5. Enforce target operator (if merchant corrected or confirmed an operator on our platform)
   const operatorSelect = doc.querySelector<HTMLSelectElement>(
     'select#operator, select[name="operator"], select[name*="operator" i]',
   );
-  if (operatorSelect && (!operatorSelect.value || operatorSelect.value === '')) {
-    const targetOp = order.operator.toLowerCase().trim();
+  const targetOp = order.operator.toLowerCase().trim();
+  if (operatorSelect) {
     const options = Array.from(operatorSelect.options);
-    const matchedOption = options.find((opt) => {
-      const text = opt.text.toLowerCase().trim();
-      const val = opt.value.toLowerCase().trim();
-      return text.includes(targetOp) || val.includes(targetOp);
-    });
-    if (matchedOption) {
-      operatorSelect.value = matchedOption.value;
-      operatorSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    const selectedText = operatorSelect.options[operatorSelect.selectedIndex]?.text?.toLowerCase().trim() || '';
+    const selectedVal = operatorSelect.value.toLowerCase().trim();
+
+    // If current portal selection does not match merchant's choice, update it
+    if (!selectedText.includes(targetOp) && !selectedVal.includes(targetOp)) {
+      const matchedOption = options.find((opt) => {
+        const text = opt.text.toLowerCase().trim();
+        const val = opt.value.toLowerCase().trim();
+        return text.includes(targetOp) || val.includes(targetOp);
+      });
+      if (matchedOption) {
+        operatorSelect.value = matchedOption.value;
+        operatorSelect.dispatchEvent(new Event('input', { bubbles: true }));
+        operatorSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
     }
   }
+  const operatorInput = doc.querySelector<HTMLInputElement>(
+    'input#operator, input[name="operator"], input[name*="operator" i]',
+  );
+  if (operatorInput && !operatorInput.value.toLowerCase().includes(targetOp)) {
+    const opNames: Record<string, string> = { AIRTEL: 'Airtel', JIO: 'Jio', VI: 'Vi', BSNL: 'BSNL' };
+    operatorInput.value = opNames[order.operator.toUpperCase()] || order.operator;
+    operatorInput.dispatchEvent(new Event('input', { bubbles: true }));
+    operatorInput.dispatchEvent(new Event('change', { bubbles: true }));
+  }
 
-  // 5.1 If circle select exists, select target circle if provided
+  // 5.1 Enforce target circle (if merchant corrected or selected circle on our platform)
+  const targetCircle = (order.circle || 'West Bengal').toLowerCase().trim();
   const circleSelect = doc.querySelector<HTMLSelectElement>(
     'select#circle, select[name="circle"], select[name*="circle" i]',
   );
-  if (circleSelect && (!circleSelect.value || circleSelect.value === '')) {
-    const targetCircle = (order.circle || 'West Bengal').toLowerCase().trim();
+  if (circleSelect) {
     const options = Array.from(circleSelect.options);
-    const matchedOption = options.find((opt) => {
-      const text = opt.text.toLowerCase().trim();
-      const val = opt.value.toLowerCase().trim();
-      return text.includes(targetCircle) || val.includes(targetCircle);
-    });
-    if (matchedOption) {
-      circleSelect.value = matchedOption.value;
-      circleSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    const selectedText = circleSelect.options[circleSelect.selectedIndex]?.text?.toLowerCase().trim() || '';
+    const selectedVal = circleSelect.value.toLowerCase().trim();
+
+    if (!selectedText.includes(targetCircle) && !selectedVal.includes(targetCircle)) {
+      const matchedOption = options.find((opt) => {
+        const text = opt.text.toLowerCase().trim();
+        const val = opt.value.toLowerCase().trim();
+        return text.includes(targetCircle) || val.includes(targetCircle);
+      });
+      if (matchedOption) {
+        circleSelect.value = matchedOption.value;
+        circleSelect.dispatchEvent(new Event('input', { bubbles: true }));
+        circleSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
     }
+  }
+  const circleInput = doc.querySelector<HTMLInputElement>(
+    'input#circle, input[name="circle"], input[name*="circle" i]',
+  );
+  if (circleInput && !circleInput.value.toLowerCase().includes(targetCircle)) {
+    circleInput.value = order.circle || 'West Bengal';
+    circleInput.dispatchEvent(new Event('input', { bubbles: true }));
+    circleInput.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
   // 6. Locate & Fill Amount input

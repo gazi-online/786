@@ -36,7 +36,10 @@ export {
 } from './simplewallet/rechargeRunner';
 export {
   executeEgPaymentRecharge,
+  extractPortalOperatorAndCircle,
+  findMobileInput as findEgPaymentMobileInput,
   type EgPaymentRechargeOrderParams,
+  type PortalTelecomDetails,
 } from './egpayment/rechargeRunner';
 
 /**

@@ -32,7 +32,14 @@ import {
   ShieldCheck,
   MapPin,
 } from 'lucide-react';
-import { lookupTelecomDetails, INDIAN_CIRCLES, OPERATOR_METADATA, type TelecomLookupResult } from '@/lib/telecom';
+import {
+  lookupTelecomDetails,
+  normalizeOperatorName,
+  matchIndianCircle,
+  INDIAN_CIRCLES,
+  OPERATOR_METADATA,
+  type TelecomLookupResult,
+} from '@/lib/telecom';
 
 interface Stats {
   totalAmountPaise: number;
@@ -179,6 +186,7 @@ export default function DashboardPage() {
   // Telecom Live Operator & Circle Fetch State
   const [isFetchingTelecom, setIsFetchingTelecom] = useState(false);
   const [telecomLookupData, setTelecomLookupData] = useState<TelecomLookupResult | null>(null);
+  const [isMerchantOverridden, setIsMerchantOverridden] = useState(false);
 
   // Dynamic QR Code Payment Modal State (When EG Payment balance is insufficient)
   const [activeQrPayment, setActiveQrPayment] = useState<{
@@ -189,6 +197,73 @@ export default function DashboardPage() {
     paid?: boolean;
   } | null>(null);
 
+  // Live query from official portal via extension bridge with graceful offline fallback
+  function queryLiveOperatorFromPortal(cleanNo: string, targetPortal: string) {
+    setIsFetchingTelecom(true);
+    setIsMerchantOverridden(false);
+    const reqId = `telecom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    let resolved = false;
+
+    const messageHandler = (event: MessageEvent) => {
+      if (event.source !== window || !event.data || typeof event.data !== 'object') return;
+      if (event.data.type === 'WALLETSYNC_PORTAL_OPERATOR_RESULT' && event.data.requestId === reqId) {
+        window.removeEventListener('message', messageHandler);
+        resolved = true;
+        const res = event.data;
+        if (res.ok && res.operator) {
+          const normOp = normalizeOperatorName(res.operator);
+          const normCircle = matchIndianCircle(res.circle || 'West Bengal');
+          setRechargeOperator(normOp);
+          setRechargeCircle(normCircle);
+          setTelecomLookupData({
+            mobile: cleanNo,
+            operator: normOp,
+            operatorName: (OPERATOR_METADATA[normOp] || OPERATOR_METADATA.AIRTEL).name,
+            circle: normCircle,
+            circleCode: 'WB',
+            brandColor: (OPERATOR_METADATA[normOp] || OPERATOR_METADATA.AIRTEL).brandColor,
+            accentColor: (OPERATOR_METADATA[normOp] || OPERATOR_METADATA.AIRTEL).accentColor,
+            planType: 'Prepaid',
+            isLivePortal: true,
+          });
+        } else {
+          const fallback = lookupTelecomDetails(cleanNo);
+          if (fallback) {
+            setTelecomLookupData(fallback);
+            setRechargeOperator(fallback.operator);
+            setRechargeCircle(fallback.circle);
+          }
+        }
+        setIsFetchingTelecom(false);
+      }
+    };
+
+    window.addEventListener('message', messageHandler);
+
+    window.postMessage(
+      {
+        type: 'WALLETSYNC_QUERY_PORTAL_OPERATOR',
+        requestId: reqId,
+        mobile: cleanNo,
+        portal: targetPortal,
+      },
+      '*',
+    );
+
+    setTimeout(() => {
+      if (!resolved) {
+        window.removeEventListener('message', messageHandler);
+        const fallback = lookupTelecomDetails(cleanNo);
+        if (fallback) {
+          setTelecomLookupData(fallback);
+          setRechargeOperator(fallback.operator);
+          setRechargeCircle(fallback.circle);
+        }
+        setIsFetchingTelecom(false);
+      }
+    }, 1200);
+  }
+
   // Auto-detect operator and circle with live loading progress
   function handleRechargeCustomerNoChange(raw: string) {
     const clean = raw.replace(/\D/g, '').slice(0, 10);
@@ -198,20 +273,12 @@ export default function DashboardPage() {
     if (clean.length < 10) {
       setIsFetchingTelecom(false);
       setTelecomLookupData(null);
+      setIsMerchantOverridden(false);
       return;
     }
 
     if (clean.length === 10) {
-      setIsFetchingTelecom(true);
-      setTimeout(() => {
-        const result = lookupTelecomDetails(clean);
-        if (result) {
-          setTelecomLookupData(result);
-          setRechargeOperator(result.operator);
-          setRechargeCircle(result.circle);
-        }
-        setIsFetchingTelecom(false);
-      }, 400);
+      queryLiveOperatorFromPortal(clean, rechargePortal);
     }
   }
 
@@ -2500,11 +2567,7 @@ export default function DashboardPage() {
                     onClick={() => {
                       setRechargePortal('egpayment');
                       if (rechargeCustomerNo.length === 10) {
-                        const detected = lookupTelecomDetails(rechargeCustomerNo);
-                        if (detected) {
-                          setRechargeOperator(detected.operator);
-                          setRechargeCircle(detected.circle);
-                        }
+                        queryLiveOperatorFromPortal(rechargeCustomerNo, 'egpayment');
                       }
                     }}
                     className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all ${
@@ -2578,7 +2641,10 @@ export default function DashboardPage() {
                     <button
                       key={op.id}
                       type="button"
-                      onClick={() => setRechargeOperator(op.id)}
+                      onClick={() => {
+                        setRechargeOperator(op.id);
+                        setIsMerchantOverridden(true);
+                      }}
                       className={`p-2 rounded-xl border text-xs font-semibold text-center cursor-pointer transition-all ${
                         rechargeOperator === op.id
                           ? 'border-indigo-600 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 shadow-xs'
@@ -2664,16 +2730,31 @@ export default function DashboardPage() {
                           <MapPin className="w-3 h-3 text-rose-500" />
                           {rechargeCircle}
                         </span>
-                        <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-bold flex items-center gap-1">
-                          <ShieldCheck className="w-3 h-3" />
-                          Auto-Detected
-                        </span>
+                        {isMerchantOverridden ? (
+                          <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-[10px] font-bold flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-amber-500" />
+                            Merchant Override Enforced
+                          </span>
+                        ) : telecomLookupData?.isLivePortal ? (
+                          <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-bold flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            Official Portal Live
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-bold flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3" />
+                            Auto-Detected
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] text-zinc-500 dark:text-zinc-400">Circle:</span>
                         <select
                           value={rechargeCircle}
-                          onChange={(e) => setRechargeCircle(e.target.value)}
+                          onChange={(e) => {
+                            setRechargeCircle(e.target.value);
+                            setIsMerchantOverridden(true);
+                          }}
                           className="text-xs font-semibold py-1 px-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 cursor-pointer focus:ring-2 focus:ring-indigo-500"
                         >
                           {INDIAN_CIRCLES.map((c) => (

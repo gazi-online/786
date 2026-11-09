@@ -440,6 +440,35 @@ export default defineBackground(() => {
         });
         return true;
       }
+
+      if (message.type === 'LOOKUP_OPERATOR_ON_PORTAL') {
+        const portal = message.portal || 'egpayment';
+        const targetUrlPattern = portal === 'egpayment' ? '*://egpayment.com/*' : '*://simplewallet.in/*';
+        (async () => {
+          try {
+            const tabs = (await chrome.tabs.query({ url: targetUrlPattern }).catch(() => [])) as chrome.tabs.Tab[];
+            const activePortalTab = tabs.find((t) => (t.url || '').toLowerCase().includes('/recharge')) || tabs[0];
+
+            if (!activePortalTab?.id) {
+              sendResponse({ ok: false, error: 'portal_tab_not_open' });
+              return;
+            }
+
+            await ensureRechargeContentScriptInjected(activePortalTab.id).catch(() => {});
+
+            const result = await chrome.tabs.sendMessage(activePortalTab.id, {
+              type: 'QUERY_PORTAL_OPERATOR',
+              mobile: message.mobile,
+            }).catch((err) => ({ ok: false, error: err?.message || 'Content script query failed' }));
+
+            sendResponse(result);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Lookup failed';
+            sendResponse({ ok: false, error: msg });
+          }
+        })();
+        return true;
+      }
     },
   );
 

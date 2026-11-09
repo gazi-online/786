@@ -2,6 +2,8 @@ import { defineContentScript } from 'wxt/sandbox';
 import {
   executeSimpleWalletRecharge,
   executeEgPaymentRecharge,
+  extractPortalOperatorAndCircle,
+  findEgPaymentMobileInput,
   findRechargeRowInTable,
   parseMobileRechargeRows,
   parseSimpleWalletHeaderStats,
@@ -144,6 +146,62 @@ export default defineContentScript({
           sendResponse({ result: null });
         }
         return true;
+      }
+
+      // Handle live operator lookup query for EG Payment portal
+      if (rawMessage && typeof rawMessage === 'object' && (rawMessage as { type?: string }).type === 'QUERY_PORTAL_OPERATOR') {
+        const queryMsg = rawMessage as { type: string; mobile: string };
+        const mobile = queryMsg.mobile;
+        console.log('[WalletSync Recharge Content] Received live operator query for mobile:', mobile);
+
+        const mobileInput = findEgPaymentMobileInput(document);
+        if (!mobileInput) {
+          console.warn('[WalletSync Recharge Content] Mobile input element not found for query');
+          sendResponse({ ok: false, error: 'Mobile input element not found on page' });
+          return true;
+        }
+
+        // Fill mobile number and fire events to trigger official portal's AJAX auto-detection
+        mobileInput.focus();
+        try {
+          const nativeSetter = Object.getOwnPropertyDescriptor(
+            document.defaultView?.HTMLInputElement?.prototype || Object.getPrototypeOf(mobileInput),
+            'value',
+          )?.set;
+          if (nativeSetter) {
+            nativeSetter.call(mobileInput, mobile);
+          } else {
+            mobileInput.value = mobile;
+          }
+        } catch {
+          mobileInput.value = mobile;
+        }
+        mobileInput.dispatchEvent(new Event('input', { bubbles: true }));
+        mobileInput.dispatchEvent(new Event('change', { bubbles: true }));
+        try {
+          mobileInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: mobile.slice(-1) }));
+        } catch {
+          // ignore
+        }
+        mobileInput.dispatchEvent(new Event('blur', { bubbles: true }));
+
+        // Poll for portal DOM update of Operator and Circle
+        const startTime = Date.now();
+        const pollTimer = setInterval(() => {
+          const details = extractPortalOperatorAndCircle(document);
+          if (details.operator || Date.now() - startTime > 1200) {
+            clearInterval(pollTimer);
+            console.log('[WalletSync Recharge Content] Live operator query result:', details);
+            sendResponse({
+              ok: Boolean(details.operator),
+              operator: details.operator,
+              circle: details.circle,
+              source: 'portal_live',
+            });
+          }
+        }, 70);
+
+        return true; // Keep message channel open for async sendResponse
       }
 
       const validation = validateContentMessage(

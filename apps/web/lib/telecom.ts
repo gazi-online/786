@@ -12,6 +12,7 @@ export interface TelecomLookupResult {
   brandColor: string;
   accentColor: string;
   planType: 'Prepaid';
+  isLivePortal?: boolean;
 }
 
 export const INDIAN_CIRCLES = [
@@ -141,6 +142,8 @@ const PREFIX_MAP_4DIGIT: Record<string, PrefixRule> = {
   '9046': { operator: 'VI', circle: 'West Bengal', circleCode: 'WB' },
 
   // Airtel WB / Kolkata Series
+  '8167': { operator: 'AIRTEL', circle: 'West Bengal', circleCode: 'WB' },
+  '8168': { operator: 'AIRTEL', circle: 'West Bengal', circleCode: 'WB' },
   '8967': { operator: 'AIRTEL', circle: 'West Bengal', circleCode: 'WB' },
   '9564': { operator: 'AIRTEL', circle: 'West Bengal', circleCode: 'WB' },
   '8013': { operator: 'AIRTEL', circle: 'Kolkata', circleCode: 'KO' },
@@ -257,4 +260,28 @@ export function lookupTelecomDetails(mobile: string): TelecomLookupResult | null
     planType: 'Prepaid',
   };
 }
+
+/**
+ * Normalizes any raw portal operator name (e.g. 'Airtel', 'Jio', 'Vi', 'Idea', 'BSNL') to standard operator code.
+ */
+export function normalizeOperatorName(raw: string): 'AIRTEL' | 'JIO' | 'VI' | 'BSNL' {
+  const clean = (raw || '').toLowerCase().trim();
+  if (clean.includes('airtel')) return 'AIRTEL';
+  if (clean.includes('jio')) return 'JIO';
+  if (clean.includes('vi') || clean.includes('vodafone') || clean.includes('idea')) return 'VI';
+  if (clean.includes('bsnl')) return 'BSNL';
+  return 'AIRTEL';
+}
+
+/**
+ * Matches raw circle name returned by official portal to the nearest canonical circle name.
+ */
+export function matchIndianCircle(raw: string): string {
+  const clean = (raw || '').toLowerCase().trim();
+  const matched = INDIAN_CIRCLES.find((c) => c.toLowerCase() === clean);
+  if (matched) return matched;
+  const partial = INDIAN_CIRCLES.find((c) => clean.includes(c.toLowerCase()) || c.toLowerCase().includes(clean));
+  return partial || raw || 'West Bengal';
+}
+
 
