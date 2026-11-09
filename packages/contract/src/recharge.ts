@@ -35,7 +35,7 @@ const VALID_RECHARGE_TRANSITIONS: Record<RechargeOrderStatus, readonly RechargeO
   submitting: ['submitted', 'failed', 'unknown', 'needs_manual_action'],
   submitted: ['success', 'failed', 'unknown'],
   unknown: ['success', 'failed'],
-  needs_manual_action: ['cancelled', 'failed', 'unknown', 'success'],
+  needs_manual_action: ['submitted', 'success', 'failed', 'unknown', 'cancelled'],
   success: [],
   failed: [],
   cancelled: [],

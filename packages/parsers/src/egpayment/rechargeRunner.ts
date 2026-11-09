@@ -20,6 +20,8 @@ export interface EgPaymentRechargeOrderParams {
   amountPaise: number;
   mPin?: string;
   onQrCodeDetected?: (qrData: { qrDataUrl: string; amountText?: string | undefined; timerText?: string | undefined }) => void;
+  waitForPaymentCompletion?: boolean;
+  paymentWaitTimeoutMs?: number;
 }
 
 async function waitForElement<T>(
@@ -145,19 +147,73 @@ function findMPinModal(doc: Document): { pinInput: HTMLInputElement; confirmBtn:
   return null;
 }
 
-function findProcessTransactionPayButton(doc: Document): HTMLElement | null {
-  const candidates = Array.from(doc.querySelectorAll<HTMLElement>('button, a, div[role="button"]'));
-  return (
-    candidates.find((b) => {
-      const text = (b.textContent || '').trim();
-      return /pay\s*₹?\s*[\d,.]+\s*to\s*proceed/i.test(text);
-    }) || null
+export function findProcessTransactionPayButton(doc: Document): HTMLElement | null {
+  const payRegex = /pay\s*₹?\s*[\d,.]+\s*to\s*proceed/i;
+
+  // 1. First priority: native and custom button elements
+  const buttons = Array.from(
+    doc.querySelectorAll<HTMLElement>(
+      'ion-button, button, a, [role="button"], .btn, input[type="button"], input[type="submit"]',
+    ),
   );
+
+  for (const btn of buttons) {
+    const text = (btn.textContent || (btn as HTMLInputElement).value || '').trim().replace(/\s+/g, ' ');
+    if (payRegex.test(text)) {
+      return btn;
+    }
+  }
+
+  // 2. Second priority: leaf elements (spans, p, b, strong) matching the regex
+  const leaves = Array.from(
+    doc.querySelectorAll<HTMLElement>('span, p, div, b, strong'),
+  );
+  for (const leaf of leaves) {
+    if (leaf.children.length > 0) continue; // STRICTLY leaf element
+    const text = (leaf.textContent || '').trim().replace(/\s+/g, ' ');
+    if (payRegex.test(text)) {
+      const clickable = leaf.closest<HTMLElement>('ion-button, button, a, [role="button"], .btn') || leaf;
+      return clickable;
+    }
+  }
+
+  // 3. Search inside any drawer or modal container titled "Process Transaction"
+  const containers = Array.from(
+    doc.querySelectorAll<HTMLElement>('div, ion-modal, ion-action-sheet, .modal, .bottom-sheet, section, footer'),
+  );
+  for (const c of containers) {
+    const text = (c.textContent || '').toLowerCase();
+    if (text.includes('process transaction') && (text.includes('pay') || text.includes('proceed'))) {
+      const btn = Array.from(
+        c.querySelectorAll<HTMLElement>('ion-button, button, a, [role="button"], .btn'),
+      ).find((b) => {
+        const bText = (b.textContent || '').trim().replace(/\s+/g, ' ');
+        return payRegex.test(bText) || (/pay/i.test(bText) && /proceed/i.test(bText));
+      });
+      if (btn) return btn;
+    }
+  }
+
+  return null;
 }
 
-function findQRCodeDetails(doc: Document): { qrDataUrl: string; amountText?: string | undefined; timerText?: string | undefined } | null {
-  const dialogs = Array.from(doc.querySelectorAll('div, .modal, [role="dialog"]'));
-  const qrDialog = dialogs.find((d) => (d.textContent || '').includes('Payment Processing') || (d.textContent || '').includes('Scan the QR'));
+export function findQRCodeDetails(doc: Document): {
+  qrDataUrl: string;
+  amountText?: string | undefined;
+  timerText?: string | undefined;
+} | null {
+  const dialogs = Array.from(
+    doc.querySelectorAll<HTMLElement>('div, ion-modal, .modal, [role="dialog"], section, body'),
+  );
+  const qrDialog = dialogs.find((d) => {
+    const text = (d.textContent || '').toLowerCase();
+    return (
+      text.includes('payment processing') ||
+      text.includes('order expring in') ||
+      text.includes('order expiring in') ||
+      text.includes('scan the qr')
+    );
+  });
 
   const container = qrDialog || doc.body;
   if (!container) return null;
@@ -165,18 +221,48 @@ function findQRCodeDetails(doc: Document): { qrDataUrl: string; amountText?: str
   // 1. Look for QR Image
   const imgs = Array.from(container.querySelectorAll<HTMLImageElement>('img'));
   const qrImg = imgs.find((img) => {
-    const src = img.src || '';
-    return src.includes('data:image') || src.includes('qr') || (img.width > 120 && img.height > 120);
+    const src = (img.src || '').toLowerCase();
+    const alt = (img.alt || '').toLowerCase();
+    const className = (img.className || '').toLowerCase();
+    return (
+      src.startsWith('data:image') ||
+      src.includes('qr') ||
+      alt.includes('qr') ||
+      className.includes('qr') ||
+      ((img.width > 80 || img.naturalWidth > 80) && !src.includes('logo') && !src.includes('banner'))
+    );
   });
 
-  let qrDataUrl = qrImg?.src || '';
+  let qrDataUrl = '';
+  if (qrImg) {
+    if (qrImg.src.startsWith('data:image')) {
+      qrDataUrl = qrImg.src;
+    } else {
+      try {
+        const canvas = doc.createElement('canvas');
+        canvas.width = qrImg.naturalWidth || qrImg.width || 250;
+        canvas.height = qrImg.naturalHeight || qrImg.height || 250;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(qrImg, 0, 0);
+          qrDataUrl = canvas.toDataURL('image/png');
+        }
+      } catch {
+        qrDataUrl = qrImg.src;
+      }
+    }
+  }
 
   // 2. Look for Canvas QR
   if (!qrDataUrl) {
-    const canvas = container.querySelector('canvas');
-    if (canvas) {
+    const canvases = Array.from(container.querySelectorAll<HTMLCanvasElement>('canvas'));
+    for (const canvas of canvases) {
       try {
-        qrDataUrl = canvas.toDataURL('image/png');
+        const data = canvas.toDataURL('image/png');
+        if (data && data.length > 100) {
+          qrDataUrl = data;
+          break;
+        }
       } catch {
         // ignore
       }
@@ -185,13 +271,16 @@ function findQRCodeDetails(doc: Document): { qrDataUrl: string; amountText?: str
 
   // 3. Look for SVG QR
   if (!qrDataUrl) {
-    const svg = container.querySelector('svg');
-    if (svg && svg.clientWidth > 100) {
-      try {
-        const svgXml = new XMLSerializer().serializeToString(svg);
-        qrDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svgXml)}`;
-      } catch {
-        // ignore
+    const svgs = Array.from(container.querySelectorAll<SVGElement>('svg'));
+    for (const svg of svgs) {
+      if ((svg.clientWidth > 80 || svg.getAttribute('width')) && !svg.classList.contains('lucide')) {
+        try {
+          const svgXml = new XMLSerializer().serializeToString(svg);
+          qrDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svgXml)}`;
+          break;
+        } catch {
+          // ignore
+        }
       }
     }
   }
@@ -200,18 +289,114 @@ function findQRCodeDetails(doc: Document): { qrDataUrl: string; amountText?: str
 
   // Extract timer
   const text = container.textContent || '';
-  const timerMatch = text.match(/(\d{1,2}\s*[mM]\s*:\s*\d{1,2}\s*[sS])/i);
+  const fullText = text + ' ' + (doc.body?.textContent || '');
+  const timerMatch =
+    fullText.match(/(\d{1,2}\s*[mM]\s*:\s*\d{1,2}\s*[sS])/i) ||
+    fullText.match(/(\d{1,2}\s*:\s*\d{2})/);
   const timerText = timerMatch?.[1] ? timerMatch[1].replace(/\s+/g, '') : undefined;
 
   // Extract amount from container or document body
-  const fullText = text + ' ' + (doc.body?.textContent || '');
-  const amountMatch = fullText.match(/₹\s*([\d,.]+)/i);
-  const amountText = amountMatch?.[1] ? `₹${amountMatch[1]}` : undefined;
+  const amountMatch =
+    fullText.match(/₹\s*([\d,.]+)/i) ||
+    fullText.match(/pay\s*₹?\s*([\d,.]+)/i);
+  const amountText = amountMatch?.[1] ? `₹${amountMatch[1].trim()}` : undefined;
 
   return {
     qrDataUrl,
     ...(amountText ? { amountText } : {}),
     ...(timerText ? { timerText } : {}),
+  };
+}
+
+/**
+ * Actively monitors EG Payment portal tab while customer scans & pays the dynamic UPI QR code.
+ * Resolves to { ok: true, status: 'submitted' } when payment is verified and modal clears.
+ */
+export async function monitorQrPaymentCapture(
+  doc: Document,
+  timeoutMs = 600000,
+  checkIntervalMs = 800,
+): Promise<RechargeExecutionResult> {
+  const isTest = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+  const effectiveTimeout = isTest ? Math.min(timeoutMs, 500) : timeoutMs;
+  const effectiveInterval = isTest ? 25 : checkIntervalMs;
+
+  const startTime = Date.now();
+  let qrModalWasDetected = false;
+
+  while (Date.now() - startTime < effectiveTimeout) {
+    await new Promise((resolve) => setTimeout(resolve, effectiveInterval));
+
+    const qrDetails = findQRCodeDetails(doc);
+    if (qrDetails) {
+      qrModalWasDetected = true;
+    }
+
+    const bodyText = (doc.body?.textContent || '').toLowerCase();
+
+    // 1. Check for explicit portal success text
+    const hasSuccessText =
+      bodyText.includes('recharge successful') ||
+      bodyText.includes('transaction successful') ||
+      bodyText.includes('recharge submitted') ||
+      bodyText.includes('transaction accepted') ||
+      bodyText.includes('request accepted') ||
+      bodyText.includes('request has been accepted') ||
+      bodyText.includes('recharge accepted');
+
+    if (hasSuccessText) {
+      return {
+        ok: true,
+        status: 'submitted',
+      };
+    }
+
+    // 2. If QR modal was active and has now closed without error: payment captured!
+    if (qrModalWasDetected && !qrDetails) {
+      await new Promise((resolve) => setTimeout(resolve, effectiveInterval));
+      const postText = (doc.body?.textContent || '').toLowerCase();
+      const hasErrorText =
+        postText.includes('transaction failed') ||
+        postText.includes('payment failed') ||
+        postText.includes('order expired') ||
+        postText.includes('payment cancelled') ||
+        postText.includes('payment declined');
+
+      if (hasErrorText) {
+        return {
+          ok: false,
+          status: 'failed',
+          failureCode: 'portal_rejected',
+          failureDetail: 'Payment was cancelled or failed on EG Payment portal',
+        };
+      }
+
+      return {
+        ok: true,
+        status: 'submitted',
+      };
+    }
+
+    // 3. Check for explicit error text while modal is still open
+    if (
+      bodyText.includes('order expired') ||
+      bodyText.includes('payment failed') ||
+      bodyText.includes('transaction failed')
+    ) {
+      return {
+        ok: false,
+        status: 'failed',
+        failureCode: 'qr_payment_expired',
+        failureDetail: 'Dynamic UPI QR payment expired or failed on portal',
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    status: 'failed',
+    failureCode: 'qr_payment_expired',
+    failureDetail: 'Timed out waiting for dynamic UPI QR payment completion',
   };
 }
 
@@ -647,6 +832,10 @@ export async function executeEgPaymentRecharge(
         order.onQrCodeDetected(qrData);
       }
 
+      if (order.waitForPaymentCompletion) {
+        return await monitorQrPaymentCapture(doc, order.paymentWaitTimeoutMs || 600000);
+      }
+
       return {
         ok: false,
         status: 'needs_manual_action',
@@ -660,6 +849,11 @@ export async function executeEgPaymentRecharge(
     if (order.onQrCodeDetected) {
       order.onQrCodeDetected(outcomeResult.details);
     }
+
+    if (order.waitForPaymentCompletion) {
+      return await monitorQrPaymentCapture(doc, order.paymentWaitTimeoutMs || 600000);
+    }
+
     return {
       ok: false,
       status: 'needs_manual_action',

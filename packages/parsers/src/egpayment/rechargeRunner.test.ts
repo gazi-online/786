@@ -235,4 +235,27 @@ describe('EG Payment Recharge Form Automation Runner (Milestone R5)', () => {
       }),
     );
   });
+
+  it('detects insufficient balance, captures dynamic QR, and waits until payment is confirmed on portal to transition to submitted', async () => {
+    const doc = createMockEgPaymentDoc({ withProcessTransaction: true });
+    const qrCallback = vi.fn(() => {
+      // Simulate user scanning QR code and paying via UPI: modal closes and success text is rendered
+      setTimeout(() => {
+        doc.body.innerHTML = '<div>Recharge Successful! Transaction Accepted.</div>';
+      }, 40);
+    });
+
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'JIO',
+      amountPaise: 34900,
+      waitForPaymentCompletion: true,
+      paymentWaitTimeoutMs: 1000,
+      onQrCodeDetected: qrCallback,
+    });
+
+    expect(qrCallback).toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe('submitted');
+  });
 });

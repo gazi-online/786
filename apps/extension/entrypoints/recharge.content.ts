@@ -281,7 +281,18 @@ export default defineContentScript({
                     circle: order.circle,
                     amountPaise: order.amountPaise,
                     mPin: order.mPin,
+                    waitForPaymentCompletion: true,
                     onQrCodeDetected: (qrData) => {
+                      chrome.storage.local.set({
+                        activeRechargeOrder: {
+                          id: order.id,
+                          customerNo: order.customerNo,
+                          amountPaise: order.amountPaise,
+                          operator: order.operator,
+                          qrActive: true,
+                        },
+                      }).catch(() => {});
+
                       chrome.runtime.sendMessage({
                         type: 'PORTAL_RECHARGE_RESULT',
                         orderId: order.id,

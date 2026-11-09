@@ -94,12 +94,12 @@ describe('isValidRechargeTransition state machine', () => {
     expect(isValidRechargeTransition('needs_manual_action', 'failed')).toBe(true);
     expect(isValidRechargeTransition('needs_manual_action', 'unknown')).toBe(true);
     expect(isValidRechargeTransition('needs_manual_action', 'success')).toBe(true);
+    expect(isValidRechargeTransition('needs_manual_action', 'submitted')).toBe(true);
 
-    // Strictly forbidden to return to automated queue / submission pipeline!
+    // Strictly forbidden to return to automated queue / initial claim!
     expect(isValidRechargeTransition('needs_manual_action', 'queued')).toBe(false);
     expect(isValidRechargeTransition('needs_manual_action', 'claimed')).toBe(false);
     expect(isValidRechargeTransition('needs_manual_action', 'submitting')).toBe(false);
-    expect(isValidRechargeTransition('needs_manual_action', 'submitted')).toBe(false);
     expect(isValidRechargeTransition('needs_manual_action', 'needs_manual_action')).toBe(false);
   });
 });

@@ -429,9 +429,11 @@ export default defineBackground(() => {
             });
           }
           // After completing one order, immediately check for consecutive queued orders
-          setTimeout(() => {
-            triggerRechargeDispatcherCycle();
-          }, 400);
+          if (message.status !== 'needs_manual_action') {
+            setTimeout(() => {
+              triggerRechargeDispatcherCycle();
+            }, 400);
+          }
         });
         return true;
       }
@@ -819,8 +821,8 @@ export default defineBackground(() => {
       // Check lingering in-flight active order across MV3 service worker restarts
       try {
         const res = await chrome.storage.local.get(['activeRechargeOrder']);
-        const active = res?.activeRechargeOrder as { id?: string; dispatchedAt?: number } | undefined;
-        if (active && active.id && storage.deviceToken) {
+        const active = res?.activeRechargeOrder as { id?: string; dispatchedAt?: number; qrActive?: boolean } | undefined;
+        if (active && active.id && !active.qrActive && storage.deviceToken) {
           const elapsedMs = Date.now() - (active.dispatchedAt || 0);
           if (elapsedMs > 12000) {
             console.log(`[WalletSync Recharge Dispatcher] Lingering in-flight order ${active.id} (elapsed ${elapsedMs}ms): transitioning to submitted`);
@@ -989,23 +991,26 @@ export default defineBackground(() => {
         });
 
         // In-flight safety timeout: if content script was unloaded by portal form postback
-        // and did not report within 18s, transition order to 'submitted' so it awaits reconciliation
-        setTimeout(async () => {
-          try {
-            const currentStorage = await getStorage();
-            const res = await chrome.storage.local.get(['activeRechargeOrder']);
-            const active = res?.activeRechargeOrder as { id?: string } | undefined;
-            if (active && active.id === order.id && currentStorage.deviceToken) {
-              console.log(`[WalletSync Recharge Dispatcher] Postback safety timer: transitioning in-flight order ${order.id} to submitted`);
-              await chrome.storage.local.remove('activeRechargeOrder');
-              await sendRechargeStatusUpdate(currentStorage, order.id, {
-                status: 'submitted',
-              });
+        // and did not report within 18s, transition order to 'submitted' so it awaits reconciliation.
+        // ONLY applies to SimpleWallet (ASP.NET postbacks reload the page)
+        if (order.source === 'simplewallet') {
+          setTimeout(async () => {
+            try {
+              const currentStorage = await getStorage();
+              const res = await chrome.storage.local.get(['activeRechargeOrder']);
+              const active = res?.activeRechargeOrder as { id?: string; qrActive?: boolean } | undefined;
+              if (active && active.id === order.id && !active.qrActive && currentStorage.deviceToken) {
+                console.log(`[WalletSync Recharge Dispatcher] Postback safety timer: transitioning in-flight order ${order.id} to submitted`);
+                await chrome.storage.local.remove('activeRechargeOrder');
+                await sendRechargeStatusUpdate(currentStorage, order.id, {
+                  status: 'submitted',
+                });
+              }
+            } catch {
+              // ignore
             }
-          } catch {
-            // ignore
-          }
-        }, 18000);
+          }, 18000);
+        }
 
         return {
           success: true,

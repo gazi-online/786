@@ -92,6 +92,7 @@ describe('Milestone R1 & R1.1: Recharge Orders Server-Side Foundation', () => {
       expect(isValidRechargeTransition('needs_manual_action', 'failed')).toBe(true);
       expect(isValidRechargeTransition('needs_manual_action', 'unknown')).toBe(true);
       expect(isValidRechargeTransition('needs_manual_action', 'success')).toBe(true);
+      expect(isValidRechargeTransition('needs_manual_action', 'submitted')).toBe(true);
 
       // NEVER back to queued, claimed or submitting!
       expect(isValidRechargeTransition('needs_manual_action', 'queued')).toBe(false);
