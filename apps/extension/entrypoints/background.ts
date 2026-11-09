@@ -448,7 +448,7 @@ export default defineBackground(() => {
             ? 'https://egpayment.com/users/recharge'
             : 'https://simplewallet.in/web/MobileRecharge.aspx?mID=822&PID=821';
         const targetUrlPattern =
-          portal === 'egpayment' ? '*://egpayment.com/*' : '*://simplewallet.in/*';
+          portal === 'egpayment' ? 'https://egpayment.com/*' : 'https://simplewallet.in/*';
 
         (async () => {
           try {
@@ -471,34 +471,201 @@ export default defineBackground(() => {
             } else {
               // Open new tab in background: active: false
               console.log(`[WalletSync Operator Lookup] Opening dedicated background portal tab: ${targetUrl}`);
-              const created = await openDedicatedBackgroundTab(targetUrl, 20000);
-              targetTabId = created.tabId;
+              const newTab = await chrome.tabs.create({ url: targetUrl, active: false });
+              if (!newTab.id) throw new Error('Failed to create background tab');
+              targetTabId = newTab.id;
+              await waitForTabComplete(targetTabId, 15000);
             }
 
-            // 2. Ensure recharge content script is injected
-            await ensureRechargeContentScriptInjected(targetTabId).catch(() => {});
+            // Brief pause for page interactivity
+            await new Promise((r) => setTimeout(r, 350));
 
-            // Brief pause for script attachment
-            await new Promise((r) => setTimeout(r, 250));
-
-            // 3. Dispatch QUERY_PORTAL_OPERATOR to the portal tab (up to 5 retries)
-            let result: any = null;
-            for (let attempt = 0; attempt < 5; attempt++) {
+            // 2. Direct script execution in tab for guaranteed, instant DOM interaction
+            let result: { ok: boolean; operator?: string; circle?: string; error?: string } | null = null;
+            if (chrome.scripting && chrome.scripting.executeScript) {
               try {
-                result = await chrome.tabs.sendMessage(targetTabId, {
-                  type: 'QUERY_PORTAL_OPERATOR',
-                  mobile: message.mobile,
+                const execResults = await chrome.scripting.executeScript({
+                  target: { tabId: targetTabId },
+                  args: [message.mobile],
+                  func: async (mobileNo: string) => {
+                    function findInput(): HTMLInputElement | null {
+                      const byPh = document.querySelector<HTMLInputElement>(
+                        'input[placeholder*="Enter Mobile" i], input[placeholder*="Mobile Number" i], input[placeholder*="Mobile" i]'
+                      );
+                      if (byPh) return byPh;
+                      return (
+                        (document.getElementById('mobile') as HTMLInputElement | null) ||
+                        document.querySelector<HTMLInputElement>('input[name="mobile"], input[name*="mobile" i], input[type="tel"]')
+                      );
+                    }
+
+                    let input = findInput();
+                    for (let i = 0; i < 30; i++) {
+                      input = findInput();
+                      if (input) break;
+                      await new Promise((r) => setTimeout(r, 100));
+                    }
+
+                    if (!input) {
+                      return { ok: false, error: 'Mobile input element not found' };
+                    }
+
+                    input.focus();
+                    input.value = '';
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+
+                    try {
+                      const nativeSetter = Object.getOwnPropertyDescriptor(
+                        window.HTMLInputElement.prototype,
+                        'value'
+                      )?.set;
+                      if (nativeSetter) {
+                        nativeSetter.call(input, mobileNo);
+                      } else {
+                        input.value = mobileNo;
+                      }
+                    } catch {
+                      input.value = mobileNo;
+                    }
+
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    for (const char of mobileNo) {
+                      input.dispatchEvent(new KeyboardEvent('keydown', { key: char, code: `Digit${char}`, bubbles: true }));
+                      input.dispatchEvent(new KeyboardEvent('keypress', { key: char, code: `Digit${char}`, bubbles: true }));
+                      input.dispatchEvent(new KeyboardEvent('keyup', { key: char, code: `Digit${char}`, bubbles: true }));
+                    }
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                    input.dispatchEvent(new Event('blur', { bubbles: true }));
+
+                    function readDetails(): { operator?: string; circle?: string } {
+                      let operator: string | undefined;
+                      let circle: string | undefined;
+
+                      const opSelect = document.querySelector<HTMLSelectElement>(
+                        'select#operator, select[name="operator"], select[name*="operator" i], select#op, select[name="op"]'
+                      );
+                      if (opSelect) {
+                        const opt = opSelect.options[opSelect.selectedIndex];
+                        const txt = (opt?.text || '').trim();
+                        const val = (opSelect.value || '').trim();
+                        if (txt && !/select\s*operator/i.test(txt) && val !== '' && val !== '0') {
+                          operator = txt;
+                        }
+                      }
+
+                      if (!operator) {
+                        const opInput = document.querySelector<HTMLInputElement>(
+                          'input#operator, input[name="operator"], input[name*="operator" i], input#operator_name, input[name="operator_name"], input[placeholder*="Operator" i]'
+                        );
+                        if (opInput && opInput.value && !/select\s*operator/i.test(opInput.value)) {
+                          operator = opInput.value.trim();
+                        }
+                      }
+
+                      if (!operator) {
+                        const all = Array.from(document.querySelectorAll('label, div, p, span, h5, h6, strong'));
+                        for (const el of all) {
+                          if ((el.textContent || '').trim().toLowerCase() === 'operator') {
+                            const parent = el.closest('.form-group, .mb-3, .col-md-6, div') || el.parentElement;
+                            const cand = parent?.querySelector(
+                              '.select2-selection__rendered, .chosen-single, .dropdown-toggle, input, select, .form-control, p, span'
+                            ) || el.nextElementSibling;
+                            const val = ((cand as HTMLInputElement)?.value || cand?.textContent || '').trim();
+                            if (val && !/select\s*operator/i.test(val) && val.length < 50) {
+                              operator = val;
+                              break;
+                            }
+                          }
+                        }
+                      }
+
+                      const circSelect = document.querySelector<HTMLSelectElement>(
+                        'select#circle, select[name="circle"], select[name*="circle" i]'
+                      );
+                      if (circSelect) {
+                        const opt = circSelect.options[circSelect.selectedIndex];
+                        const txt = (opt?.text || '').trim();
+                        const val = (circSelect.value || '').trim();
+                        if (txt && !/select\s*circle/i.test(txt) && val !== '' && val !== '0') {
+                          circle = txt;
+                        }
+                      }
+
+                      if (!circle) {
+                        const circInput = document.querySelector<HTMLInputElement>(
+                          'input#circle, input[name="circle"], input[name*="circle" i], input#circle_name, input[name="circle_name"], input[placeholder*="Circle" i]'
+                        );
+                        if (circInput && circInput.value && !/select\s*circle/i.test(circInput.value)) {
+                          circle = circInput.value.trim();
+                        }
+                      }
+
+                      if (!circle) {
+                        const all = Array.from(document.querySelectorAll('label, div, p, span, h5, h6, strong'));
+                        for (const el of all) {
+                          if ((el.textContent || '').trim().toLowerCase() === 'circle') {
+                            const parent = el.closest('.form-group, .mb-3, .col-md-6, div') || el.parentElement;
+                            const cand = parent?.querySelector(
+                              '.select2-selection__rendered, .chosen-single, .dropdown-toggle, input, select, .form-control, p, span'
+                            ) || el.nextElementSibling;
+                            const val = ((cand as HTMLInputElement)?.value || cand?.textContent || '').trim();
+                            if (val && !/select\s*circle/i.test(val) && val.length < 50) {
+                              circle = val;
+                              break;
+                            }
+                          }
+                        }
+                      }
+
+                      return { operator, circle };
+                    }
+
+                    const startTime = Date.now();
+                    let d = readDetails();
+                    while (Date.now() - startTime < 4500) {
+                      d = readDetails();
+                      if (d.operator && !/select\s*operator/i.test(d.operator)) {
+                        break;
+                      }
+                      await new Promise((r) => setTimeout(r, 80));
+                    }
+
+                    return {
+                      ok: Boolean(d.operator && !/select\s*operator/i.test(d.operator)),
+                      operator: d.operator,
+                      circle: d.circle,
+                      source: 'portal_live',
+                    };
+                  },
                 });
-                if (result && result.ok) {
-                  break;
+
+                if (execResults && execResults[0]?.result) {
+                  result = execResults[0].result as any;
+                  console.log('[WalletSync Operator Lookup] Direct executeScript result:', result);
                 }
-              } catch (e) {
-                console.warn(`[WalletSync Operator Lookup] Attempt ${attempt + 1} sending message to tab ${targetTabId}:`, e);
+              } catch (execErr) {
+                console.warn('[WalletSync Operator Lookup] executeScript failed, falling back to sendMessage:', execErr);
               }
-              await new Promise((r) => setTimeout(r, 400));
             }
 
-            console.log('[WalletSync Operator Lookup] Result from portal tab:', result);
+            // Fallback to tabs.sendMessage if executeScript did not return
+            if (!result || !result.ok) {
+              await ensureRechargeContentScriptInjected(targetTabId).catch(() => {});
+              for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                  result = await chrome.tabs.sendMessage(targetTabId, {
+                    type: 'QUERY_PORTAL_OPERATOR',
+                    mobile: message.mobile,
+                  });
+                  if (result && result.ok) break;
+                } catch {
+                  // ignore
+                }
+                await new Promise((r) => setTimeout(r, 300));
+              }
+            }
+
+            console.log('[WalletSync Operator Lookup] Final result:', result);
             sendResponse(result || { ok: false, error: 'Query timed out' });
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : 'Lookup failed';

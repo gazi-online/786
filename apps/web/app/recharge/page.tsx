@@ -52,7 +52,7 @@ export default function RechargePage() {
   const { t } = useI18n();
 
   // Form State
-  const [portal, setPortal] = useState<'simplewallet' | 'egpayment'>('simplewallet');
+  const [portal, setPortal] = useState<'simplewallet' | 'egpayment'>('egpayment');
   const [operator, setOperator] = useState('AIRTEL');
   const [customerNo, setCustomerNo] = useState('');
   const [amount, setAmount] = useState('');
@@ -605,11 +605,7 @@ export default function RechargePage() {
                   onClick={() => {
                     setPortal('egpayment');
                     if (customerNo.length === 10) {
-                      const detected = lookupTelecomDetails(customerNo);
-                      if (detected) {
-                        setOperator(detected.operator);
-                        setCircle(detected.circle);
-                      }
+                      queryLiveOperatorFromPortal(customerNo, 'egpayment');
                     }
                   }}
                   className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all ${

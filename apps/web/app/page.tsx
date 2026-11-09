@@ -166,7 +166,7 @@ export default function DashboardPage() {
 
   // Recharge Orders State (Milestone R4)
   const [showRechargeModal, setShowRechargeModal] = useState(false);
-  const [rechargePortal, setRechargePortal] = useState<'simplewallet' | 'egpayment'>('simplewallet');
+  const [rechargePortal, setRechargePortal] = useState<'simplewallet' | 'egpayment'>('egpayment');
   const [rechargeOperator, setRechargeOperator] = useState('AIRTEL');
   const [rechargeCustomerNo, setRechargeCustomerNo] = useState('');
   const [rechargeAmount, setRechargeAmount] = useState('');
