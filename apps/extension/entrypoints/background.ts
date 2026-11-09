@@ -593,7 +593,7 @@ export default defineBackground(() => {
 
       const targetUrl =
         order.source === 'egpayment'
-          ? 'https://egpayment.com/users/recharge/Prepaid'
+          ? 'https://egpayment.com/users/recharge'
           : 'https://simplewallet.in/web/MobileRecharge.aspx?mID=822&PID=821';
 
       // 1. Locate or open portal tab (always in background: never steal user focus or switch tabs)
@@ -617,14 +617,16 @@ export default defineBackground(() => {
           await waitForTabComplete(tabId);
         }
       } else {
-        const egTabs = (await chrome.tabs.query({ url: 'https://egpayment.com/users/recharge*' }).catch(() => [])) as chrome.tabs.Tab[];
+        const egTabs = (await chrome.tabs.query({ url: '*://egpayment.com/*' }).catch(() => [])) as chrome.tabs.Tab[];
         if (egTabs.length > 0 && egTabs[0]?.id) {
           tabId = egTabs[0].id;
           const curUrl = (egTabs[0].url || '').toLowerCase();
-          if (!curUrl.includes('prepaid')) {
+          if (!curUrl.includes('/users/recharge')) {
             console.log(`[WalletSync Recharge Dispatcher] Navigating background EG Payment tab ${tabId} to ${targetUrl}`);
             await chrome.tabs.update(tabId, { url: targetUrl });
             await waitForTabComplete(tabId);
+          } else {
+            console.log(`[WalletSync Recharge Dispatcher] Using existing EG Payment tab ${tabId} (URL: ${curUrl})`);
           }
         } else {
           const res = await openDedicatedBackgroundTab(targetUrl);
@@ -636,7 +638,12 @@ export default defineBackground(() => {
       try {
         const tabInfo = await chrome.tabs.get(tabId);
         const curUrl = (tabInfo.url || '').toLowerCase();
-        if (curUrl.includes('/login') || curUrl.includes('/default.aspx') || curUrl.includes('/logout')) {
+        if (
+          curUrl.includes('/login') ||
+          curUrl.includes('/users/login') ||
+          curUrl.includes('/default.aspx') ||
+          (curUrl.includes('/logout') && !curUrl.includes('/recharge'))
+        ) {
           console.warn('[WalletSync Recharge Dispatcher] Portal redirected to login page:', curUrl);
           await sendRechargeStatusUpdate(storage, order.id, {
             status: 'failed',

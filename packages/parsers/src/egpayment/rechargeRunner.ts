@@ -201,13 +201,21 @@ export async function executeEgPaymentRecharge(
   order: EgPaymentRechargeOrderParams,
 ): Promise<RechargeExecutionResult> {
   // 1. Check logged-in state
-  const bodyText = doc.body?.textContent?.toUpperCase() || '';
-  if (
-    bodyText.includes('PLEASE LOG IN') ||
-    bodyText.includes('SIGN IN TO CONTINUE') ||
-    bodyText.includes('LOGIN TO YOUR ACCOUNT') ||
-    bodyText.includes('SESSION EXPIRED')
-  ) {
+  const curUrl = (doc.defaultView?.location?.href || '').toLowerCase();
+  const isLoginPage =
+    curUrl.includes('/login') ||
+    curUrl.includes('/users/login') ||
+    (curUrl.includes('/logout') && !curUrl.includes('/recharge'));
+
+  // Check for visible SweetAlert or modal indicating session expired (never match raw script tags!)
+  const visibleExpiredModal = Array.from(
+    doc.querySelectorAll('.swal-overlay--show-modal, .swal-modal, .modal.show, .modal.in, div[role="dialog"]'),
+  ).some((el) => {
+    const text = (el.textContent || '').toUpperCase();
+    return text.includes('SESSION EXPIRED') || text.includes('LOGIN AGAIN');
+  });
+
+  if (isLoginPage || visibleExpiredModal) {
     return {
       ok: false,
       status: 'failed',
@@ -233,6 +241,30 @@ export async function executeEgPaymentRecharge(
   // 3. Locate Mobile Number input
   const mobileInput = await waitForElement(() => findMobileInput(doc), 3000, 100);
   if (!mobileInput) {
+    // If mobile input is missing, check if this is an unauthenticated login screen or banner
+    const hasLoginFields = Boolean(
+      doc.querySelector('input[type="password"], input[name*="password" i], input[placeholder*="Password" i]'),
+    );
+    const visibleAuthText = Array.from(doc.querySelectorAll('div, p, span, h1, h2, h3, h4'))
+      .filter((el) => el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE')
+      .some((el) => {
+        const txt = (el.textContent || '').trim().toUpperCase();
+        return (
+          txt.includes('PLEASE LOG IN') ||
+          txt.includes('SIGN IN TO CONTINUE') ||
+          txt.includes('LOGIN TO YOUR ACCOUNT')
+        );
+      });
+
+    if (isLoginPage || hasLoginFields || visibleAuthText) {
+      return {
+        ok: false,
+        status: 'failed',
+        failureCode: 'logged_out',
+        failureDetail: 'EG Payment portal is not logged in. Please log in to egpayment.com and try again.',
+      };
+    }
+
     return {
       ok: false,
       status: 'failed',
