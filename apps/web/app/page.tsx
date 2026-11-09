@@ -250,8 +250,10 @@ export default function DashboardPage() {
       '*',
     );
 
+    // Timeout: if bridge or portal does not respond within 7000ms (allowing background tab load + AJAX), fallback to local lookup
     setTimeout(() => {
       if (!resolved) {
+        console.warn('[WalletSync Web] Portal lookup timed out at 7s, falling back to offline HLR catalog');
         window.removeEventListener('message', messageHandler);
         const fallback = lookupTelecomDetails(cleanNo);
         if (fallback) {
@@ -261,7 +263,7 @@ export default function DashboardPage() {
         }
         setIsFetchingTelecom(false);
       }
-    }, 1200);
+    }, 7000);
   }
 
   // Auto-detect operator and circle with live loading progress

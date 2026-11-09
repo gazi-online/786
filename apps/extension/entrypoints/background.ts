@@ -443,27 +443,66 @@ export default defineBackground(() => {
 
       if (message.type === 'LOOKUP_OPERATOR_ON_PORTAL') {
         const portal = message.portal || 'egpayment';
-        const targetUrlPattern = portal === 'egpayment' ? '*://egpayment.com/*' : '*://simplewallet.in/*';
+        const targetUrl =
+          portal === 'egpayment'
+            ? 'https://egpayment.com/users/recharge'
+            : 'https://simplewallet.in/web/MobileRecharge.aspx?mID=822&PID=821';
+        const targetUrlPattern =
+          portal === 'egpayment' ? '*://egpayment.com/*' : '*://simplewallet.in/*';
+
         (async () => {
           try {
-            const tabs = (await chrome.tabs.query({ url: targetUrlPattern }).catch(() => [])) as chrome.tabs.Tab[];
-            const activePortalTab = tabs.find((t) => (t.url || '').toLowerCase().includes('/recharge')) || tabs[0];
+            console.log(`[WalletSync Operator Lookup] Starting portal lookup for mobile: ${message.mobile} on ${portal}`);
 
-            if (!activePortalTab?.id) {
-              sendResponse({ ok: false, error: 'portal_tab_not_open' });
-              return;
+            // 1. Locate existing portal tab or open in background
+            const tabs = (await chrome.tabs.query({ url: targetUrlPattern }).catch(() => [])) as chrome.tabs.Tab[];
+            let targetTabId: number;
+
+            if (tabs.length > 0 && tabs[0]?.id) {
+              targetTabId = tabs[0].id;
+              const curUrl = (tabs[0].url || '').toLowerCase();
+              if (portal === 'egpayment' && !curUrl.includes('/users/recharge')) {
+                console.log(`[WalletSync Operator Lookup] Navigating existing EG Payment tab ${targetTabId} to ${targetUrl}`);
+                await chrome.tabs.update(targetTabId, { url: targetUrl });
+                await waitForTabComplete(targetTabId, 15000);
+              } else {
+                console.log(`[WalletSync Operator Lookup] Using existing portal tab ${targetTabId} (URL: ${curUrl})`);
+              }
+            } else {
+              // Open new tab in background: active: false
+              console.log(`[WalletSync Operator Lookup] Opening dedicated background portal tab: ${targetUrl}`);
+              const created = await openDedicatedBackgroundTab(targetUrl, 20000);
+              targetTabId = created.tabId;
             }
 
-            await ensureRechargeContentScriptInjected(activePortalTab.id).catch(() => {});
+            // 2. Ensure recharge content script is injected
+            await ensureRechargeContentScriptInjected(targetTabId).catch(() => {});
 
-            const result = await chrome.tabs.sendMessage(activePortalTab.id, {
-              type: 'QUERY_PORTAL_OPERATOR',
-              mobile: message.mobile,
-            }).catch((err) => ({ ok: false, error: err?.message || 'Content script query failed' }));
+            // Brief pause for script attachment
+            await new Promise((r) => setTimeout(r, 250));
 
-            sendResponse(result);
+            // 3. Dispatch QUERY_PORTAL_OPERATOR to the portal tab (up to 5 retries)
+            let result: any = null;
+            for (let attempt = 0; attempt < 5; attempt++) {
+              try {
+                result = await chrome.tabs.sendMessage(targetTabId, {
+                  type: 'QUERY_PORTAL_OPERATOR',
+                  mobile: message.mobile,
+                });
+                if (result && result.ok) {
+                  break;
+                }
+              } catch (e) {
+                console.warn(`[WalletSync Operator Lookup] Attempt ${attempt + 1} sending message to tab ${targetTabId}:`, e);
+              }
+              await new Promise((r) => setTimeout(r, 400));
+            }
+
+            console.log('[WalletSync Operator Lookup] Result from portal tab:', result);
+            sendResponse(result || { ok: false, error: 'Query timed out' });
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : 'Lookup failed';
+            console.error('[WalletSync Operator Lookup] Exception:', msg);
             sendResponse({ ok: false, error: msg });
           }
         })();

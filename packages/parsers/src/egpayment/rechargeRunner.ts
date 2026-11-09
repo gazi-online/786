@@ -234,15 +234,21 @@ export function extractPortalOperatorAndCircle(doc: Document): PortalTelecomDeta
 
   // 3. Try custom dropdown / text container near Operator label
   if (!operator) {
-    const labels = Array.from(doc.querySelectorAll('label, div, span, h5, h6, strong'));
-    const opLabel = labels.find((l) => /^\s*operator\s*$/i.test(l.textContent || ''));
-    if (opLabel) {
-      const parent = opLabel.closest('.form-group, .mb-3, .col-md-6, div') || opLabel.parentElement;
-      if (parent) {
-        const textElem = parent.querySelector('.select2-selection__rendered, .chosen-single, .dropdown-toggle, input, select, p, span');
-        const txt = (textElem?.textContent || (textElem as HTMLInputElement)?.value || '').trim();
-        if (txt && !/select\s*operator/i.test(txt)) {
+    const labels = Array.from(doc.querySelectorAll('label, div, p, span, h5, h6, strong'));
+    for (const opLabel of labels) {
+      if ((opLabel.textContent || '').trim().toLowerCase() === 'operator') {
+        const parent = opLabel.closest('.form-group, .mb-3, .col-md-6, div') || opLabel.parentElement;
+        const candidate = parent?.querySelector(
+          '.select2-selection__rendered, .chosen-single, .dropdown-toggle, input, select, .form-control, p, span',
+        ) || opLabel.nextElementSibling;
+        const txt = (
+          (candidate as HTMLInputElement)?.value ||
+          candidate?.textContent ||
+          ''
+        ).trim();
+        if (txt && !/select\s*operator/i.test(txt) && txt.length < 50) {
           operator = txt;
+          break;
         }
       }
     }
@@ -264,7 +270,7 @@ export function extractPortalOperatorAndCircle(doc: Document): PortalTelecomDeta
   // 5. Try Circle Input
   if (!circle) {
     const circleInput = doc.querySelector<HTMLInputElement>(
-      'input#circle, input[name="circle"], input[name*="circle" i]',
+      'input#circle, input[name="circle"], input[name*="circle" i], input#circle_name, input[name="circle_name"]',
     );
     if (circleInput) {
       const val = (circleInput.value || '').trim();
@@ -276,15 +282,21 @@ export function extractPortalOperatorAndCircle(doc: Document): PortalTelecomDeta
 
   // 6. Try custom dropdown / text container near Circle label
   if (!circle) {
-    const labels = Array.from(doc.querySelectorAll('label, div, span, h5, h6, strong'));
-    const circleLabel = labels.find((l) => /^\s*circle\s*$/i.test(l.textContent || ''));
-    if (circleLabel) {
-      const parent = circleLabel.closest('.form-group, .mb-3, .col-md-6, div') || circleLabel.parentElement;
-      if (parent) {
-        const textElem = parent.querySelector('.select2-selection__rendered, .chosen-single, .dropdown-toggle, input, select, p, span');
-        const txt = (textElem?.textContent || (textElem as HTMLInputElement)?.value || '').trim();
-        if (txt && !/select\s*circle/i.test(txt)) {
+    const labels = Array.from(doc.querySelectorAll('label, div, p, span, h5, h6, strong'));
+    for (const circleLabel of labels) {
+      if ((circleLabel.textContent || '').trim().toLowerCase() === 'circle') {
+        const parent = circleLabel.closest('.form-group, .mb-3, .col-md-6, div') || circleLabel.parentElement;
+        const candidate = parent?.querySelector(
+          '.select2-selection__rendered, .chosen-single, .dropdown-toggle, input, select, .form-control, p, span',
+        ) || circleLabel.nextElementSibling;
+        const txt = (
+          (candidate as HTMLInputElement)?.value ||
+          candidate?.textContent ||
+          ''
+        ).trim();
+        if (txt && !/select\s*circle/i.test(txt) && txt.length < 50) {
           circle = txt;
+          break;
         }
       }
     }

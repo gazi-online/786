@@ -32,8 +32,14 @@ export default defineContentScript({
         requestId?: string;
       };
 
+      if (data.type === 'WALLETSYNC_PING') {
+        window.postMessage({ type: 'WALLETSYNC_PONG', version: '0.1.0' }, '*');
+        return;
+      }
+
       if (data.type === 'WALLETSYNC_QUERY_PORTAL_OPERATOR') {
         const { mobile, portal, requestId } = data;
+        console.log(`[WalletSync Web Bridge] Forwarding operator lookup for ${mobile} on ${portal}...`);
         try {
           const response = await chrome.runtime.sendMessage({
             type: 'LOOKUP_OPERATOR_ON_PORTAL',
@@ -41,6 +47,7 @@ export default defineContentScript({
             portal: portal || 'egpayment',
           });
 
+          console.log('[WalletSync Web Bridge] Received response from background:', response);
           window.postMessage(
             {
               type: 'WALLETSYNC_PORTAL_OPERATOR_RESULT',
@@ -51,6 +58,7 @@ export default defineContentScript({
           );
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : 'Extension bridge failed';
+          console.error('[WalletSync Web Bridge] Error querying background:', errMsg);
           window.postMessage(
             {
               type: 'WALLETSYNC_PORTAL_OPERATOR_RESULT',
@@ -65,3 +73,4 @@ export default defineContentScript({
     });
   },
 });
+

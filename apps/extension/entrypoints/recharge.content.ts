@@ -154,52 +154,76 @@ export default defineContentScript({
         const mobile = queryMsg.mobile;
         console.log('[WalletSync Recharge Content] Received live operator query for mobile:', mobile);
 
-        const mobileInput = findEgPaymentMobileInput(document);
-        if (!mobileInput) {
-          console.warn('[WalletSync Recharge Content] Mobile input element not found for query');
-          sendResponse({ ok: false, error: 'Mobile input element not found on page' });
-          return true;
-        }
+        (async () => {
+          try {
+            // 1. Wait for mobile input element to be mounted in case page is loading
+            let mobileInput: HTMLInputElement | null = null;
+            for (let i = 0; i < 30; i++) {
+              mobileInput = findEgPaymentMobileInput(document);
+              if (mobileInput) break;
+              await new Promise((r) => setTimeout(r, 100));
+            }
 
-        // Fill mobile number and fire events to trigger official portal's AJAX auto-detection
-        mobileInput.focus();
-        try {
-          const nativeSetter = Object.getOwnPropertyDescriptor(
-            document.defaultView?.HTMLInputElement?.prototype || Object.getPrototypeOf(mobileInput),
-            'value',
-          )?.set;
-          if (nativeSetter) {
-            nativeSetter.call(mobileInput, mobile);
-          } else {
-            mobileInput.value = mobile;
-          }
-        } catch {
-          mobileInput.value = mobile;
-        }
-        mobileInput.dispatchEvent(new Event('input', { bubbles: true }));
-        mobileInput.dispatchEvent(new Event('change', { bubbles: true }));
-        try {
-          mobileInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: mobile.slice(-1) }));
-        } catch {
-          // ignore
-        }
-        mobileInput.dispatchEvent(new Event('blur', { bubbles: true }));
+            if (!mobileInput) {
+              console.warn('[WalletSync Recharge Content] Mobile input element not found for query');
+              sendResponse({ ok: false, error: 'Mobile input element not found on page' });
+              return;
+            }
 
-        // Poll for portal DOM update of Operator and Circle
-        const startTime = Date.now();
-        const pollTimer = setInterval(() => {
-          const details = extractPortalOperatorAndCircle(document);
-          if (details.operator || Date.now() - startTime > 1200) {
-            clearInterval(pollTimer);
-            console.log('[WalletSync Recharge Content] Live operator query result:', details);
+            // 2. Clear old value first to ensure change detection triggers
+            mobileInput.focus();
+            mobileInput.value = '';
+            mobileInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+            // 3. Set new mobile number and trigger all possible events for AJAX auto-fetch
+            try {
+              const nativeSetter = Object.getOwnPropertyDescriptor(
+                document.defaultView?.HTMLInputElement?.prototype || Object.getPrototypeOf(mobileInput),
+                'value',
+              )?.set;
+              if (nativeSetter) {
+                nativeSetter.call(mobileInput, mobile);
+              } else {
+                mobileInput.value = mobile;
+              }
+            } catch {
+              mobileInput.value = mobile;
+            }
+
+            mobileInput.dispatchEvent(new Event('input', { bubbles: true }));
+            for (const char of mobile) {
+              mobileInput.dispatchEvent(new KeyboardEvent('keydown', { key: char, code: `Digit${char}`, bubbles: true }));
+              mobileInput.dispatchEvent(new KeyboardEvent('keypress', { key: char, code: `Digit${char}`, bubbles: true }));
+              mobileInput.dispatchEvent(new KeyboardEvent('keyup', { key: char, code: `Digit${char}`, bubbles: true }));
+            }
+            mobileInput.dispatchEvent(new Event('change', { bubbles: true }));
+            mobileInput.dispatchEvent(new Event('blur', { bubbles: true }));
+
+            // 4. Poll for portal DOM update of Operator and Circle (up to 4000ms)
+            const startTime = Date.now();
+            let details = extractPortalOperatorAndCircle(document);
+
+            while (Date.now() - startTime < 4000) {
+              details = extractPortalOperatorAndCircle(document);
+              if (details.operator && !/select\s*operator/i.test(details.operator)) {
+                break;
+              }
+              await new Promise((r) => setTimeout(r, 80));
+            }
+
+            console.log('[WalletSync Recharge Content] Live operator query final result:', details);
             sendResponse({
-              ok: Boolean(details.operator),
+              ok: Boolean(details.operator && !/select\s*operator/i.test(details.operator)),
               operator: details.operator,
               circle: details.circle,
               source: 'portal_live',
             });
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Error querying portal';
+            console.error('[WalletSync Recharge Content] Exception querying operator:', msg);
+            sendResponse({ ok: false, error: msg });
           }
-        }, 70);
+        })();
 
         return true; // Keep message channel open for async sendResponse
       }
