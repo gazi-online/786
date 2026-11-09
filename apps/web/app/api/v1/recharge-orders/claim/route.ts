@@ -111,6 +111,7 @@ export async function POST(req: NextRequest) {
       const decrypted = decryptCustomerNo(order.customerNoEnc, device.tenantId);
       let customerNo = decrypted;
       let mPin: string | undefined = undefined;
+      let circle: string | undefined = undefined;
 
       if (decrypted.startsWith('{')) {
         try {
@@ -119,6 +120,9 @@ export async function POST(req: NextRequest) {
             customerNo = parsedPayload.customerNo;
             if (typeof parsedPayload.mPin === 'string') {
               mPin = parsedPayload.mPin;
+            }
+            if (typeof parsedPayload.circle === 'string') {
+              circle = parsedPayload.circle;
             }
           }
         } catch {
@@ -153,6 +157,7 @@ export async function POST(req: NextRequest) {
           source: order.source,
           service: order.service,
           operator: order.operator,
+          ...(circle ? { circle } : {}),
           customerNo,
           amountPaise: order.amountPaise,
           status: 'claimed',

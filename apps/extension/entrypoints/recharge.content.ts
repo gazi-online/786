@@ -188,6 +188,7 @@ export default defineContentScript({
                 ? await executeEgPaymentRecharge(document, {
                     customerNo: order.customerNo,
                     operator: order.operator,
+                    circle: order.circle,
                     amountPaise: order.amountPaise,
                     mPin: order.mPin,
                     onQrCodeDetected: (qrData) => {

@@ -16,6 +16,7 @@ import type { RechargeExecutionResult } from '../simplewallet/rechargeRunner';
 export interface EgPaymentRechargeOrderParams {
   customerNo: string;
   operator: string;
+  circle?: string | undefined;
   amountPaise: number;
   mPin?: string;
   onQrCodeDetected?: (qrData: { qrDataUrl: string; amountText?: string | undefined; timerText?: string | undefined }) => void;
@@ -242,13 +243,30 @@ export async function executeEgPaymentRecharge(
 
   // 4. Fill Mobile Number and trigger events for operator auto-fetch
   mobileInput.focus();
-  mobileInput.value = order.customerNo;
+  try {
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      doc.defaultView?.HTMLInputElement?.prototype || Object.getPrototypeOf(mobileInput),
+      'value',
+    )?.set;
+    if (nativeSetter) {
+      nativeSetter.call(mobileInput, order.customerNo);
+    } else {
+      mobileInput.value = order.customerNo;
+    }
+  } catch {
+    mobileInput.value = order.customerNo;
+  }
   mobileInput.dispatchEvent(new Event('input', { bubbles: true }));
   mobileInput.dispatchEvent(new Event('change', { bubbles: true }));
+  try {
+    mobileInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: '0' }));
+  } catch {
+    // ignore
+  }
   mobileInput.dispatchEvent(new Event('blur', { bubbles: true }));
 
   // Brief pause for AJAX auto-detection of Operator & Circle
-  await new Promise((resolve) => setTimeout(resolve, 350));
+  await new Promise((resolve) => setTimeout(resolve, 400));
 
   // 5. If operator select exists and is still empty, manually select target operator
   const operatorSelect = doc.querySelector<HTMLSelectElement>(
@@ -265,6 +283,24 @@ export async function executeEgPaymentRecharge(
     if (matchedOption) {
       operatorSelect.value = matchedOption.value;
       operatorSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+
+  // 5.1 If circle select exists, select target circle if provided
+  const circleSelect = doc.querySelector<HTMLSelectElement>(
+    'select#circle, select[name="circle"], select[name*="circle" i]',
+  );
+  if (circleSelect && (!circleSelect.value || circleSelect.value === '')) {
+    const targetCircle = (order.circle || 'West Bengal').toLowerCase().trim();
+    const options = Array.from(circleSelect.options);
+    const matchedOption = options.find((opt) => {
+      const text = opt.text.toLowerCase().trim();
+      const val = opt.value.toLowerCase().trim();
+      return text.includes(targetCircle) || val.includes(targetCircle);
+    });
+    if (matchedOption) {
+      circleSelect.value = matchedOption.value;
+      circleSelect.dispatchEvent(new Event('change', { bubbles: true }));
     }
   }
 

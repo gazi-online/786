@@ -58,6 +58,7 @@ export const CreateRechargeOrderRequestSchema = z.object({
   source: z.enum(['simplewallet', 'egpayment']),
   service: z.literal('Prepaid'), // V1 allows only 'Prepaid'
   operator: z.string().trim().min(1).max(64),
+  circle: z.string().trim().max(64).optional(),
   customerNo: z
     .string()
     .trim()
@@ -102,6 +103,7 @@ export const ClaimedRechargeOrderSchema = z.object({
   source: z.enum(['simplewallet', 'egpayment']),
   service: z.string(),
   operator: z.string(),
+  circle: z.string().optional(),
   customerNo: z.string().regex(/^[5-9]\d{9}$/, 'Must be a valid 10-digit mobile number'),
   amountPaise: z.number().int().positive(),
   status: z.literal('claimed'),

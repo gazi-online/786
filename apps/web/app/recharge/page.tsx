@@ -18,7 +18,10 @@ import {
   Radio,
   Sliders,
   X,
+  ShieldCheck,
+  MapPin,
 } from 'lucide-react';
+import { lookupTelecomDetails, INDIAN_CIRCLES, type TelecomLookupResult } from '@/lib/telecom';
 
 interface RechargeOrder {
   id: string;
@@ -71,10 +74,14 @@ export default function RechargePage() {
     simplewallet: { balancePaise: null, commissionPaise: null, updatedAt: null },
   });
 
+  // Telecom Live Operator & Circle Fetch State
+  const [isFetchingTelecom, setIsFetchingTelecom] = useState(false);
+  const [telecomLookupData, setTelecomLookupData] = useState<TelecomLookupResult | null>(null);
+  const [circle, setCircle] = useState<string>('West Bengal');
+
   // EG Payment Review & 4-Digit M-Pin Modal State
   const [showEgReviewModal, setShowEgReviewModal] = useState(false);
   const [egMPin, setEgMPin] = useState('');
-  const [egCircle, _setEgCircle] = useState('West Bengal');
 
   // Dynamic QR Code Payment Modal State (When EG Payment balance is insufficient)
   const [activeQrPayment, setActiveQrPayment] = useState<{
@@ -85,24 +92,30 @@ export default function RechargePage() {
     paid?: boolean;
   } | null>(null);
 
-  // Auto-detect operator from Indian mobile prefix
-  function detectMobileOperator(cleanNo: string): string | null {
-    if (cleanNo.length < 4) return null;
-    const p4 = cleanNo.slice(0, 4);
-    const p2 = cleanNo.slice(0, 2);
-    if (['9733', '9732', '9734', '9735', '9832', '9831', '9830', '9874', '9875', '9088', '9091', '9093', '7595', '7596'].includes(p4)) {
-      return 'VI';
+  // Auto-detect operator & circle with loading progress indicator
+  function handleMobileNumberChange(raw: string) {
+    const clean = raw.replace(/\D/g, '').slice(0, 10);
+    setCustomerNo(clean);
+    setErrorMessage(null);
+
+    if (clean.length < 10) {
+      setIsFetchingTelecom(false);
+      setTelecomLookupData(null);
+      return;
     }
-    if (['7029', '8509', '7001', '7002', '6290', '6291', '6294', '6295', '6296', '6297'].includes(p4) || ['62', '63', '70'].includes(p2)) {
-      return 'JIO';
+
+    if (clean.length === 10) {
+      setIsFetchingTelecom(true);
+      setTimeout(() => {
+        const result = lookupTelecomDetails(clean);
+        if (result) {
+          setTelecomLookupData(result);
+          setOperator(result.operator);
+          setCircle(result.circle);
+        }
+        setIsFetchingTelecom(false);
+      }, 400);
     }
-    if (['8967', '9564', '8013', '8016', '8240'].includes(p4) || ['98', '99', '89', '95', '84', '86'].includes(p2)) {
-      return 'AIRTEL';
-    }
-    if (['94', '93'].includes(p2)) {
-      return 'BSNL';
-    }
-    return null;
   }
 
   async function fetchOrders() {
@@ -308,6 +321,7 @@ export default function RechargePage() {
           source: portal,
           service: 'Prepaid',
           operator,
+          circle,
           customerNo: cleanNo,
           amountPaise,
           confirmDuplicate,
@@ -340,6 +354,9 @@ export default function RechargePage() {
       setCustomerNo('');
       setAmount('');
       setEgMPin('');
+      setCircle('West Bengal');
+      setTelecomLookupData(null);
+      setIsFetchingTelecom(false);
       setConfirmDuplicate(false);
       setDuplicateWarning(false);
       setIdempotencyKey(crypto.randomUUID());
@@ -517,8 +534,13 @@ export default function RechargePage() {
                   type="button"
                   onClick={() => {
                     setPortal('egpayment');
-                    const detected = detectMobileOperator(customerNo);
-                    if (detected) setOperator(detected);
+                    if (customerNo.length === 10) {
+                      const detected = lookupTelecomDetails(customerNo);
+                      if (detected) {
+                        setOperator(detected.operator);
+                        setCircle(detected.circle);
+                      }
+                    }
                   }}
                   className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all ${
                     portal === 'egpayment'
@@ -548,7 +570,7 @@ export default function RechargePage() {
                   </div>
                   <div className="pt-1 flex items-center justify-between text-[11px]">
                     <span className="text-zinc-500 dark:text-zinc-400">Target Circle:</span>
-                    <span className="font-semibold text-zinc-800 dark:text-zinc-200">{egCircle}</span>
+                    <span className="font-semibold text-zinc-800 dark:text-zinc-200">{circle}</span>
                   </div>
                 </div>
               )}
@@ -640,9 +662,20 @@ export default function RechargePage() {
             {/* Customer Number & Amount Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                  Mobile Number (10 Digits):
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                    Mobile Number (10 Digits):
+                  </label>
+                  <span
+                    className={`text-[10px] font-mono font-bold ${
+                      customerNo.length === 10
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-zinc-400'
+                    }`}
+                  >
+                    {customerNo.length}/10 digits
+                  </span>
+                </div>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-medium text-zinc-400">
                     +91
@@ -651,19 +684,74 @@ export default function RechargePage() {
                     type="tel"
                     maxLength={10}
                     value={customerNo}
-                    onChange={(e) => {
-                      const clean = e.target.value.replace(/\D/g, '').slice(0, 10);
-                      setCustomerNo(clean);
-                      if (portal === 'egpayment') {
-                        const detected = detectMobileOperator(clean);
-                        if (detected) setOperator(detected);
-                      }
-                    }}
+                    onChange={(e) => handleMobileNumberChange(e.target.value)}
                     placeholder="10-digit mobile number"
-                    className="w-full pl-12 pr-4 py-2.5 text-sm font-mono tracking-wider rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full pl-12 pr-10 py-2.5 text-sm font-mono tracking-wider rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     required
                   />
+                  {isFetchingTelecom && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      <RefreshCw className="w-4 h-4 text-indigo-600 dark:text-indigo-400 animate-spin" />
+                    </div>
+                  )}
                 </div>
+
+                {/* Loading Progress Bar for Telecom HLR Lookup */}
+                {isFetchingTelecom && (
+                  <div className="mt-2.5 p-2.5 rounded-xl bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-violet-500/10 border border-indigo-200 dark:border-indigo-800/60 shadow-xs space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-bold text-indigo-950 dark:text-indigo-200">
+                      <span className="flex items-center gap-1.5">
+                        <Radio className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 animate-pulse" />
+                        Fetching Operator & Circle details...
+                      </span>
+                      <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400">
+                        Querying Network...
+                      </span>
+                    </div>
+                    {/* Animated Progress Shimmer Bar */}
+                    <div className="h-1.5 w-full bg-indigo-100 dark:bg-indigo-950 rounded-full overflow-hidden relative">
+                      <div className="h-full bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 rounded-full w-full animate-pulse" />
+                    </div>
+                  </div>
+                )}
+
+                {/* Auto-Fetched Telecom Card */}
+                {telecomLookupData && !isFetchingTelecom && (
+                  <div className="mt-2.5 p-3 rounded-2xl bg-gradient-to-br from-zinc-50 to-indigo-50/40 dark:from-zinc-900/90 dark:to-indigo-950/20 border border-indigo-200/80 dark:border-indigo-800/60 shadow-xs space-y-2">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="px-2.5 py-1 rounded-lg text-xs font-black tracking-wide text-white shadow-xs"
+                          style={{ backgroundColor: telecomLookupData.brandColor }}
+                        >
+                          {telecomLookupData.operatorName}
+                        </span>
+                        <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-200/70 dark:bg-zinc-800 text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                          <MapPin className="w-3 h-3 text-rose-500" />
+                          {circle}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-bold flex items-center gap-1">
+                          <ShieldCheck className="w-3 h-3" />
+                          Auto-Detected
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-zinc-500 dark:text-zinc-400">Circle:</span>
+                        <select
+                          value={circle}
+                          onChange={(e) => setCircle(e.target.value)}
+                          className="text-xs font-semibold py-1 px-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 cursor-pointer focus:ring-2 focus:ring-indigo-500"
+                        >
+                          {INDIAN_CIRCLES.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1043,6 +1131,9 @@ export default function RechargePage() {
             <div className="text-center space-y-1.5 py-1">
               <div className="text-lg font-bold text-zinc-800 dark:text-zinc-200">
                 Operator : <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{operator === 'VI' ? 'Vi' : operator === 'JIO' ? 'Jio' : operator === 'AIRTEL' ? 'Airtel' : 'BSNL'}</span>
+              </div>
+              <div className="text-sm font-semibold text-zinc-600 dark:text-zinc-400">
+                Circle : <span className="text-zinc-900 dark:text-zinc-100 font-bold">{circle}</span>
               </div>
               <div className="text-2xl font-extrabold tracking-wider text-zinc-900 dark:text-white font-mono">
                 Number : {customerNo}
