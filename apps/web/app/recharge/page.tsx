@@ -21,7 +21,7 @@ import {
   ShieldCheck,
   MapPin,
 } from 'lucide-react';
-import { lookupTelecomDetails, INDIAN_CIRCLES, type TelecomLookupResult } from '@/lib/telecom';
+import { lookupTelecomDetails, INDIAN_CIRCLES, OPERATOR_METADATA, type TelecomLookupResult } from '@/lib/telecom';
 
 interface RechargeOrder {
   id: string;
@@ -721,10 +721,13 @@ export default function RechargePage() {
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2">
                         <span
-                          className="px-2.5 py-1 rounded-lg text-xs font-black tracking-wide text-white shadow-xs"
-                          style={{ backgroundColor: telecomLookupData.brandColor }}
+                          className="px-2.5 py-1 rounded-lg text-xs font-black tracking-wide text-white shadow-xs transition-colors"
+                          style={{
+                            backgroundColor:
+                              (OPERATOR_METADATA[operator as keyof typeof OPERATOR_METADATA] || OPERATOR_METADATA.AIRTEL).brandColor,
+                          }}
                         >
-                          {telecomLookupData.operatorName}
+                          {(OPERATOR_METADATA[operator as keyof typeof OPERATOR_METADATA] || OPERATOR_METADATA.AIRTEL).name}
                         </span>
                         <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-200/70 dark:bg-zinc-800 text-xs font-semibold text-zinc-800 dark:text-zinc-200">
                           <MapPin className="w-3 h-3 text-rose-500" />
