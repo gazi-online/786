@@ -76,6 +76,23 @@ export function isAllowedPortalRechargeUrl(rawUrl?: string | null): boolean {
   }
 }
 
+export function isAllowedWebAppUrl(rawUrl?: string | null): boolean {
+  if (!rawUrl || typeof rawUrl !== 'string') return false;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      hostname === 'walletsync-seven.vercel.app' ||
+      hostname.endsWith('.vercel.app') ||
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1'
+    );
+  } catch {
+    return false;
+  }
+}
+
 function isValidHttpUrl(str?: string | null): boolean {
   if (!str) return true;
   try {
@@ -169,6 +186,13 @@ export const DispatchRechargeNowMessageSchema = z.object({
 });
 export type DispatchRechargeNowMessage = z.infer<typeof DispatchRechargeNowMessageSchema>;
 
+export const LookupOperatorOnPortalMessageSchema = z.object({
+  type: z.literal('LOOKUP_OPERATOR_ON_PORTAL'),
+  mobile: z.string().regex(/^[5-9]\d{9}$/),
+  portal: z.string().optional(),
+});
+export type LookupOperatorOnPortalMessage = z.infer<typeof LookupOperatorOnPortalMessageSchema>;
+
 export const BackgroundMessageSchema = z.discriminatedUnion('type', [
   ContentParsedPageMessageSchema,
   ContentParserErrorMessageSchema,
@@ -178,6 +202,7 @@ export const BackgroundMessageSchema = z.discriminatedUnion('type', [
   TogglePauseMessageSchema,
   PortalRechargeResultMessageSchema,
   DispatchRechargeNowMessageSchema,
+  LookupOperatorOnPortalMessageSchema,
 ]);
 export type BackgroundMessage = z.infer<typeof BackgroundMessageSchema>;
 
@@ -269,6 +294,17 @@ export function validateBackgroundMessage(
     }
     if (!isAllowedPortalRechargeUrl(sender.tab.url)) {
       return { ok: false, reason: 'unauthorized_tab_url' };
+    }
+    return { ok: true, message: msg, source: 'content' };
+  }
+
+  // Web app bridge messages for live telecom query
+  if (msg.type === 'LOOKUP_OPERATOR_ON_PORTAL') {
+    if (!sender.tab || !sender.tab.url) {
+      return { ok: false, reason: 'missing_tab_url' };
+    }
+    if (!isAllowedWebAppUrl(sender.tab.url)) {
+      return { ok: false, reason: 'unauthorized_web_app_url' };
     }
     return { ok: true, message: msg, source: 'content' };
   }

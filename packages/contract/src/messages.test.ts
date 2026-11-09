@@ -230,6 +230,40 @@ describe('validateBackgroundMessage', () => {
     );
     expect(errorRes.ok).toBe(true);
   });
+
+  it('validates LOOKUP_OPERATOR_ON_PORTAL from authorized web app tab', () => {
+    const validLookup = validateBackgroundMessage(
+      {
+        type: 'LOOKUP_OPERATOR_ON_PORTAL',
+        mobile: '9733671094',
+        portal: 'egpayment',
+      },
+      { id: EXTENSION_ID, tab: { id: 10, url: 'https://walletsync-seven.vercel.app/recharge' } },
+      EXTENSION_ID,
+    );
+    expect(validLookup.ok).toBe(true);
+
+    const unauthorizedTab = validateBackgroundMessage(
+      {
+        type: 'LOOKUP_OPERATOR_ON_PORTAL',
+        mobile: '9733671094',
+        portal: 'egpayment',
+      },
+      { id: EXTENSION_ID, tab: { id: 10, url: 'https://malicious-site.com' } },
+      EXTENSION_ID,
+    );
+    expect(unauthorizedTab.ok).toBe(false);
+
+    const malformedNo = validateBackgroundMessage(
+      {
+        type: 'LOOKUP_OPERATOR_ON_PORTAL',
+        mobile: '123', // invalid phone
+      },
+      { id: EXTENSION_ID, tab: { id: 10, url: 'https://walletsync-seven.vercel.app/recharge' } },
+      EXTENSION_ID,
+    );
+    expect(malformedNo.ok).toBe(false);
+  });
 });
 
 describe('validateContentMessage', () => {
