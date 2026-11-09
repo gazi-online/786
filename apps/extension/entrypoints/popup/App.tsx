@@ -75,12 +75,12 @@ export default function App() {
   async function checkOpenTabs() {
     try {
       const swTabs = await chrome.tabs.query({
-        url: ['*://simplewallet.in/*', '*://*.simplewallet.in/*'],
+        url: ['https://simplewallet.in/*', 'https://*.simplewallet.in/*'],
       });
       setSwTabOpen(swTabs.length > 0);
 
       const egTabs = await chrome.tabs.query({
-        url: ['*://egpayment.com/*', '*://*.egpayment.com/*'],
+        url: ['https://egpayment.com/*', 'https://*.egpayment.com/*'],
       });
       setEgTabOpen(egTabs.length > 0);
     } catch {
@@ -185,8 +185,8 @@ export default function App() {
       if (typeof chrome !== 'undefined' && chrome.tabs) {
         const isSimpleWallet = url.includes('simplewallet');
         const queryPattern = isSimpleWallet
-          ? ['*://simplewallet.in/*', '*://*.simplewallet.in/*']
-          : ['*://egpayment.com/*', '*://*.egpayment.com/*'];
+          ? ['https://simplewallet.in/*', 'https://*.simplewallet.in/*']
+          : ['https://egpayment.com/*', 'https://*.egpayment.com/*'];
 
         const existingTabs = await chrome.tabs.query({ url: queryPattern }).catch(() => []);
         const targetTab = existingTabs?.[0];

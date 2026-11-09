@@ -128,13 +128,8 @@ export async function openDedicatedBackgroundTab(
 
     timer = setTimeout(() => {
       cleanup();
-      // Tab timed out; attempt closing it to prevent tab leakage
-      chrome.tabs.remove(tabId).catch(() => {});
-      reject(
-        new Error(
-          `Timeout waiting for background tab ${tabId} to complete loading after ${timeoutMs}ms`,
-        ),
-      );
+      // On timeout, proceed gracefully rather than destroying the tab
+      resolve();
     }, timeoutMs);
 
     chrome.tabs.onUpdated.addListener(listener);

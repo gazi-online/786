@@ -59,8 +59,30 @@ export function findMobileInput(doc: Document): HTMLInputElement | null {
   );
   if (byPlaceholder) return byPlaceholder;
 
-  return ((doc.getElementById('mobile') as HTMLInputElement | null) ||
+  const byIdOrName = ((doc.getElementById('mobile') as HTMLInputElement | null) ||
     doc.querySelector<HTMLInputElement>('input[name="mobile"], input[name*="mobile" i], input[type="tel"]')) || null;
+  if (byIdOrName) return byIdOrName;
+
+  // Search inside custom elements or shadow roots (e.g. ion-input)
+  const customEls = Array.from(doc.querySelectorAll('ion-input, ion-item, .form-group, div'));
+  for (const el of customEls) {
+    if (el.shadowRoot) {
+      const shadowInput = el.shadowRoot.querySelector<HTMLInputElement>(
+        'input.native-input, input[placeholder*="Mobile" i], input',
+      );
+      if (shadowInput) return shadowInput;
+    }
+    const inner = el.querySelector<HTMLInputElement>('input.native-input, input[type="tel"], input[type="number"]');
+    if (inner && (inner.placeholder?.toLowerCase().includes('mobile') || inner.name?.toLowerCase().includes('mobile') || inner.id?.toLowerCase().includes('mobile'))) {
+      return inner;
+    }
+  }
+
+  // Fallback: the first numeric or tel input in the recharge form
+  const firstNumeric = doc.querySelector<HTMLInputElement>('input[type="tel"], input[type="number"]');
+  if (firstNumeric) return firstNumeric;
+
+  return null;
 }
 
 function findAmountInput(doc: Document): HTMLInputElement | null {
@@ -353,7 +375,7 @@ export async function executeEgPaymentRecharge(
   // 3. Locate Mobile Number input
   const mobileInput = await waitForElement(() => findMobileInput(doc), 3000, 100);
   if (!mobileInput) {
-    // If mobile input is missing, check if this is an unauthenticated login screen or banner
+    // If mobile input is missing, check if this is an unauthenticated login screen
     const hasLoginFields = Boolean(
       doc.querySelector('input[type="password"], input[name*="password" i], input[placeholder*="Password" i]'),
     );
@@ -400,14 +422,27 @@ export async function executeEgPaymentRecharge(
   } catch {
     mobileInput.value = order.customerNo;
   }
-  mobileInput.dispatchEvent(new Event('input', { bubbles: true }));
-  mobileInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+  mobileInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  for (const char of order.customerNo) {
+    const code = `Digit${char}`;
+    const keyCode = 48 + parseInt(char, 10);
+    mobileInput.dispatchEvent(new KeyboardEvent('keydown', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
+    mobileInput.dispatchEvent(new KeyboardEvent('keypress', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
+    mobileInput.dispatchEvent(new KeyboardEvent('keyup', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
+  }
+  mobileInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+  mobileInput.dispatchEvent(new Event('blur', { bubbles: true, composed: true }));
+
   try {
-    mobileInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: '0' }));
+    const win = doc.defaultView as any;
+    const $ = win?.$ || win?.jQuery;
+    if ($) {
+      $(mobileInput).val(order.customerNo).trigger('input').trigger('change').trigger('keyup');
+    }
   } catch {
     // ignore
   }
-  mobileInput.dispatchEvent(new Event('blur', { bubbles: true }));
 
   // Brief pause for AJAX auto-detection of Operator & Circle
   await new Promise((resolve) => setTimeout(resolve, 400));

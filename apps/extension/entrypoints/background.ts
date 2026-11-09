@@ -458,7 +458,11 @@ export default defineBackground(() => {
             const tabs = (await chrome.tabs.query({ url: targetUrlPattern }).catch(() => [])) as chrome.tabs.Tab[];
             let targetTabId: number;
 
-            if (tabs.length > 0 && tabs[0]?.id) {
+            const existingRechargeTab = tabs.find((t) => (t.url || '').toLowerCase().includes('/users/recharge'));
+            if (existingRechargeTab && existingRechargeTab.id) {
+              targetTabId = existingRechargeTab.id;
+              console.log(`[WalletSync Operator Lookup] Using existing portal tab ${targetTabId} (URL: ${existingRechargeTab.url})`);
+            } else if (tabs.length > 0 && tabs[0]?.id) {
               targetTabId = tabs[0].id;
               const curUrl = (tabs[0].url || '').toLowerCase();
               if (portal === 'egpayment' && !curUrl.includes('/users/recharge')) {
@@ -493,10 +497,25 @@ export default defineBackground(() => {
                         'input[placeholder*="Enter Mobile" i], input[placeholder*="Mobile Number" i], input[placeholder*="Mobile" i]'
                       );
                       if (byPh) return byPh;
-                      return (
-                        (document.getElementById('mobile') as HTMLInputElement | null) ||
-                        document.querySelector<HTMLInputElement>('input[name="mobile"], input[name*="mobile" i], input[type="tel"]')
-                      );
+
+                      const byIdOrName = (document.getElementById('mobile') as HTMLInputElement | null) ||
+                        document.querySelector<HTMLInputElement>('input[name="mobile"], input[name*="mobile" i], input[type="tel"]');
+                      if (byIdOrName) return byIdOrName;
+
+                      // Deep search inside ion-input or shadow roots
+                      const customEls = Array.from(document.querySelectorAll('ion-input, ion-item, div'));
+                      for (const el of customEls) {
+                        if (el.shadowRoot) {
+                          const shadow = el.shadowRoot.querySelector<HTMLInputElement>('input.native-input, input[placeholder*="Mobile" i], input');
+                          if (shadow) return shadow;
+                        }
+                        const inner = el.querySelector<HTMLInputElement>('input.native-input, input[type="tel"], input[type="number"]');
+                        if (inner && (inner.placeholder?.toLowerCase().includes('mobile') || inner.name?.toLowerCase().includes('mobile') || inner.id?.toLowerCase().includes('mobile'))) {
+                          return inner;
+                        }
+                      }
+
+                      return document.querySelector<HTMLInputElement>('input[type="tel"], input[type="number"]');
                     }
 
                     let input = findInput();
@@ -512,7 +531,7 @@ export default defineBackground(() => {
 
                     input.focus();
                     input.value = '';
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
 
                     try {
                       const nativeSetter = Object.getOwnPropertyDescriptor(
@@ -528,14 +547,38 @@ export default defineBackground(() => {
                       input.value = mobileNo;
                     }
 
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
                     for (const char of mobileNo) {
-                      input.dispatchEvent(new KeyboardEvent('keydown', { key: char, code: `Digit${char}`, bubbles: true }));
-                      input.dispatchEvent(new KeyboardEvent('keypress', { key: char, code: `Digit${char}`, bubbles: true }));
-                      input.dispatchEvent(new KeyboardEvent('keyup', { key: char, code: `Digit${char}`, bubbles: true }));
+                      const code = `Digit${char}`;
+                      const keyCode = 48 + parseInt(char, 10);
+                      input.dispatchEvent(new KeyboardEvent('keydown', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
+                      input.dispatchEvent(new KeyboardEvent('keypress', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
+                      input.dispatchEvent(new KeyboardEvent('keyup', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
                     }
-                    input.dispatchEvent(new Event('change', { bubbles: true }));
-                    input.dispatchEvent(new Event('blur', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+                    input.dispatchEvent(new Event('blur', { bubbles: true, composed: true }));
+
+                    // Trigger jQuery if present
+                    try {
+                      const $ = (window as any).$ || (window as any).jQuery;
+                      if ($) {
+                        $(input).val(mobileNo).trigger('input').trigger('change').trigger('keyup');
+                      }
+                    } catch {
+                      // ignore
+                    }
+
+                    // Trigger Ionic if parent exists
+                    try {
+                      const ionParent = input.closest('ion-input') || (input.getRootNode && (input.getRootNode() as any).host);
+                      if (ionParent) {
+                        (ionParent as any).value = mobileNo;
+                        ionParent.dispatchEvent(new CustomEvent('ionInput', { detail: { value: mobileNo }, bubbles: true, composed: true }));
+                        ionParent.dispatchEvent(new CustomEvent('ionChange', { detail: { value: mobileNo }, bubbles: true, composed: true }));
+                      }
+                    } catch {
+                      // ignore
+                    }
 
                     function readDetails(): { operator?: string; circle?: string } {
                       let operator: string | undefined;
@@ -565,7 +608,8 @@ export default defineBackground(() => {
                       if (!operator) {
                         const all = Array.from(document.querySelectorAll('label, div, p, span, h5, h6, strong'));
                         for (const el of all) {
-                          if ((el.textContent || '').trim().toLowerCase() === 'operator') {
+                          const txt = (el.textContent || '').trim().toLowerCase();
+                          if (txt === 'operator' || txt.startsWith('operator')) {
                             const parent = el.closest('.form-group, .mb-3, .col-md-6, div') || el.parentElement;
                             const cand = parent?.querySelector(
                               '.select2-selection__rendered, .chosen-single, .dropdown-toggle, input, select, .form-control, p, span'
@@ -603,7 +647,8 @@ export default defineBackground(() => {
                       if (!circle) {
                         const all = Array.from(document.querySelectorAll('label, div, p, span, h5, h6, strong'));
                         for (const el of all) {
-                          if ((el.textContent || '').trim().toLowerCase() === 'circle') {
+                          const txt = (el.textContent || '').trim().toLowerCase();
+                          if (txt === 'circle' || txt.startsWith('circle')) {
                             const parent = el.closest('.form-group, .mb-3, .col-md-6, div') || el.parentElement;
                             const cand = parent?.querySelector(
                               '.select2-selection__rendered, .chosen-single, .dropdown-toggle, input, select, .form-control, p, span'
@@ -852,8 +897,12 @@ export default defineBackground(() => {
           await waitForTabComplete(tabId);
         }
       } else {
-        const egTabs = (await chrome.tabs.query({ url: '*://egpayment.com/*' }).catch(() => [])) as chrome.tabs.Tab[];
-        if (egTabs.length > 0 && egTabs[0]?.id) {
+        const egTabs = (await chrome.tabs.query({ url: 'https://egpayment.com/*' }).catch(() => [])) as chrome.tabs.Tab[];
+        const rechargeTab = egTabs.find((t) => (t.url || '').toLowerCase().includes('/users/recharge'));
+        if (rechargeTab && rechargeTab.id) {
+          tabId = rechargeTab.id;
+          console.log(`[WalletSync Recharge Dispatcher] Using existing EG Payment recharge tab ${tabId} (URL: ${rechargeTab.url})`);
+        } else if (egTabs.length > 0 && egTabs[0]?.id) {
           tabId = egTabs[0].id;
           const curUrl = (egTabs[0].url || '').toLowerCase();
           if (!curUrl.includes('/users/recharge')) {
@@ -864,8 +913,11 @@ export default defineBackground(() => {
             console.log(`[WalletSync Recharge Dispatcher] Using existing EG Payment tab ${tabId} (URL: ${curUrl})`);
           }
         } else {
-          const res = await openDedicatedBackgroundTab(targetUrl);
-          tabId = res.tabId;
+          console.log(`[WalletSync Recharge Dispatcher] Opening new EG Payment background tab: ${targetUrl}`);
+          const newTab = await chrome.tabs.create({ url: targetUrl, active: false });
+          if (!newTab.id) throw new Error('Failed to create EG tab');
+          tabId = newTab.id;
+          await waitForTabComplete(tabId);
         }
       }
 
