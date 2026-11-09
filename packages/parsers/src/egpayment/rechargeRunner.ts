@@ -244,7 +244,7 @@ export function extractPortalOperatorAndCircle(doc: Document): PortalTelecomDeta
   // 2. Try Operator Input (including readonly / disabled populated inputs)
   if (!operator) {
     const opInput = doc.querySelector<HTMLInputElement>(
-      'input#operator, input[name="operator"], input[name*="operator" i], input#op, input[name="op"]',
+      'input#operator, input[name="operator"], input[name*="operator" i], input#op, input[name="op"], input#operator_name, input[name="operator_name"], input[placeholder*="Operator" i], input[aria-label*="Operator" i]',
     );
     if (opInput) {
       const val = (opInput.value || '').trim();
@@ -258,7 +258,8 @@ export function extractPortalOperatorAndCircle(doc: Document): PortalTelecomDeta
   if (!operator) {
     const labels = Array.from(doc.querySelectorAll('label, div, p, span, h5, h6, strong'));
     for (const opLabel of labels) {
-      if ((opLabel.textContent || '').trim().toLowerCase() === 'operator') {
+      const labelText = (opLabel.textContent || '').trim().toLowerCase();
+      if (labelText === 'operator' || labelText === 'operator name') {
         const parent = opLabel.closest('.form-group, .mb-3, .col-md-6, div') || opLabel.parentElement;
         const candidate = parent?.querySelector(
           '.select2-selection__rendered, .chosen-single, .dropdown-toggle, input, select, .form-control, p, span',
@@ -268,7 +269,7 @@ export function extractPortalOperatorAndCircle(doc: Document): PortalTelecomDeta
           candidate?.textContent ||
           ''
         ).trim();
-        if (txt && !/select\s*operator/i.test(txt) && txt.length < 50) {
+        if (txt && !/select\s*operator/i.test(txt) && txt.toLowerCase() !== 'operator' && txt.length < 50) {
           operator = txt;
           break;
         }
@@ -292,7 +293,7 @@ export function extractPortalOperatorAndCircle(doc: Document): PortalTelecomDeta
   // 5. Try Circle Input
   if (!circle) {
     const circleInput = doc.querySelector<HTMLInputElement>(
-      'input#circle, input[name="circle"], input[name*="circle" i], input#circle_name, input[name="circle_name"]',
+      'input#circle, input[name="circle"], input[name*="circle" i], input#circle_name, input[name="circle_name"], input[placeholder*="Circle" i], input[aria-label*="Circle" i]',
     );
     if (circleInput) {
       const val = (circleInput.value || '').trim();
@@ -306,7 +307,8 @@ export function extractPortalOperatorAndCircle(doc: Document): PortalTelecomDeta
   if (!circle) {
     const labels = Array.from(doc.querySelectorAll('label, div, p, span, h5, h6, strong'));
     for (const circleLabel of labels) {
-      if ((circleLabel.textContent || '').trim().toLowerCase() === 'circle') {
+      const labelText = (circleLabel.textContent || '').trim().toLowerCase();
+      if (labelText === 'circle' || labelText === 'circle name') {
         const parent = circleLabel.closest('.form-group, .mb-3, .col-md-6, div') || circleLabel.parentElement;
         const candidate = parent?.querySelector(
           '.select2-selection__rendered, .chosen-single, .dropdown-toggle, input, select, .form-control, p, span',
@@ -316,7 +318,7 @@ export function extractPortalOperatorAndCircle(doc: Document): PortalTelecomDeta
           candidate?.textContent ||
           ''
         ).trim();
-        if (txt && !/select\s*circle/i.test(txt) && txt.length < 50) {
+        if (txt && !/select\s*circle/i.test(txt) && txt.toLowerCase() !== 'circle' && txt.length < 50) {
           circle = txt;
           break;
         }
@@ -337,14 +339,14 @@ export async function executeEgPaymentRecharge(
   // 1. Check logged-in state
   const curUrl = (doc.defaultView?.location?.href || '').toLowerCase();
   const isLoginPage =
-    curUrl.includes('/login') ||
-    curUrl.includes('/users/login') ||
-    (curUrl.includes('/logout') && !curUrl.includes('/recharge'));
+    (curUrl.includes('/login') || curUrl.includes('/users/login')) &&
+    !curUrl.includes('/recharge');
 
-  // Check for visible SweetAlert or modal indicating session expired (never match raw script tags!)
+  // Check for truly visible SweetAlert or modal indicating session expired (never match raw script tags or hidden dialogs!)
   const visibleExpiredModal = Array.from(
-    doc.querySelectorAll('.swal-overlay--show-modal, .swal-modal, .modal.show, .modal.in, div[role="dialog"]'),
+    doc.querySelectorAll('.swal-overlay--show-modal .swal-modal, .swal-modal.swal-modal--visible, .modal.show, .modal.in'),
   ).some((el) => {
+    if (!isElementVisible(el as HTMLElement)) return false;
     const text = (el.textContent || '').toUpperCase();
     return text.includes('SESSION EXPIRED') || text.includes('LOGIN AGAIN');
   });
@@ -363,7 +365,7 @@ export async function executeEgPaymentRecharge(
     '[id*="captcha"], [class*="captcha"], [id*="recaptcha"], [class*="cf-turnstile"]',
   );
   const otpModal = doc.querySelector('[id*="otpModal"], [class*="otp-modal"], [id*="otp_form"]');
-  if (captchaElem || otpModal) {
+  if ((captchaElem && isElementVisible(captchaElem as HTMLElement)) || (otpModal && isElementVisible(otpModal as HTMLElement))) {
     return {
       ok: false,
       status: 'needs_manual_action',
@@ -380,7 +382,7 @@ export async function executeEgPaymentRecharge(
       doc.querySelector('input[type="password"], input[name*="password" i], input[placeholder*="Password" i]'),
     );
     const visibleAuthText = Array.from(doc.querySelectorAll('div, p, span, h1, h2, h3, h4'))
-      .filter((el) => el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE')
+      .filter((el) => el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE' && isElementVisible(el as HTMLElement))
       .some((el) => {
         const txt = (el.textContent || '').trim().toUpperCase();
         return (

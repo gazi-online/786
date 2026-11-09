@@ -19,11 +19,19 @@ export default defineContentScript({
   // Dedicated content script matching portals for instant, reliable command reception
   matches: [
     'https://simplewallet.in/web/MobileRecharge.aspx*',
-    'https://egpayment.com/users/recharge*',
+    'https://egpayment.com/users/recharge',
+    'https://egpayment.com/users/recharge/*',
   ],
   runAt: 'document_idle',
   main() {
-    // 0. Clean any legacy injected artifacts
+    // 0. Safety Guard: Never execute recharge runner in history tab to avoid tab collisions
+    const curHref = window.location.href.toLowerCase();
+    if (curHref.includes('recharge_history') || curHref.includes('_history')) {
+      console.log('[WalletSync Recharge Content] Skipping history tab to avoid tab collision:', window.location.href);
+      return;
+    }
+
+    // Clean any legacy injected artifacts
     try {
       const oldToast = document.getElementById('walletsync-portal-toast');
       if (oldToast) oldToast.remove();

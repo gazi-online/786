@@ -327,6 +327,17 @@ export default defineBackground(() => {
   // Dedicated tabs opened by background dispatcher (never closes user working tabs)
   const dedicatedTabIds = new Set<number>();
 
+  function isEgPaymentRechargeUrl(url: string | undefined): boolean {
+    if (!url) return false;
+    const clean = url.toLowerCase();
+    return (
+      clean.includes('egpayment.com') &&
+      clean.includes('/users/recharge') &&
+      !clean.includes('recharge_history') &&
+      !clean.includes('_history')
+    );
+  }
+
   // 5. Message listener from Popup, Options & Content scripts
   chrome.runtime.onMessage.addListener(
     (
@@ -455,20 +466,11 @@ export default defineBackground(() => {
             const tabs = (await chrome.tabs.query({ url: targetUrlPattern }).catch(() => [])) as chrome.tabs.Tab[];
             let targetTabId: number;
 
-            const existingRechargeTab = tabs.find((t) => (t.url || '').toLowerCase().includes('/users/recharge'));
+            // Prioritize tab that is STRICTLY the EG Payment recharge page (never recharge_history)
+            const existingRechargeTab = tabs.find((t) => isEgPaymentRechargeUrl(t.url));
             if (existingRechargeTab && existingRechargeTab.id) {
               targetTabId = existingRechargeTab.id;
-              console.log(`[WalletSync Operator Lookup] Using existing portal tab ${targetTabId} (URL: ${existingRechargeTab.url})`);
-            } else if (tabs.length > 0 && tabs[0]?.id) {
-              targetTabId = tabs[0].id;
-              const curUrl = (tabs[0].url || '').toLowerCase();
-              if (portal === 'egpayment' && !curUrl.includes('/users/recharge')) {
-                console.log(`[WalletSync Operator Lookup] Navigating existing EG Payment tab ${targetTabId} to ${targetUrl}`);
-                await chrome.tabs.update(targetTabId, { url: targetUrl });
-                await waitForTabComplete(targetTabId, 15000);
-              } else {
-                console.log(`[WalletSync Operator Lookup] Using existing portal tab ${targetTabId} (URL: ${curUrl})`);
-              }
+              console.log(`[WalletSync Operator Lookup] Using existing portal recharge tab ${targetTabId} (URL: ${existingRechargeTab.url})`);
             } else {
               // Open new tab in background: active: false
               console.log(`[WalletSync Operator Lookup] Opening dedicated background portal tab: ${targetUrl}`);
@@ -595,7 +597,7 @@ export default defineBackground(() => {
 
                       if (!operator) {
                         const opInput = document.querySelector<HTMLInputElement>(
-                          'input#operator, input[name="operator"], input[name*="operator" i], input#operator_name, input[name="operator_name"], input[placeholder*="Operator" i]'
+                          'input#operator, input[name="operator"], input[name*="operator" i], input#op, input[name="op"], input#operator_name, input[name="operator_name"], input[placeholder*="Operator" i], input[aria-label*="Operator" i]'
                         );
                         if (opInput && opInput.value && !/select\s*operator/i.test(opInput.value)) {
                           operator = opInput.value.trim();
@@ -606,13 +608,13 @@ export default defineBackground(() => {
                         const all = Array.from(document.querySelectorAll('label, div, p, span, h5, h6, strong'));
                         for (const el of all) {
                           const txt = (el.textContent || '').trim().toLowerCase();
-                          if (txt === 'operator' || txt.startsWith('operator')) {
+                          if (txt === 'operator' || txt === 'operator name') {
                             const parent = el.closest('.form-group, .mb-3, .col-md-6, div') || el.parentElement;
                             const cand = parent?.querySelector(
                               '.select2-selection__rendered, .chosen-single, .dropdown-toggle, input, select, .form-control, p, span'
                             ) || el.nextElementSibling;
                             const val = ((cand as HTMLInputElement)?.value || cand?.textContent || '').trim();
-                            if (val && !/select\s*operator/i.test(val) && val.length < 50) {
+                            if (val && !/select\s*operator/i.test(val) && val.toLowerCase() !== 'operator' && val.length < 50) {
                               operator = val;
                               break;
                             }
@@ -634,7 +636,7 @@ export default defineBackground(() => {
 
                       if (!circle) {
                         const circInput = document.querySelector<HTMLInputElement>(
-                          'input#circle, input[name="circle"], input[name*="circle" i], input#circle_name, input[name="circle_name"], input[placeholder*="Circle" i]'
+                          'input#circle, input[name="circle"], input[name*="circle" i], input#circle_name, input[name="circle_name"], input[placeholder*="Circle" i], input[aria-label*="Circle" i]'
                         );
                         if (circInput && circInput.value && !/select\s*circle/i.test(circInput.value)) {
                           circle = circInput.value.trim();
@@ -645,13 +647,13 @@ export default defineBackground(() => {
                         const all = Array.from(document.querySelectorAll('label, div, p, span, h5, h6, strong'));
                         for (const el of all) {
                           const txt = (el.textContent || '').trim().toLowerCase();
-                          if (txt === 'circle' || txt.startsWith('circle')) {
+                          if (txt === 'circle' || txt === 'circle name') {
                             const parent = el.closest('.form-group, .mb-3, .col-md-6, div') || el.parentElement;
                             const cand = parent?.querySelector(
                               '.select2-selection__rendered, .chosen-single, .dropdown-toggle, input, select, .form-control, p, span'
                             ) || el.nextElementSibling;
                             const val = ((cand as HTMLInputElement)?.value || cand?.textContent || '').trim();
-                            if (val && !/select\s*circle/i.test(val) && val.length < 50) {
+                            if (val && !/select\s*circle/i.test(val) && val.toLowerCase() !== 'circle' && val.length < 50) {
                               circle = val;
                               break;
                             }
@@ -664,12 +666,12 @@ export default defineBackground(() => {
 
                     const startTime = Date.now();
                     let d = readDetails();
-                    while (Date.now() - startTime < 4500) {
+                    while (Date.now() - startTime < 6000) {
                       d = readDetails();
                       if (d.operator && !/select\s*operator/i.test(d.operator)) {
                         break;
                       }
-                      await new Promise((r) => setTimeout(r, 80));
+                      await new Promise((r) => setTimeout(r, 100));
                     }
 
                     return {
@@ -895,20 +897,10 @@ export default defineBackground(() => {
         }
       } else {
         const egTabs = (await chrome.tabs.query({ url: 'https://egpayment.com/*' }).catch(() => [])) as chrome.tabs.Tab[];
-        const rechargeTab = egTabs.find((t) => (t.url || '').toLowerCase().includes('/users/recharge'));
+        const rechargeTab = egTabs.find((t) => isEgPaymentRechargeUrl(t.url));
         if (rechargeTab && rechargeTab.id) {
           tabId = rechargeTab.id;
           console.log(`[WalletSync Recharge Dispatcher] Using existing EG Payment recharge tab ${tabId} (URL: ${rechargeTab.url})`);
-        } else if (egTabs.length > 0 && egTabs[0]?.id) {
-          tabId = egTabs[0].id;
-          const curUrl = (egTabs[0].url || '').toLowerCase();
-          if (!curUrl.includes('/users/recharge')) {
-            console.log(`[WalletSync Recharge Dispatcher] Navigating background EG Payment tab ${tabId} to ${targetUrl}`);
-            await chrome.tabs.update(tabId, { url: targetUrl });
-            await waitForTabComplete(tabId);
-          } else {
-            console.log(`[WalletSync Recharge Dispatcher] Using existing EG Payment tab ${tabId} (URL: ${curUrl})`);
-          }
         } else {
           console.log(`[WalletSync Recharge Dispatcher] Opening new EG Payment background tab: ${targetUrl}`);
           const newTab = await chrome.tabs.create({ url: targetUrl, active: false });
@@ -923,10 +915,11 @@ export default defineBackground(() => {
         const tabInfo = await chrome.tabs.get(tabId);
         const curUrl = (tabInfo.url || '').toLowerCase();
         if (
-          curUrl.includes('/login') ||
-          curUrl.includes('/users/login') ||
-          curUrl.includes('/default.aspx') ||
-          (curUrl.includes('/logout') && !curUrl.includes('/recharge'))
+          !curUrl.includes('/recharge') &&
+          (curUrl.includes('/login') ||
+            curUrl.includes('/users/login') ||
+            curUrl.includes('/default.aspx') ||
+            curUrl.includes('/logout'))
         ) {
           console.warn('[WalletSync Recharge Dispatcher] Portal redirected to login page:', curUrl);
           await sendRechargeStatusUpdate(storage, order.id, {
