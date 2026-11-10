@@ -258,4 +258,31 @@ describe('EG Payment Recharge Form Automation Runner (Milestone R5)', () => {
     expect(result.ok).toBe(true);
     expect(result.status).toBe('submitted');
   });
+
+  it('does NOT prematurely transition to submitted while QR modal is still open, even if background text contains request accepted', async () => {
+    const doc = createMockEgPaymentDoc({ withProcessTransaction: true });
+    // Add background disclaimer containing "request accepted"
+    const disclaimer = doc.createElement('div');
+    disclaimer.textContent = 'Terms: Once request accepted, processing will take 2 minutes.';
+    doc.body.appendChild(disclaimer);
+
+    const qrCallback = vi.fn();
+    // Do NOT close the QR modal; let it stay open until timeout
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'JIO',
+      amountPaise: 34900,
+      waitForPaymentCompletion: true,
+      paymentWaitTimeoutMs: 150,
+      onQrCodeDetected: qrCallback,
+    });
+
+    expect(qrCallback).toHaveBeenCalled();
+    // Must NOT be 'submitted' because payment was never captured!
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe('needs_manual_action');
+      expect(result.failureCode).toBe('qr_payment_timeout');
+    }
+  });
 });

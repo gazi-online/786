@@ -359,7 +359,6 @@ export function findVisibleSuccessElement(doc: Document): HTMLElement | null {
         t.includes('recharge successful') ||
         t.includes('recharge submitted') ||
         t.includes('transaction accepted') ||
-        t.includes('request accepted') ||
         t.includes('request has been accepted')
       ) {
         return el;
@@ -414,30 +413,33 @@ export async function monitorQrPaymentCapture(
 
     const qrDetails = findQRCodeDetails(doc);
     if (qrDetails) {
+      if (!qrModalWasDetected) {
+        console.log('[EG Payment Automation] QR modal active. Actively monitoring for customer payment...');
+      }
       qrModalWasDetected = true;
+      // While QR modal is open and active, check for explicit rejection or expiration
+      const bodyText = (doc.body?.textContent || '').toLowerCase();
+      if (
+        bodyText.includes('order expired') ||
+        bodyText.includes('payment failed') ||
+        bodyText.includes('transaction failed') ||
+        bodyText.includes('payment cancelled')
+      ) {
+        return {
+          ok: false,
+          status: 'failed',
+          failureCode: 'qr_payment_expired',
+          failureDetail: 'Dynamic QR code payment session expired or failed on portal',
+        };
+      }
+      // While QR modal is still open, customer has not completed payment yet.
+      // Continue actively waiting for the customer to scan and pay via UPI!
+      continue;
     }
 
-    const bodyText = (doc.body?.textContent || '').toLowerCase();
-
-    // 1. Check for explicit portal success text
-    const hasSuccessText =
-      bodyText.includes('recharge successful') ||
-      bodyText.includes('transaction successful') ||
-      bodyText.includes('recharge submitted') ||
-      bodyText.includes('transaction accepted') ||
-      bodyText.includes('request accepted') ||
-      bodyText.includes('request has been accepted') ||
-      bodyText.includes('recharge accepted');
-
-    if (hasSuccessText) {
-      return {
-        ok: true,
-        status: 'submitted',
-      };
-    }
-
-    // 2. If QR modal was active and has now closed without error: payment captured!
+    // If QR modal was active and has now closed: payment was captured by the official portal!
     if (qrModalWasDetected && !qrDetails) {
+      console.log('[EG Payment Automation] QR modal closed! Verifying portal payment capture...');
       await new Promise((resolve) => setTimeout(resolve, effectiveInterval));
       const postText = (doc.body?.textContent || '').toLowerCase();
       const hasErrorText =
@@ -456,32 +458,20 @@ export async function monitorQrPaymentCapture(
         };
       }
 
+      console.log('[EG Payment Automation] Payment confirmed on portal! Transitioning to submitted.');
       return {
         ok: true,
         status: 'submitted',
       };
     }
-
-    // 3. Check for explicit error text while modal is still open
-    if (
-      bodyText.includes('order expired') ||
-      bodyText.includes('payment failed') ||
-      bodyText.includes('transaction failed')
-    ) {
-      return {
-        ok: false,
-        status: 'failed',
-        failureCode: 'qr_payment_expired',
-        failureDetail: 'Dynamic UPI QR payment expired or failed on portal',
-      };
-    }
   }
 
+  // If timed out while QR modal was active
   return {
     ok: false,
-    status: 'failed',
-    failureCode: 'qr_payment_expired',
-    failureDetail: 'Timed out waiting for dynamic UPI QR payment completion',
+    status: 'needs_manual_action',
+    failureCode: 'qr_payment_timeout',
+    failureDetail: 'Dynamic UPI QR code was not scanned or completed before timeout',
   };
 }
 
@@ -919,6 +909,7 @@ export async function executeEgPaymentRecharge(
 
   // If QR code payment is needed (insufficient wallet balance):
   if (outcomeResult && outcomeResult.type === 'qr_required' && outcomeResult.button) {
+    console.log('[EG Payment Automation] Insufficient balance detected! Clicking Process Transaction Pay button:', outcomeResult.button.textContent?.trim());
     outcomeResult.button.focus();
     outcomeResult.button.click();
     try {
@@ -938,6 +929,7 @@ export async function executeEgPaymentRecharge(
     const qrWaitTimeout = isTestEnv ? 1000 : 15000;
     const qrData = await waitForElement(() => findQRCodeDetails(doc), qrWaitTimeout, 50);
     if (qrData) {
+      console.log('[EG Payment Automation] Dynamic QR code captured:', qrData.amountText, qrData.timerText);
       if (order.onQrCodeDetected) {
         order.onQrCodeDetected(qrData);
       }
