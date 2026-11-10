@@ -18,6 +18,8 @@ import {
   Radio,
   Sliders,
   X,
+  ChevronDown,
+  ChevronUp,
   ShieldCheck,
   MapPin,
 } from 'lucide-react';
@@ -65,6 +67,7 @@ export default function RechargePage() {
 
   // Orders Feed State
   const [orders, setOrders] = useState<RechargeOrder[]>([]);
+  const [ordersLimit, setOrdersLimit] = useState<number>(10);
   const [loadingOrders, setLoadingOrders] = useState(true);
   const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
 
@@ -1048,7 +1051,7 @@ export default function RechargePage() {
               Recharge Orders Queue & Live Tracker
             </h2>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 font-semibold">
-              {orders.length} orders
+              Showing {Math.min(ordersLimit, orders.length)} of {orders.length} orders
             </span>
           </div>
 
@@ -1070,7 +1073,8 @@ export default function RechargePage() {
             <p>Use the form above to dispatch an automated prepaid recharge.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
+          <div className="space-y-4">
+            <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
             <table className="w-full text-left text-xs">
               <thead className="bg-zinc-50 dark:bg-zinc-900/60 border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 font-semibold">
                 <tr>
@@ -1083,7 +1087,7 @@ export default function RechargePage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
-                {orders.map((order) => {
+                {orders.slice(0, ordersLimit).map((order) => {
                   const isQueued = order.status === 'queued';
                   const isClaimed = order.status === 'claimed';
                   const isSubmitting = order.status === 'submitting';
@@ -1209,6 +1213,43 @@ export default function RechargePage() {
                 })}
               </tbody>
             </table>
+          </div>
+
+          {orders.length > 10 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 px-1 text-xs">
+              <div className="flex items-center gap-2">
+                {ordersLimit < orders.length ? (
+                  <button
+                    type="button"
+                    onClick={() => setOrdersLimit((prev) => Math.min(prev + 10, orders.length))}
+                    className="px-3.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs active:scale-95"
+                  >
+                    <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
+                    <span>Load More Orders ({orders.length - ordersLimit} remaining)</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setOrdersLimit(10)}
+                    className="px-3 py-1.5 rounded-lg border border-zinc-200/80 dark:border-zinc-800/80 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <ChevronUp className="w-3.5 h-3.5 text-zinc-400" />
+                    <span>Show Less</span>
+                  </button>
+                )}
+
+                {ordersLimit < orders.length && (
+                  <button
+                    type="button"
+                    onClick={() => setOrdersLimit(orders.length)}
+                    className="px-2.5 py-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 font-medium cursor-pointer transition-colors"
+                  >
+                    Show All ({orders.length})
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           </div>
         )}
       </div>
