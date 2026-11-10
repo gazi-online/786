@@ -44,3 +44,4 @@ Thumbs.db
 graphify-out/
 
 .env*
+.vercel
