@@ -417,21 +417,29 @@ export async function monitorQrPaymentCapture(
         console.log('[EG Payment Automation] QR modal active. Actively monitoring for customer payment...');
       }
       qrModalWasDetected = true;
-      // While QR modal is open and active, check for explicit rejection or expiration
-      const bodyText = (doc.body?.textContent || '').toLowerCase();
-      if (
-        bodyText.includes('order expired') ||
-        bodyText.includes('payment failed') ||
-        bodyText.includes('transaction failed') ||
-        bodyText.includes('payment cancelled')
-      ) {
+
+      // Check if countdown timer has explicitly expired to 0
+      const timerStr = (qrDetails.timerText || '').replace(/\s+/g, '').toLowerCase();
+      if (timerStr === '00:00' || timerStr === '0m:00s' || timerStr === '0m:0s' || timerStr === '0:00') {
         return {
           ok: false,
           status: 'failed',
           failureCode: 'qr_payment_expired',
-          failureDetail: 'Dynamic QR code payment session expired or failed on portal',
+          failureDetail: 'Dynamic QR code payment session expired (timer reached 00:00)',
         };
       }
+
+      // Check for explicit visible error element inside modal
+      const visibleError = findVisibleErrorElement(doc);
+      if (visibleError && !visibleError.toLowerCase().includes('process transaction')) {
+        return {
+          ok: false,
+          status: 'failed',
+          failureCode: 'portal_rejected',
+          failureDetail: visibleError,
+        };
+      }
+
       // While QR modal is still open, customer has not completed payment yet.
       // Continue actively waiting for the customer to scan and pay via UPI!
       continue;

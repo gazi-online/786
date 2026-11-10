@@ -819,12 +819,27 @@ export default defineBackground(() => {
     isRechargeDispatcherBusy = true;
     try {
       // Check lingering in-flight active order across MV3 service worker restarts
+      // ONLY apply to SimpleWallet (postback reloads page) and ONLY if dispatchedAt is valid.
+      // NEVER apply to EG Payment (which waits for user QR scan and portal payment confirmation).
       try {
         const res = await chrome.storage.local.get(['activeRechargeOrder']);
-        const active = res?.activeRechargeOrder as { id?: string; dispatchedAt?: number; qrActive?: boolean } | undefined;
-        if (active && active.id && !active.qrActive && storage.deviceToken) {
-          const elapsedMs = Date.now() - (active.dispatchedAt || 0);
-          if (elapsedMs > 12000) {
+        const active = res?.activeRechargeOrder as {
+          id?: string;
+          source?: string;
+          dispatchedAt?: number;
+          qrActive?: boolean;
+        } | undefined;
+        if (
+          active &&
+          active.id &&
+          !active.qrActive &&
+          active.source !== 'egpayment' &&
+          typeof active.dispatchedAt === 'number' &&
+          active.dispatchedAt > 0 &&
+          storage.deviceToken
+        ) {
+          const elapsedMs = Date.now() - active.dispatchedAt;
+          if (elapsedMs > 30000) {
             console.log(`[WalletSync Recharge Dispatcher] Lingering in-flight order ${active.id} (elapsed ${elapsedMs}ms): transitioning to submitted`);
             await chrome.storage.local.remove('activeRechargeOrder');
             await sendRechargeStatusUpdate(storage, active.id, { status: 'submitted' });
@@ -965,6 +980,7 @@ export default defineBackground(() => {
         await chrome.storage.local.set({
           activeRechargeOrder: {
             id: order.id,
+            source: order.source,
             customerNo: order.customerNo,
             amountPaise: order.amountPaise,
             operator: order.operator,

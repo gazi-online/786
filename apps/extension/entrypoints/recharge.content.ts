@@ -254,13 +254,19 @@ export default defineContentScript({
         console.log(`[WalletSync Recharge Content] Received order for ${order.operator} ₹${order.amountPaise / 100} to ${order.source}`);
 
         // Persist active order with operator in case page reloads during postback
-        chrome.storage.local.set({
-          activeRechargeOrder: {
-            id: order.id,
-            customerNo: order.customerNo,
-            amountPaise: order.amountPaise,
-            operator: order.operator,
-          },
+        chrome.storage.local.get(['activeRechargeOrder']).then((res) => {
+          const prev = (res?.activeRechargeOrder as any) || {};
+          chrome.storage.local.set({
+            activeRechargeOrder: {
+              ...prev,
+              id: order.id,
+              source: order.source,
+              customerNo: order.customerNo,
+              amountPaise: order.amountPaise,
+              operator: order.operator,
+              dispatchedAt: prev.dispatchedAt || Date.now(),
+            },
+          }).catch(() => {});
         }).catch(() => {});
 
         // Immediately acknowledge receipt so background script does not timeout or close channel
@@ -283,14 +289,20 @@ export default defineContentScript({
                     mPin: order.mPin,
                     waitForPaymentCompletion: true,
                     onQrCodeDetected: (qrData) => {
-                      chrome.storage.local.set({
-                        activeRechargeOrder: {
-                          id: order.id,
-                          customerNo: order.customerNo,
-                          amountPaise: order.amountPaise,
-                          operator: order.operator,
-                          qrActive: true,
-                        },
+                      chrome.storage.local.get(['activeRechargeOrder']).then((res) => {
+                        const prev = (res?.activeRechargeOrder as any) || {};
+                        chrome.storage.local.set({
+                          activeRechargeOrder: {
+                            ...prev,
+                            id: order.id,
+                            source: order.source,
+                            customerNo: order.customerNo,
+                            amountPaise: order.amountPaise,
+                            operator: order.operator,
+                            dispatchedAt: prev.dispatchedAt || Date.now(),
+                            qrActive: true,
+                          },
+                        }).catch(() => {});
                       }).catch(() => {});
 
                       chrome.runtime.sendMessage({
