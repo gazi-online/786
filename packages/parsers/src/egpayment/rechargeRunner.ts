@@ -205,6 +205,10 @@ export function findProcessTransactionPayButton(doc: Document): HTMLElement | nu
       el.classList.contains('btn');
     if (isClickable) {
       const text = (el.textContent || (el as HTMLInputElement).value || '').trim().replace(/\s+/g, ' ');
+      const containerText = (el.closest('.modal, .swal-modal, .swal2-modal, div')?.textContent || '').toLowerCase();
+      // Do NOT mistake a button inside the active QR modal ("Payment Processing.") for a Process Transaction drawer button
+      if (containerText.includes('payment processing')) continue;
+
       if (payRegex.test(text) && !text.toLowerCase().includes('close') && !text.toLowerCase().includes('process transaction')) {
         return el;
       }
@@ -214,6 +218,9 @@ export function findProcessTransactionPayButton(doc: Document): HTMLElement | nu
   // Strategy 3: Any element matching payRegex that has a clickable parent or child
   for (const el of allNodes) {
     const text = (el.textContent || (el as HTMLInputElement).value || '').trim().replace(/\s+/g, ' ');
+    const containerText = (el.closest('.modal, .swal-modal, .swal2-modal, div')?.textContent || '').toLowerCase();
+    if (containerText.includes('payment processing')) continue;
+
     if (
       payRegex.test(text) &&
       !text.toLowerCase().includes('close') &&
@@ -250,22 +257,56 @@ export function findQRCodeDetails(doc: Document): {
 
   if (!qrContainer) return null;
 
-  // 1. Look for QR Image
+  const isExcludedImage = (img: HTMLImageElement): boolean => {
+    const src = (img.src || '').toLowerCase();
+    const alt = (img.alt || '').toLowerCase();
+    const className = (img.className || '').toLowerCase();
+    const id = (img.id || '').toLowerCase();
+
+    return (
+      src.includes('logo') ||
+      src.includes('banner') ||
+      src.includes('brand') ||
+      src.includes('egpayment') ||
+      src.includes('eg-logo') ||
+      src.includes('spinner') ||
+      src.includes('loader') ||
+      alt.includes('logo') ||
+      alt.includes('brand') ||
+      alt.includes('egpayment') ||
+      alt.includes('eg payment') ||
+      className.includes('logo') ||
+      className.includes('spinner') ||
+      className.includes('loader') ||
+      id.includes('logo') ||
+      id.includes('spinner')
+    );
+  };
+
+  // 1. Look for genuine QR Image (must have QR indicators or full QR data URL, NOT a logo/spinner)
   const imgs = Array.from(qrContainer.querySelectorAll<HTMLImageElement>('img'));
   const allImgs = [
     ...imgs,
     ...allNodes.filter((n): n is HTMLImageElement => n.tagName?.toLowerCase() === 'img'),
   ];
   const qrImg = allImgs.find((img) => {
+    if (isExcludedImage(img)) return false;
+
     const src = (img.src || '').toLowerCase();
     const alt = (img.alt || '').toLowerCase();
     const className = (img.className || '').toLowerCase();
+    const id = (img.id || '').toLowerCase();
+
     return (
-      src.startsWith('data:image') ||
       src.includes('qr') ||
+      src.includes('chart.googleapis.com') ||
+      src.includes('qrserver.com') ||
+      src.includes('quickchart') ||
+      src.includes('barcode') ||
       alt.includes('qr') ||
       className.includes('qr') ||
-      ((img.width > 80 || img.naturalWidth > 80) && !src.includes('logo') && !src.includes('banner'))
+      id.includes('qr') ||
+      (src.startsWith('data:image') && src.length > 500)
     );
   });
 
@@ -294,10 +335,12 @@ export function findQRCodeDetails(doc: Document): {
     const canvases = allNodes.filter((n): n is HTMLCanvasElement => n.tagName?.toLowerCase() === 'canvas');
     for (const canvas of canvases) {
       try {
-        const data = canvas.toDataURL('image/png');
-        if (data && data.length > 100) {
-          qrDataUrl = data;
-          break;
+        if ((canvas.width > 50 && canvas.height > 50) || canvas.clientWidth > 50) {
+          const data = canvas.toDataURL('image/png');
+          if (data && data.length > 30) {
+            qrDataUrl = data;
+            break;
+          }
         }
       } catch {
         // ignore
@@ -305,17 +348,20 @@ export function findQRCodeDetails(doc: Document): {
     }
   }
 
-  // 3. Look for SVG QR
+  // 3. Look for SVG QR (ensure it has QR matrix paths/rects, not just a simple icon)
   if (!qrDataUrl) {
     const svgs = allNodes.filter((n): n is HTMLElement & SVGElement => n.tagName?.toLowerCase() === 'svg');
     for (const svg of svgs) {
       if ((svg.clientWidth > 80 || svg.getAttribute('width')) && !svg.classList.contains('lucide')) {
-        try {
-          const svgXml = new XMLSerializer().serializeToString(svg);
-          qrDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svgXml)}`;
-          break;
-        } catch {
-          // ignore
+        const rects = svg.querySelectorAll('rect, path');
+        if (rects.length > 5) {
+          try {
+            const svgXml = new XMLSerializer().serializeToString(svg);
+            qrDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svgXml)}`;
+            break;
+          } catch {
+            // ignore
+          }
         }
       }
     }

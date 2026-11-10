@@ -285,4 +285,44 @@ describe('EG Payment Recharge Form Automation Runner (Milestone R5)', () => {
       expect(result.failureCode).toBe('qr_payment_timeout');
     }
   });
+
+  it('does NOT mistake placeholder EG Payment logo for a QR code and waits for genuine QR code', async () => {
+    const doc = createMockEgPaymentDoc();
+    const qrModal = doc.createElement('div');
+    // Initially contains placeholder EG logo and spinner
+    qrModal.innerHTML = `
+      <div>EG Payment Gateway</div>
+      <div>Payment Processing.</div>
+      <img src="assets/img/egpayment-logo.png" alt="EG Payment" width="150" height="150" />
+      <div>Order Expiring In</div>
+      <div>10M:0S</div>
+      <button class="pay-btn">Pay ₹297</button>
+      <div>Scan the QR with any UPI app.</div>
+    `;
+    doc.body.appendChild(qrModal);
+
+    // After 40ms, simulate client-side QR generator successfully injecting the QR canvas
+    setTimeout(() => {
+      const canvas = doc.createElement('canvas');
+      canvas.width = 200;
+      canvas.height = 200;
+      canvas.toDataURL = () => 'data:image/png;base64,genuineDynamicQrData';
+      qrModal.appendChild(canvas);
+    }, 40);
+
+    const qrCallback = vi.fn();
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'VI',
+      amountPaise: 29700,
+      onQrCodeDetected: qrCallback,
+    });
+
+    expect(qrCallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        qrDataUrl: 'data:image/png;base64,genuineDynamicQrData',
+        amountText: '₹297',
+      }),
+    );
+  });
 });
