@@ -8,6 +8,7 @@ import {
   parseMobileRechargeRows,
   parseSimpleWalletHeaderStats,
   selectOperatorCard,
+  cleanupStaleEgPaymentModals,
 } from '@walletsync/parsers';
 import {
   validateContentMessage,
@@ -324,6 +325,9 @@ export default defineContentScript({
                   });
 
             console.log('[WalletSync Recharge Content] Sequence finished with result:', result);
+            if (order.source === 'egpayment' && !result.ok) {
+              await cleanupStaleEgPaymentModals(document).catch(() => {});
+            }
             await chrome.storage.local.remove('activeRechargeOrder');
 
             const responsePayload: PortalRechargeResultMessage = {

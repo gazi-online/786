@@ -439,6 +439,206 @@ export function findVisibleErrorElement(doc: Document): string | null {
 }
 
 /**
+ * 1. Closes the Payment Processing modal (Image 1):
+ * Finds the close '✕' button in the Payment Processing modal and clicks it.
+ */
+export async function closePaymentProcessingModal(doc: Document): Promise<boolean> {
+  const allNodes = getAllNodes(doc);
+  const qrContainer = allNodes.find((el) => {
+    const t = (el.textContent || '').toLowerCase();
+    return (
+      (t.includes('payment processing') || t.includes('order expring in') || t.includes('order expiring in')) &&
+      isElementVisible(el)
+    );
+  });
+
+  if (!qrContainer) return false;
+
+  const modalEl = qrContainer.closest('.modal, .swal-modal, .swal2-modal, [role="dialog"], div') || qrContainer;
+  const closeCandidates = Array.from(
+    modalEl.querySelectorAll<HTMLElement>(
+      'button.close, .close, [aria-label*="close" i], .btn-close, button, span, a, i, svg'
+    )
+  );
+
+  const closeBtn = closeCandidates.find((el) => {
+    const txt = (el.textContent || '').trim();
+    const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+    const cls = (el.className || '').toLowerCase();
+    return (
+      txt === '×' ||
+      txt === '✕' ||
+      txt.toLowerCase() === 'x' ||
+      aria.includes('close') ||
+      cls.includes('close') ||
+      cls.includes('btn-close')
+    );
+  });
+
+  if (closeBtn && isElementVisible(closeBtn)) {
+    try {
+      closeBtn.click();
+    } catch {
+      closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * 2. Confirms closing payment window modal (Image 2):
+ * "Are you sure? You want to close the payment window"
+ * Clicks the red 'Yes' button.
+ */
+export async function confirmClosePaymentWindowAlert(doc: Document): Promise<boolean> {
+  const allNodes = getAllNodes(doc);
+  const alertContainer = allNodes.find((el) => {
+    const t = (el.textContent || '').toLowerCase();
+    return (
+      (t.includes('are you sure') || t.includes('close the payment window')) &&
+      isElementVisible(el)
+    );
+  });
+
+  if (!alertContainer) return false;
+
+  const buttons = Array.from(
+    alertContainer.querySelectorAll<HTMLElement>('button, a, input[type="button"], [role="button"]')
+  );
+  const yesBtn = buttons.find((btn) => {
+    const txt = (btn.textContent || (btn as HTMLInputElement).value || '').trim().toLowerCase();
+    const cls = (btn.className || '').toLowerCase();
+    return (
+      txt === 'yes' ||
+      txt.startsWith('yes') ||
+      cls.includes('confirm') ||
+      cls.includes('swal2-confirm') ||
+      cls.includes('swal-button--confirm') ||
+      cls.includes('btn-danger')
+    );
+  });
+
+  if (yesBtn && isElementVisible(yesBtn)) {
+    try {
+      yesBtn.click();
+    } catch {
+      yesBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * 3. Closes Process Transaction Drawer (Image 3):
+ * Finds the green 'Close X' button inside the Process Transaction drawer and clicks it.
+ */
+export async function closeProcessTransactionDrawer(doc: Document): Promise<boolean> {
+  const allNodes = getAllNodes(doc).filter(
+    (el) => el !== doc.body && el !== doc.documentElement && (el as any) !== doc
+  );
+  const drawerContainer = allNodes.find((el) => {
+    const t = (el.textContent || '').toLowerCase();
+    return t.includes('process transaction') && isElementVisible(el);
+  });
+
+  if (!drawerContainer) return false;
+
+  const candidates = Array.from(
+    drawerContainer.querySelectorAll<HTMLElement>(
+      'button, a, [role="button"], input[type="button"], ion-button, span.close, .close-btn, .btn-close'
+    )
+  );
+
+  const closeBtn = candidates.find((el) => {
+    const txt = (el.textContent || (el as HTMLInputElement).value || '').trim().toLowerCase();
+    const cls = (el.className || '').toLowerCase();
+    return (
+      (txt.includes('close') && (txt.includes('x') || txt.includes('✕') || txt.includes('×'))) ||
+      txt === 'close' ||
+      txt === '×' ||
+      txt === '✕' ||
+      cls.includes('close-btn') ||
+      cls.includes('btn-close')
+    );
+  });
+
+  if (closeBtn && isElementVisible(closeBtn)) {
+    try {
+      closeBtn.click();
+    } catch {
+      closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * 4. Resets the Prepaid Recharge form inputs (Image 4):
+ * Clears Mobile Number, Amount, and dispatches change/input events.
+ */
+export function resetPrepaidRechargeForm(doc: Document): void {
+  const mobileInput = findMobileInput(doc);
+  if (mobileInput) {
+    mobileInput.focus();
+    mobileInput.value = '';
+    mobileInput.dispatchEvent(new Event('input', { bubbles: true }));
+    mobileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    mobileInput.dispatchEvent(new Event('blur', { bubbles: true }));
+  }
+
+  const amountInput = findAmountInput(doc);
+  if (amountInput) {
+    amountInput.focus();
+    amountInput.value = '';
+    amountInput.dispatchEvent(new Event('input', { bubbles: true }));
+    amountInput.dispatchEvent(new Event('change', { bubbles: true }));
+    amountInput.dispatchEvent(new Event('blur', { bubbles: true }));
+  }
+}
+
+/**
+ * Executes the complete 4-step cleanup sequence:
+ * Step 1: Closes Payment Processing modal if open
+ * Step 2: Clicks 'Yes' on "Are you sure?" confirmation
+ * Step 3: Closes Process Transaction drawer
+ * Step 4: Resets the recharge form
+ */
+export async function cleanupStaleEgPaymentModals(doc: Document): Promise<void> {
+  // 1. Close Payment Processing modal if currently active
+  const didCloseQr = await closePaymentProcessingModal(doc);
+  if (didCloseQr) {
+    console.log('[EG Payment Automation] Closed stale Payment Processing modal');
+    await new Promise((r) => setTimeout(r, 200));
+    // 2. Confirm 'Yes' on "Are you sure?" alert
+    const didConfirm = await confirmClosePaymentWindowAlert(doc);
+    if (didConfirm) {
+      console.log('[EG Payment Automation] Confirmed "Yes" on close payment window alert');
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  } else {
+    // If "Are you sure?" alert is already directly visible
+    await confirmClosePaymentWindowAlert(doc);
+  }
+
+  // 3. Close Process Transaction drawer if visible
+  const didCloseDrawer = await closeProcessTransactionDrawer(doc);
+  if (didCloseDrawer) {
+    console.log('[EG Payment Automation] Closed Process Transaction drawer');
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
+  // 4. Reset form inputs so next transaction starts completely fresh
+  resetPrepaidRechargeForm(doc);
+  console.log('[EG Payment Automation] Reset prefilled recharge form to clean state');
+}
+
+/**
  * Actively monitors EG Payment portal tab while customer scans & pays the dynamic UPI QR code.
  * Resolves to { ok: true, status: 'submitted' } when payment is verified and modal clears.
  */
@@ -467,6 +667,7 @@ export async function monitorQrPaymentCapture(
       // Check if countdown timer has explicitly expired to 0
       const timerStr = (qrDetails.timerText || '').replace(/\s+/g, '').toLowerCase();
       if (timerStr === '00:00' || timerStr === '0m:00s' || timerStr === '0m:0s' || timerStr === '0:00') {
+        await cleanupStaleEgPaymentModals(doc);
         return {
           ok: false,
           status: 'failed',
@@ -521,6 +722,7 @@ export async function monitorQrPaymentCapture(
   }
 
   // If timed out while QR modal was active
+  await cleanupStaleEgPaymentModals(doc);
   return {
     ok: false,
     status: 'needs_manual_action',
@@ -687,6 +889,10 @@ export async function executeEgPaymentRecharge(
       failureDetail: 'CAPTCHA or OTP challenge detected on portal form',
     };
   }
+
+  // 2.1 Ensure portal is completely clean before starting new recharge:
+  // Closes any stale Payment Processing modal, confirms "Yes" on alert, closes Process Transaction drawer, and clears form
+  await cleanupStaleEgPaymentModals(doc);
 
   // 3. Locate Mobile Number input
   const mobileInput = await waitForElement(() => findMobileInput(doc), 3000, 100);

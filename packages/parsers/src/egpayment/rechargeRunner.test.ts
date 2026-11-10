@@ -325,4 +325,67 @@ describe('EG Payment Recharge Form Automation Runner (Milestone R5)', () => {
       }),
     );
   });
+
+  it('successfully executes 4-step cleanup of stale QR modal, confirmation alert, drawer, and resets form', async () => {
+    const doc = createMockEgPaymentDoc();
+    const mobileInput = doc.getElementById('mobile') as HTMLInputElement;
+    const amountInput = doc.getElementById('amount') as HTMLInputElement;
+    mobileInput.value = '9732069134';
+    amountInput.value = '39';
+
+    // Image 1: Payment Processing Modal with '✕' button
+    const qrModal = doc.createElement('div');
+    qrModal.id = 'paymentProcessingModal';
+    qrModal.innerHTML = `
+      <div>Payment Processing.</div>
+      <button class="close">✕</button>
+      <div>Order Expring In 9M : 10S</div>
+    `;
+    const qrCloseBtn = qrModal.querySelector('.close') as HTMLButtonElement;
+    doc.body.appendChild(qrModal);
+
+    // Image 3: Process Transaction Drawer with 'Close X' button
+    const drawer = doc.createElement('div');
+    drawer.id = 'processTransactionDrawer';
+    drawer.innerHTML = `
+      <div>Process Transaction</div>
+      <button class="close-btn">Close X</button>
+      <button>Pay ₹ 38 to proceed</button>
+    `;
+    const drawerCloseBtn = drawer.querySelector('.close-btn') as HTMLButtonElement;
+    doc.body.appendChild(drawer);
+
+    qrCloseBtn.addEventListener('click', () => {
+      // Upon clicking '✕', Image 2 appears: "Are you sure? You want to close the payment window"
+      const alertModal = doc.createElement('div');
+      alertModal.id = 'areYouSureModal';
+      alertModal.innerHTML = `
+        <div>Are you sure?</div>
+        <div>You want to close the payment window</div>
+        <button class="btn-cancel">No</button>
+        <button class="btn-danger confirm">Yes</button>
+      `;
+      const yesBtn = alertModal.querySelector('.confirm') as HTMLButtonElement;
+      yesBtn.addEventListener('click', () => {
+        qrModal.remove();
+        alertModal.remove();
+      });
+      doc.body.appendChild(alertModal);
+    });
+
+    drawerCloseBtn.addEventListener('click', () => {
+      drawer.remove();
+    });
+
+    // Run cleanup
+    const { cleanupStaleEgPaymentModals } = await import('./rechargeRunner');
+    await cleanupStaleEgPaymentModals(doc);
+
+    // Verify all 4 steps were executed:
+    expect(doc.getElementById('paymentProcessingModal')).toBeNull();
+    expect(doc.getElementById('areYouSureModal')).toBeNull();
+    expect(doc.getElementById('processTransactionDrawer')).toBeNull();
+    expect(mobileInput.value).toBe('');
+    expect(amountInput.value).toBe('');
+  });
 });
