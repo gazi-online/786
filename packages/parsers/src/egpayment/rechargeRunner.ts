@@ -45,8 +45,9 @@ async function waitForElement<T>(
 function isElementVisible(el: HTMLElement): boolean {
   if (!el) return false;
   try {
-    const style = window.getComputedStyle ? window.getComputedStyle(el) : null;
-    if (style && (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')) {
+    const view = el.ownerDocument?.defaultView || (typeof window !== 'undefined' ? window : null);
+    const style = view?.getComputedStyle ? view.getComputedStyle(el) : null;
+    if (style && (style.display === 'none' || style.visibility === 'hidden')) {
       return false;
     }
   } catch {
@@ -147,50 +148,83 @@ function findMPinModal(doc: Document): { pinInput: HTMLInputElement; confirmBtn:
   return null;
 }
 
+/**
+ * Traverses all HTML elements including inside open Shadow DOM roots (e.g. Ionic ion-modal, ion-button)
+ */
+export function getAllNodes(doc: Document): HTMLElement[] {
+  const result: HTMLElement[] = [];
+  function traverse(node: Node) {
+    if (node && (node.nodeType === 1 || node instanceof HTMLElement)) {
+      const el = node as HTMLElement;
+      result.push(el);
+      if (el.shadowRoot) {
+        for (const child of Array.from(el.shadowRoot.childNodes)) {
+          traverse(child);
+        }
+      }
+    }
+    for (const child of Array.from(node.childNodes)) {
+      traverse(child);
+    }
+  }
+  if (doc.body) {
+    traverse(doc.body);
+  }
+  return result;
+}
+
 export function findProcessTransactionPayButton(doc: Document): HTMLElement | null {
-  const payRegex = /pay\s*₹?\s*[\d,.]+\s*to\s*proceed/i;
+  const allNodes = getAllNodes(doc);
 
-  // 1. First priority: native and custom button elements
-  const buttons = Array.from(
-    doc.querySelectorAll<HTMLElement>(
-      'ion-button, button, a, [role="button"], .btn, input[type="button"], input[type="submit"]',
-    ),
-  );
-
-  for (const btn of buttons) {
-    const text = (btn.textContent || (btn as HTMLInputElement).value || '').trim().replace(/\s+/g, ' ');
-    if (payRegex.test(text)) {
-      return btn;
-    }
-  }
-
-  // 2. Second priority: leaf elements (spans, p, b, strong) matching the regex
-  const leaves = Array.from(
-    doc.querySelectorAll<HTMLElement>('span, p, div, b, strong'),
-  );
-  for (const leaf of leaves) {
-    if (leaf.children.length > 0) continue; // STRICTLY leaf element
-    const text = (leaf.textContent || '').trim().replace(/\s+/g, ' ');
-    if (payRegex.test(text)) {
-      const clickable = leaf.closest<HTMLElement>('ion-button, button, a, [role="button"], .btn') || leaf;
-      return clickable;
-    }
-  }
-
-  // 3. Search inside any drawer or modal container titled "Process Transaction"
-  const containers = Array.from(
-    doc.querySelectorAll<HTMLElement>('div, ion-modal, ion-action-sheet, .modal, .bottom-sheet, section, footer'),
-  );
-  for (const c of containers) {
-    const text = (c.textContent || '').toLowerCase();
-    if (text.includes('process transaction') && (text.includes('pay') || text.includes('proceed'))) {
-      const btn = Array.from(
-        c.querySelectorAll<HTMLElement>('ion-button, button, a, [role="button"], .btn'),
-      ).find((b) => {
-        const bText = (b.textContent || '').trim().replace(/\s+/g, ' ');
-        return payRegex.test(bText) || (/pay/i.test(bText) && /proceed/i.test(bText));
+  // Strategy 1: Look inside any container titled / containing "Process Transaction"
+  for (const el of allNodes) {
+    const text = (el.textContent || '').trim().toLowerCase();
+    if (text.includes('process transaction') && (text.includes('pay') || text.includes('proceed') || /₹|\d+/.test(text))) {
+      // Look for real buttons or links inside the container
+      const directButtons = Array.from(
+        el.querySelectorAll<HTMLElement>('button, ion-button, a, [role="button"], .btn, input[type="button"]'),
+      );
+      const payBtn = directButtons.find((c) => {
+        const cText = (c.textContent || (c as HTMLInputElement).value || '').trim().toLowerCase();
+        return cText.includes('pay') && !cText.includes('close');
       });
-      if (btn) return btn;
+      if (payBtn) {
+        return payBtn;
+      }
+    }
+  }
+
+  // Strategy 2: Search any button/ion-button with text matching /pay\s*₹?\s*[\d,.]+/i
+  const payRegex = /pay\s*₹?\s*[\d,.]+/i;
+  for (const el of allNodes) {
+    const isClickable =
+      el.tagName === 'BUTTON' ||
+      el.tagName === 'ION-BUTTON' ||
+      el.tagName === 'A' ||
+      el.getAttribute('role') === 'button' ||
+      el.classList.contains('btn');
+    if (isClickable) {
+      const text = (el.textContent || (el as HTMLInputElement).value || '').trim().replace(/\s+/g, ' ');
+      if (payRegex.test(text) && !text.toLowerCase().includes('close') && !text.toLowerCase().includes('process transaction')) {
+        return el;
+      }
+    }
+  }
+
+  // Strategy 3: Any element matching payRegex that has a clickable parent or child
+  for (const el of allNodes) {
+    const text = (el.textContent || (el as HTMLInputElement).value || '').trim().replace(/\s+/g, ' ');
+    if (
+      payRegex.test(text) &&
+      !text.toLowerCase().includes('close') &&
+      !text.toLowerCase().includes('process transaction') &&
+      text.length < 50
+    ) {
+      const btn =
+        el.closest<HTMLElement>('button, ion-button, a, [role="button"], .btn') ||
+        el.querySelector<HTMLElement>('button, ion-button, a, [role="button"], .btn') ||
+        el;
+      return btn;
     }
   }
 
@@ -202,25 +236,27 @@ export function findQRCodeDetails(doc: Document): {
   amountText?: string | undefined;
   timerText?: string | undefined;
 } | null {
-  const dialogs = Array.from(
-    doc.querySelectorAll<HTMLElement>('div, ion-modal, .modal, [role="dialog"], section, body'),
-  );
-  const qrDialog = dialogs.find((d) => {
-    const text = (d.textContent || '').toLowerCase();
-    return (
-      text.includes('payment processing') ||
-      text.includes('order expring in') ||
-      text.includes('order expiring in') ||
-      text.includes('scan the qr')
-    );
-  });
+  const allNodes = getAllNodes(doc);
 
-  const container = qrDialog || doc.body;
-  if (!container) return null;
+  const qrContainer = allNodes.find((el) => {
+    const t = (el.textContent || '').toLowerCase();
+    return (
+      t.includes('payment processing') ||
+      t.includes('order expring in') ||
+      t.includes('order expiring in') ||
+      t.includes('scan the qr')
+    );
+  }) || doc.body;
+
+  if (!qrContainer) return null;
 
   // 1. Look for QR Image
-  const imgs = Array.from(container.querySelectorAll<HTMLImageElement>('img'));
-  const qrImg = imgs.find((img) => {
+  const imgs = Array.from(qrContainer.querySelectorAll<HTMLImageElement>('img'));
+  const allImgs = [
+    ...imgs,
+    ...allNodes.filter((n): n is HTMLImageElement => n.tagName?.toLowerCase() === 'img'),
+  ];
+  const qrImg = allImgs.find((img) => {
     const src = (img.src || '').toLowerCase();
     const alt = (img.alt || '').toLowerCase();
     const className = (img.className || '').toLowerCase();
@@ -255,7 +291,7 @@ export function findQRCodeDetails(doc: Document): {
 
   // 2. Look for Canvas QR
   if (!qrDataUrl) {
-    const canvases = Array.from(container.querySelectorAll<HTMLCanvasElement>('canvas'));
+    const canvases = allNodes.filter((n): n is HTMLCanvasElement => n.tagName?.toLowerCase() === 'canvas');
     for (const canvas of canvases) {
       try {
         const data = canvas.toDataURL('image/png');
@@ -271,7 +307,7 @@ export function findQRCodeDetails(doc: Document): {
 
   // 3. Look for SVG QR
   if (!qrDataUrl) {
-    const svgs = Array.from(container.querySelectorAll<SVGElement>('svg'));
+    const svgs = allNodes.filter((n): n is HTMLElement & SVGElement => n.tagName?.toLowerCase() === 'svg');
     for (const svg of svgs) {
       if ((svg.clientWidth > 80 || svg.getAttribute('width')) && !svg.classList.contains('lucide')) {
         try {
@@ -288,17 +324,16 @@ export function findQRCodeDetails(doc: Document): {
   if (!qrDataUrl) return null;
 
   // Extract timer
-  const text = container.textContent || '';
-  const fullText = text + ' ' + (doc.body?.textContent || '');
+  const text = (qrContainer.textContent || '') + ' ' + (doc.body?.textContent || '');
   const timerMatch =
-    fullText.match(/(\d{1,2}\s*[mM]\s*:\s*\d{1,2}\s*[sS])/i) ||
-    fullText.match(/(\d{1,2}\s*:\s*\d{2})/);
+    text.match(/(\d{1,2}\s*[mM]\s*:\s*\d{1,2}\s*[sS])/i) ||
+    text.match(/(\d{1,2}\s*:\s*\d{2})/);
   const timerText = timerMatch?.[1] ? timerMatch[1].replace(/\s+/g, '') : undefined;
 
-  // Extract amount from container or document body
+  // Extract amount
   const amountMatch =
-    fullText.match(/₹\s*([\d,.]+)/i) ||
-    fullText.match(/pay\s*₹?\s*([\d,.]+)/i);
+    text.match(/pay\s*₹?\s*([\d,.]+)/i) ||
+    text.match(/₹\s*([\d,.]+)/i);
   const amountText = amountMatch?.[1] ? `₹${amountMatch[1].trim()}` : undefined;
 
   return {
@@ -306,6 +341,56 @@ export function findQRCodeDetails(doc: Document): {
     ...(amountText ? { amountText } : {}),
     ...(timerText ? { timerText } : {}),
   };
+}
+
+export function findVisibleSuccessElement(doc: Document): HTMLElement | null {
+  const allNodes = getAllNodes(doc);
+  for (const el of allNodes) {
+    const isModalOrAlert =
+      el.classList.contains('swal-modal') ||
+      el.classList.contains('swal2-modal') ||
+      el.classList.contains('modal') ||
+      el.classList.contains('alert-success') ||
+      el.getAttribute('role') === 'alert';
+
+    if (isModalOrAlert && isElementVisible(el)) {
+      const t = (el.textContent || '').toLowerCase();
+      if (
+        t.includes('recharge successful') ||
+        t.includes('recharge submitted') ||
+        t.includes('transaction accepted') ||
+        t.includes('request accepted') ||
+        t.includes('request has been accepted')
+      ) {
+        return el;
+      }
+    }
+  }
+  return null;
+}
+
+export function findVisibleErrorElement(doc: Document): string | null {
+  const allNodes = getAllNodes(doc);
+  for (const el of allNodes) {
+    const isModalOrAlert =
+      el.classList.contains('swal-modal') ||
+      el.classList.contains('swal2-modal') ||
+      el.classList.contains('modal') ||
+      el.classList.contains('alert-danger') ||
+      el.classList.contains('error') ||
+      el.getAttribute('role') === 'alert';
+
+    if (isModalOrAlert && isElementVisible(el)) {
+      const t = (el.textContent || '').toLowerCase();
+      if (t.includes('wrong m pin') || t.includes('invalid m pin') || t.includes('invalid pin')) {
+        return 'Official portal rejected: Invalid 4-Digit M-Pin';
+      }
+      if (t.includes('insufficient') && !t.includes('process transaction')) {
+        return 'Official portal rejected: Insufficient wallet balance';
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -783,50 +868,75 @@ export async function executeEgPaymentRecharge(
     }
   }
 
-  // 10. Check Outcome: Sufficient Balance vs "Process Transaction" QR Payment
-  const outcomeResult = await waitForElement(() => {
-    // Check for insufficient balance "Process Transaction" button
+  // 10. Check Outcome: Insufficient Balance (Process Transaction / QR) vs Success vs Error
+  const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+  const outcomeWaitTimeout = isTestEnv ? 400 : 8000;
+
+  let outcomeResult = await waitForElement(() => {
+    // Priority 1: Check for insufficient balance "Process Transaction" button (Image 1)
     const payProceedBtn = findProcessTransactionPayButton(doc);
-    if (payProceedBtn && isElementVisible(payProceedBtn)) {
-      return { type: 'qr_required', button: payProceedBtn };
+    if (payProceedBtn) {
+      const vis = isElementVisible(payProceedBtn);
+      // If pay button is found, return it
+      if (vis) {
+        return { type: 'qr_required', button: payProceedBtn };
+      }
     }
 
-    // Check for direct QR modal
+    // Priority 2: Check for direct QR modal (Image 2)
     const qrDetails = findQRCodeDetails(doc);
     if (qrDetails) {
       return { type: 'qr_active', details: qrDetails };
     }
 
-    // Check for success alert / toast / text
-    const text = doc.body?.textContent?.toLowerCase() || '';
-    if (
-      text.includes('recharge successful') ||
-      text.includes('recharge submitted') ||
-      text.includes('transaction accepted') ||
-      text.includes('request accepted')
-    ) {
+    // Priority 3: Check for visible error alert
+    const errorMsg = findVisibleErrorElement(doc);
+    if (errorMsg) {
+      return { type: 'error', message: errorMsg };
+    }
+
+    // Priority 4: Check for visible success alert (ONLY if no Process Transaction drawer is present!)
+    const successEl = findVisibleSuccessElement(doc);
+    if (successEl) {
       return { type: 'success' };
     }
 
-    // Check for error
-    if (text.includes('wrong m pin') || text.includes('invalid m pin') || text.includes('invalid pin')) {
-      return { type: 'error', message: 'Official portal rejected: Invalid 4-Digit M-Pin' };
-    }
-
     return null;
-  }, 6000, 250);
+  }, outcomeWaitTimeout, 100);
+
+  // If still not found after initial wait, do one more deep check for Process Transaction or QR
+  if (!outcomeResult) {
+    const latePayBtn = findProcessTransactionPayButton(doc);
+    if (latePayBtn) {
+      outcomeResult = { type: 'qr_required', button: latePayBtn };
+    } else {
+      const lateQr = findQRCodeDetails(doc);
+      if (lateQr) {
+        outcomeResult = { type: 'qr_active', details: lateQr };
+      }
+    }
+  }
 
   // If QR code payment is needed (insufficient wallet balance):
   if (outcomeResult && outcomeResult.type === 'qr_required' && outcomeResult.button) {
+    outcomeResult.button.focus();
     outcomeResult.button.click();
     try {
+      outcomeResult.button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      outcomeResult.button.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
       outcomeResult.button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     } catch {
       // ignore
     }
+    // If it has shadowRoot, click inner button
+    if ((outcomeResult.button as any).shadowRoot) {
+      const inner = (outcomeResult.button as any).shadowRoot.querySelector('button');
+      if (inner) inner.click();
+    }
 
     // Wait for "Payment Processing." modal with dynamic QR code
-    const qrData = await waitForElement(() => findQRCodeDetails(doc), 6000, 250);
+    const qrWaitTimeout = isTestEnv ? 1000 : 15000;
+    const qrData = await waitForElement(() => findQRCodeDetails(doc), qrWaitTimeout, 50);
     if (qrData) {
       if (order.onQrCodeDetected) {
         order.onQrCodeDetected(qrData);
