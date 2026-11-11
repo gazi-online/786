@@ -238,7 +238,10 @@ export function findProcessTransactionPayButton(doc: Document): HTMLElement | nu
   return null;
 }
 
-export function findQRCodeDetails(doc: Document): {
+export function findQRCodeDetails(
+  doc: Document,
+  fallbackAmountRupees?: string | number,
+): {
   qrDataUrl: string;
   amountText?: string | undefined;
   timerText?: string | undefined;
@@ -246,6 +249,15 @@ export function findQRCodeDetails(doc: Document): {
   const allNodes = getAllNodes(doc);
 
   const qrContainer = allNodes.find((el) => {
+    const t = (el.textContent || '').toLowerCase();
+    return (
+      (t.includes('payment processing') ||
+        t.includes('order expring in') ||
+        t.includes('order expiring in') ||
+        t.includes('scan the qr')) &&
+      isElementVisible(el)
+    );
+  }) || allNodes.find((el) => {
     const t = (el.textContent || '').toLowerCase();
     return (
       t.includes('payment processing') ||
@@ -323,6 +335,8 @@ export function findQRCodeDetails(doc: Document): {
         if (ctx) {
           ctx.drawImage(qrImg, 0, 0);
           qrDataUrl = canvas.toDataURL('image/png');
+        } else {
+          qrDataUrl = qrImg.src;
         }
       } catch {
         qrDataUrl = qrImg.src;
@@ -369,18 +383,78 @@ export function findQRCodeDetails(doc: Document): {
 
   if (!qrDataUrl) return null;
 
-  // Extract timer
-  const text = (qrContainer.textContent || '') + ' ' + (doc.body?.textContent || '');
+  // Extract timer: prefer timer inside modal container first
+  const containerText = qrContainer.textContent || '';
   const timerMatch =
-    text.match(/(\d{1,2}\s*[mM]\s*:\s*\d{1,2}\s*[sS])/i) ||
-    text.match(/(\d{1,2}\s*:\s*\d{2})/);
+    containerText.match(/(\d{1,2}\s*[mM]\s*:\s*\d{1,2}\s*[sS])/i) ||
+    containerText.match(/(\d{1,2}\s*:\s*\d{2})/) ||
+    (doc.body?.textContent || '').match(/(\d{1,2}\s*[mM]\s*:\s*\d{1,2}\s*[sS])/i) ||
+    (doc.body?.textContent || '').match(/(\d{1,2}\s*:\s*\d{2})/);
   const timerText = timerMatch?.[1] ? timerMatch[1].replace(/\s+/g, '') : undefined;
 
-  // Extract amount
-  const amountMatch =
-    text.match(/pay\s*₹?\s*([\d,.]+)/i) ||
-    text.match(/₹\s*([\d,.]+)/i);
-  const amountText = amountMatch?.[1] ? `₹${amountMatch[1].trim()}` : undefined;
+  // Extract amount with strict priority:
+  let detectedAmountNum: number | undefined;
+
+  // Priority 1: Check if the QR source URI has an embedded UPI amount param (e.g. upi://pay?...am=195.00)
+  const upiCandidate = (qrImg?.src || qrDataUrl || '');
+  const decodedUpi = (() => {
+    try {
+      return decodeURIComponent(upiCandidate);
+    } catch {
+      return upiCandidate;
+    }
+  })();
+  const upiAmountMatch = decodedUpi.match(/[?&]am=([\d.]+)/i);
+  if (upiAmountMatch && upiAmountMatch[1]) {
+    const val = parseFloat(upiAmountMatch[1]);
+    if (!isNaN(val) && val > 0) {
+      detectedAmountNum = val;
+    }
+  }
+
+  // Priority 2: Check inside the QR modal container ONLY (e.g., "Pay ₹297")
+  if (detectedAmountNum === undefined) {
+    const modalPayMatch = containerText.match(/pay\s*₹?\s*([\d,.]+)/i);
+    if (modalPayMatch && modalPayMatch[1]) {
+      const val = parseFloat(modalPayMatch[1].replace(/,/g, ''));
+      if (!isNaN(val) && val > 0) {
+        detectedAmountNum = val;
+      }
+    }
+  }
+
+  // Priority 3: Check visible "Process Transaction" pay button (e.g., "Pay ₹ 195 to proceed")
+  if (detectedAmountNum === undefined) {
+    const payProceedBtn = findProcessTransactionPayButton(doc);
+    if (payProceedBtn && isElementVisible(payProceedBtn)) {
+      const btnMatch = (payProceedBtn.textContent || '').match(/pay\s*₹?\s*([\d,.]+)/i);
+      if (btnMatch && btnMatch[1]) {
+        const val = parseFloat(btnMatch[1].replace(/,/g, ''));
+        if (!isNaN(val) && val > 0) {
+          detectedAmountNum = val;
+        }
+      }
+    }
+  }
+
+  // Priority 4: Fallback to expected order amount
+  if (detectedAmountNum === undefined && fallbackAmountRupees !== undefined) {
+    const fbNum = typeof fallbackAmountRupees === 'number'
+      ? fallbackAmountRupees
+      : parseFloat(String(fallbackAmountRupees).replace(/[^\d.]/g, ''));
+    if (!isNaN(fbNum) && fbNum > 0) {
+      detectedAmountNum = fbNum;
+    }
+  }
+
+  // Format clean amount text: "₹195" (or undefined)
+  let amountText: string | undefined;
+  if (detectedAmountNum !== undefined) {
+    const cleanNum = Number.isInteger(detectedAmountNum)
+      ? String(detectedAmountNum)
+      : detectedAmountNum.toFixed(2);
+    amountText = `₹${cleanNum}`;
+  }
 
   return {
     qrDataUrl,
@@ -1274,8 +1348,10 @@ export async function executeEgPaymentRecharge(
       }
     }
 
+    const expectedRupees = Math.round(order.amountPaise / 100);
+
     // Priority 2: Check for direct QR modal (Image 2)
-    const qrDetails = findQRCodeDetails(doc);
+    const qrDetails = findQRCodeDetails(doc, expectedRupees);
     if (qrDetails) {
       return { type: 'qr_active', details: qrDetails };
     }
@@ -1295,13 +1371,15 @@ export async function executeEgPaymentRecharge(
     return null;
   }, outcomeWaitTimeout, 100);
 
+  const expectedRupees = Math.round(order.amountPaise / 100);
+
   // If still not found after initial wait, do one more deep check for Process Transaction or QR
   if (!outcomeResult) {
     const latePayBtn = findProcessTransactionPayButton(doc);
     if (latePayBtn) {
       outcomeResult = { type: 'qr_required', button: latePayBtn };
     } else {
-      const lateQr = findQRCodeDetails(doc);
+      const lateQr = findQRCodeDetails(doc, expectedRupees);
       if (lateQr) {
         outcomeResult = { type: 'qr_active', details: lateQr };
       }
@@ -1310,7 +1388,13 @@ export async function executeEgPaymentRecharge(
 
   // If QR code payment is needed (insufficient wallet balance):
   if (outcomeResult && outcomeResult.type === 'qr_required' && outcomeResult.button) {
-    console.log('[EG Payment Automation] Insufficient balance detected! Clicking Process Transaction Pay button:', outcomeResult.button.textContent?.trim());
+    const btnText = outcomeResult.button.textContent || '';
+    const btnAmtMatch = btnText.match(/pay\s*₹?\s*([\d,.]+)/i);
+    const payableRupees = btnAmtMatch
+      ? parseFloat(btnAmtMatch[1].replace(/,/g, ''))
+      : expectedRupees;
+
+    console.log('[EG Payment Automation] Insufficient balance detected! Clicking Process Transaction Pay button:', btnText.trim(), 'Payable amount:', payableRupees);
     outcomeResult.button.focus();
     safeClickElement(outcomeResult.button);
     // If it has shadowRoot, click inner button
@@ -1321,7 +1405,7 @@ export async function executeEgPaymentRecharge(
 
     // Wait for "Payment Processing." modal with dynamic QR code
     const qrWaitTimeout = isTestEnv ? 1000 : 15000;
-    const qrData = await waitForElement(() => findQRCodeDetails(doc), qrWaitTimeout, 50);
+    const qrData = await waitForElement(() => findQRCodeDetails(doc, payableRupees), qrWaitTimeout, 50);
     if (qrData) {
       console.log('[EG Payment Automation] Dynamic QR code captured:', qrData.amountText, qrData.timerText);
       if (order.onQrCodeDetected) {

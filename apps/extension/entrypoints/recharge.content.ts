@@ -306,14 +306,15 @@ export default defineContentScript({
                         }).catch(() => {});
                       }).catch(() => {});
 
+                      const displayAmt = (qrData.amountText || '').replace(/[^\d.]/g, '') || String(Math.round(order.amountPaise / 100));
                       chrome.runtime.sendMessage({
                         type: 'PORTAL_RECHARGE_RESULT',
                         orderId: order.id,
                         status: 'needs_manual_action',
                         failureCode: 'qr_payment_required',
-                        failureDetail: `Dynamic UPI QR code generated (${qrData.amountText || 'UPI'}). Scan from web portal to complete.`,
+                        failureDetail: `Dynamic UPI QR code generated (₹${displayAmt}). Scan from web portal to complete.`,
                         qrDataUrl: qrData.qrDataUrl,
-                        qrAmount: qrData.amountText,
+                        qrAmount: displayAmt,
                         qrTimer: qrData.timerText,
                       }).catch(() => {});
                     },

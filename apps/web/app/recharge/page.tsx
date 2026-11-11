@@ -1410,7 +1410,7 @@ export default function RechargePage() {
 
                 {activeQrPayment.qrAmount && (
                   <div className="inline-block px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-blue-600 dark:text-blue-400 font-bold text-xs">
-                    Pay ₹{activeQrPayment.qrAmount}
+                    Pay ₹{activeQrPayment.qrAmount.replace(/[^\d.]/g, '')}
                   </div>
                 )}
 

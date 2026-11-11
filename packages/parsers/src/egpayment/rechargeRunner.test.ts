@@ -435,4 +435,48 @@ describe('EG Payment Recharge Form Automation Runner (Milestone R5)', () => {
     expect(closed).toBe(true);
     expect(drawer.isConnected).toBe(false);
   });
+
+  it('accurately extracts QR amount from UPI URI am= param and ignores body balance', async () => {
+    const doc = createMockEgPaymentDoc();
+    // Add misleading body text such as wallet balance
+    const navBalance = doc.createElement('div');
+    navBalance.textContent = 'Wallet Balance : ₹ 0.00';
+    doc.body.appendChild(navBalance);
+
+    const qrModal = doc.createElement('div');
+    qrModal.innerHTML = `
+      <div>Payment Processing.</div>
+      <img src="https://api.qrserver.com/v1/create-qr-code/?data=upi%3A%2F%2Fpay%3Fpa%3Deg%40upi%26am%3D195.00%26cu%3DINR" alt="UPI QR" />
+      <div>Order Expring In 9M : 58S</div>
+    `;
+    doc.body.appendChild(qrModal);
+
+    const { findQRCodeDetails } = await import('./rechargeRunner');
+    const qrDetails = findQRCodeDetails(doc, 199);
+    expect(qrDetails).not.toBeNull();
+    // Must extract 195 from UPI URI am= param, NOT 0.00 from navbar!
+    expect(qrDetails?.amountText).toBe('₹195');
+    expect(qrDetails?.timerText).toBe('9M:58S');
+  });
+
+  it('falls back to expected order amount when QR modal text has no amount and no UPI am param', async () => {
+    const doc = createMockEgPaymentDoc();
+    const navBalance = doc.createElement('div');
+    navBalance.textContent = 'Commission : ₹ 1.25 | Balance : ₹ 50.00';
+    doc.body.appendChild(navBalance);
+
+    const qrModal = doc.createElement('div');
+    qrModal.innerHTML = `
+      <div>Payment Processing.</div>
+      <img src="data:image/png;base64,genuineDynamicQrDataLongEnoughToPassCheck1234567890abcdefghijklmnopqrstuvwxyz" alt="QR" />
+      <div>Order Expiring In 10M:0S</div>
+    `;
+    doc.body.appendChild(qrModal);
+
+    const { findQRCodeDetails } = await import('./rechargeRunner');
+    const qrDetails = findQRCodeDetails(doc, 299);
+    expect(qrDetails).not.toBeNull();
+    // Must fall back to 299, NOT 1.25 or 50.00!
+    expect(qrDetails?.amountText).toBe('₹299');
+  });
 });

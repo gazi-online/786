@@ -161,10 +161,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
       });
 
       if (qrDataUrl) {
+        const fallbackRupees = Math.round(order.amountPaise / 100).toString();
+        const cleanQrAmount = qrAmount ? qrAmount.replace(/[^\d.]/g, '') || fallbackRupees : fallbackRupees;
         broadcastSseEvent('recharge_order.qr_code', {
           orderId: order.id,
           qrDataUrl,
-          qrAmount: qrAmount || null,
+          qrAmount: cleanQrAmount,
           qrTimer: qrTimer || null,
         });
       }
