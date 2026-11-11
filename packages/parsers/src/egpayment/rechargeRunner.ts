@@ -414,6 +414,14 @@ export function findVisibleSuccessElement(doc: Document): HTMLElement | null {
   return null;
 }
 
+export function safeClickElement(el: HTMLElement): void {
+  try {
+    el.click();
+  } catch {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  }
+}
+
 export function findVisibleErrorElement(doc: Document): string | null {
   const allNodes = getAllNodes(doc);
   for (const el of allNodes) {
@@ -433,9 +441,69 @@ export function findVisibleErrorElement(doc: Document): string | null {
       if (t.includes('insufficient') && !t.includes('process transaction')) {
         return 'Official portal rejected: Insufficient wallet balance';
       }
+      if (t.includes('enter valid amount') || t.includes('numeric value')) {
+        return 'Official portal error: Enter valid amount(numeric value).';
+      }
+      if (t.includes('enter valid mobile') || t.includes('invalid mobile') || t.includes('invalid number')) {
+        return 'Official portal error: Enter valid mobile number';
+      }
+      if (t.includes('error') && !t.includes('process transaction') && !t.includes('payment processing')) {
+        const titleEl = el.querySelector('.swal-title, .swal2-title, .modal-title, h2, h3, strong');
+        const textEl = el.querySelector('.swal-text, .swal2-html-container, .modal-body, p');
+        const msg = (textEl?.textContent || titleEl?.textContent || '').trim();
+        if (msg) {
+          return `Official portal error: ${msg.replace(/\s+/g, ' ')}`;
+        }
+      }
     }
   }
   return null;
+}
+
+/**
+ * Dismisses any visible SweetAlert or Error popup (e.g. "Enter valid amount(numeric value).")
+ * by finding and clicking its OK or Confirm button.
+ */
+export async function dismissVisibleErrorPopup(doc: Document): Promise<boolean> {
+  const allNodes = getAllNodes(doc);
+  const errorContainer = allNodes.find((el) => {
+    const isModalOrAlert =
+      el.classList.contains('swal-modal') ||
+      el.classList.contains('swal2-modal') ||
+      el.classList.contains('modal') ||
+      el.classList.contains('alert-danger') ||
+      el.classList.contains('error') ||
+      el.getAttribute('role') === 'alert';
+    const t = (el.textContent || '').toLowerCase();
+    return isModalOrAlert && isElementVisible(el) && (t.includes('error') || t.includes('numeric value') || t.includes('valid amount'));
+  });
+
+  if (!errorContainer) return false;
+
+  const buttons = Array.from(
+    errorContainer.querySelectorAll<HTMLElement>(
+      'button, a, input[type="button"], [role="button"], .swal-button, .swal2-confirm'
+    )
+  );
+
+  const okBtn = buttons.find((b) => {
+    const txt = (b.textContent || (b as HTMLInputElement).value || '').trim().toLowerCase();
+    const cls = (b.className || '').toLowerCase();
+    return (
+      txt === 'ok' ||
+      txt === 'close' ||
+      cls.includes('swal-button--confirm') ||
+      cls.includes('swal2-confirm') ||
+      cls.includes('confirm')
+    );
+  });
+
+  if (okBtn && isElementVisible(okBtn)) {
+    safeClickElement(okBtn);
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -540,6 +608,25 @@ export async function closeProcessTransactionDrawer(doc: Document): Promise<bool
   const allNodes = getAllNodes(doc).filter(
     (el) => el !== doc.body && el !== doc.documentElement && (el as any) !== doc
   );
+
+  // 1. Direct match: Any visible element with exact text 'Close X' or 'Close ✕' or 'Close ×'
+  const directCloseBtn = allNodes.find((el) => {
+    if (!isElementVisible(el)) return false;
+    const txt = (el.textContent || (el as HTMLInputElement).value || '').trim().toLowerCase();
+    return (
+      txt === 'close x' ||
+      txt === 'close ✕' ||
+      txt === 'close ×' ||
+      txt === 'close\nx'
+    );
+  });
+
+  if (directCloseBtn && isElementVisible(directCloseBtn)) {
+    safeClickElement(directCloseBtn);
+    return true;
+  }
+
+  // 2. Fallback: Search inside container matching 'process transaction'
   const drawerContainer = allNodes.find((el) => {
     const t = (el.textContent || '').toLowerCase();
     return t.includes('process transaction') && isElementVisible(el);
@@ -549,7 +636,7 @@ export async function closeProcessTransactionDrawer(doc: Document): Promise<bool
 
   const candidates = Array.from(
     drawerContainer.querySelectorAll<HTMLElement>(
-      'button, a, [role="button"], input[type="button"], ion-button, span.close, .close-btn, .btn-close'
+      'button, a, [role="button"], input[type="button"], ion-button, span, div, .close-btn, .btn-close'
     )
   );
 
@@ -567,11 +654,7 @@ export async function closeProcessTransactionDrawer(doc: Document): Promise<bool
   });
 
   if (closeBtn && isElementVisible(closeBtn)) {
-    try {
-      closeBtn.click();
-    } catch {
-      closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    }
+    safeClickElement(closeBtn);
     return true;
   }
 
@@ -586,30 +669,66 @@ export function resetPrepaidRechargeForm(doc: Document): void {
   const mobileInput = findMobileInput(doc);
   if (mobileInput) {
     mobileInput.focus();
-    mobileInput.value = '';
+    try {
+      const nativeSetter = Object.getOwnPropertyDescriptor(
+        doc.defaultView?.HTMLInputElement?.prototype || Object.getPrototypeOf(mobileInput),
+        'value',
+      )?.set;
+      if (nativeSetter) nativeSetter.call(mobileInput, '');
+      else mobileInput.value = '';
+    } catch {
+      mobileInput.value = '';
+    }
     mobileInput.dispatchEvent(new Event('input', { bubbles: true }));
     mobileInput.dispatchEvent(new Event('change', { bubbles: true }));
     mobileInput.dispatchEvent(new Event('blur', { bubbles: true }));
+    try {
+      const win = doc.defaultView as any;
+      const $ = win?.$ || win?.jQuery;
+      if ($) $(mobileInput).val('').trigger('input').trigger('change');
+    } catch {}
   }
 
   const amountInput = findAmountInput(doc);
   if (amountInput) {
     amountInput.focus();
-    amountInput.value = '';
+    try {
+      const nativeSetter = Object.getOwnPropertyDescriptor(
+        doc.defaultView?.HTMLInputElement?.prototype || Object.getPrototypeOf(amountInput),
+        'value',
+      )?.set;
+      if (nativeSetter) nativeSetter.call(amountInput, '');
+      else amountInput.value = '';
+    } catch {
+      amountInput.value = '';
+    }
     amountInput.dispatchEvent(new Event('input', { bubbles: true }));
     amountInput.dispatchEvent(new Event('change', { bubbles: true }));
     amountInput.dispatchEvent(new Event('blur', { bubbles: true }));
+    try {
+      const win = doc.defaultView as any;
+      const $ = win?.$ || win?.jQuery;
+      if ($) $(amountInput).val('').trigger('input').trigger('change');
+    } catch {}
   }
 }
 
 /**
  * Executes the complete 4-step cleanup sequence:
+ * Step 0: Dismisses any blocking Error / SweetAlert popup (e.g. "Enter valid amount")
  * Step 1: Closes Payment Processing modal if open
  * Step 2: Clicks 'Yes' on "Are you sure?" confirmation
  * Step 3: Closes Process Transaction drawer
  * Step 4: Resets the recharge form
  */
 export async function cleanupStaleEgPaymentModals(doc: Document): Promise<void> {
+  // 0. Dismiss any blocking Error / SweetAlert popup
+  const didDismissError = await dismissVisibleErrorPopup(doc);
+  if (didDismissError) {
+    console.log('[EG Payment Automation] Dismissed visible Error popup');
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
   // 1. Close Payment Processing modal if currently active
   const didCloseQr = await closePaymentProcessingModal(doc);
   if (didCloseQr) {
@@ -1048,10 +1167,41 @@ export async function executeEgPaymentRecharge(
 
   const rupees = Math.round(order.amountPaise / 100).toString();
   amountInput.focus();
-  amountInput.value = rupees;
-  amountInput.dispatchEvent(new Event('input', { bubbles: true }));
-  amountInput.dispatchEvent(new Event('change', { bubbles: true }));
-  amountInput.dispatchEvent(new Event('blur', { bubbles: true }));
+
+  try {
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      doc.defaultView?.HTMLInputElement?.prototype || Object.getPrototypeOf(amountInput),
+      'value',
+    )?.set;
+    if (nativeSetter) {
+      nativeSetter.call(amountInput, rupees);
+    } else {
+      amountInput.value = rupees;
+    }
+  } catch {
+    amountInput.value = rupees;
+  }
+
+  amountInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  for (const char of rupees) {
+    const code = `Digit${char}`;
+    const keyCode = 48 + parseInt(char, 10);
+    amountInput.dispatchEvent(new KeyboardEvent('keydown', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
+    amountInput.dispatchEvent(new KeyboardEvent('keypress', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
+    amountInput.dispatchEvent(new KeyboardEvent('keyup', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
+  }
+  amountInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+  amountInput.dispatchEvent(new Event('blur', { bubbles: true, composed: true }));
+
+  try {
+    const win = doc.defaultView as any;
+    const $ = win?.$ || win?.jQuery;
+    if ($) {
+      $(amountInput).val(rupees).trigger('input').trigger('change').trigger('keyup');
+    }
+  } catch {
+    // ignore
+  }
 
   // 7. Verify inputs
   if (mobileInput.value !== order.customerNo) {
@@ -1073,7 +1223,7 @@ export async function executeEgPaymentRecharge(
     };
   }
 
-  // 8. Locate & Click Submit Button
+  // 8. Locate & Click Submit Button (single click only to prevent double form submission)
   const submitButton = await waitForElement(() => findSubmitButton(doc), 3000, 100);
   if (!submitButton) {
     return {
@@ -1084,12 +1234,7 @@ export async function executeEgPaymentRecharge(
     };
   }
 
-  submitButton.click();
-  try {
-    submitButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  } catch {
-    // ignore
-  }
+  safeClickElement(submitButton);
 
   // 9. Handle "Confirm Number & Amount" Modal (M-Pin Input)
   const mPinModal = await waitForElement(() => findMPinModal(doc), 5000, 200);
@@ -1110,12 +1255,8 @@ export async function executeEgPaymentRecharge(
 
     await new Promise((resolve) => setTimeout(resolve, 150));
 
-    mPinModal.confirmBtn.click();
-    try {
-      mPinModal.confirmBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    } catch {
-      // ignore
-    }
+    // Single click only on CONFIRM to avoid submitting empty/reset form
+    safeClickElement(mPinModal.confirmBtn);
   }
 
   // 10. Check Outcome: Insufficient Balance (Process Transaction / QR) vs Success vs Error
@@ -1171,18 +1312,11 @@ export async function executeEgPaymentRecharge(
   if (outcomeResult && outcomeResult.type === 'qr_required' && outcomeResult.button) {
     console.log('[EG Payment Automation] Insufficient balance detected! Clicking Process Transaction Pay button:', outcomeResult.button.textContent?.trim());
     outcomeResult.button.focus();
-    outcomeResult.button.click();
-    try {
-      outcomeResult.button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-      outcomeResult.button.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-      outcomeResult.button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    } catch {
-      // ignore
-    }
+    safeClickElement(outcomeResult.button);
     // If it has shadowRoot, click inner button
     if ((outcomeResult.button as any).shadowRoot) {
       const inner = (outcomeResult.button as any).shadowRoot.querySelector('button');
-      if (inner) inner.click();
+      if (inner) safeClickElement(inner);
     }
 
     // Wait for "Payment Processing." modal with dynamic QR code
@@ -1225,11 +1359,13 @@ export async function executeEgPaymentRecharge(
   }
 
   if (outcomeResult && outcomeResult.type === 'error') {
+    await dismissVisibleErrorPopup(doc);
+    await cleanupStaleEgPaymentModals(doc);
     return {
       ok: false,
       status: 'failed',
-      failureCode: 'invalid_mpin',
-      failureDetail: outcomeResult.message || 'Invalid 4-Digit M-Pin',
+      failureCode: outcomeResult.message?.includes('M-Pin') ? 'invalid_mpin' : 'portal_error',
+      failureDetail: outcomeResult.message || 'Official portal error occurred',
     };
   }
 

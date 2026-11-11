@@ -39,10 +39,12 @@ export {
   extractPortalOperatorAndCircle,
   findMobileInput as findEgPaymentMobileInput,
   cleanupStaleEgPaymentModals,
+  dismissVisibleErrorPopup,
   closePaymentProcessingModal,
   confirmClosePaymentWindowAlert,
   closeProcessTransactionDrawer,
   resetPrepaidRechargeForm,
+  safeClickElement,
   type EgPaymentRechargeOrderParams,
   type PortalTelecomDetails,
 } from './egpayment/rechargeRunner';

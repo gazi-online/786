@@ -388,4 +388,51 @@ describe('EG Payment Recharge Form Automation Runner (Milestone R5)', () => {
     expect(mobileInput.value).toBe('');
     expect(amountInput.value).toBe('');
   });
+
+  it('detects and dismisses "Enter valid amount(numeric value)." error alert', async () => {
+    const doc = createMockEgPaymentDoc();
+    const errorModal = doc.createElement('div');
+    errorModal.className = 'swal-modal';
+    errorModal.innerHTML = `
+      <div class="swal-icon swal-icon--error"></div>
+      <div class="swal-title">Error</div>
+      <div class="swal-text">Enter valid amount(numeric value).</div>
+      <button class="swal-button swal-button--confirm">OK</button>
+    `;
+    const okBtn = errorModal.querySelector('.swal-button') as HTMLButtonElement;
+    okBtn.addEventListener('click', () => {
+      errorModal.remove();
+    });
+    doc.body.appendChild(errorModal);
+
+    const { findVisibleErrorElement, dismissVisibleErrorPopup } = await import('./rechargeRunner');
+    const detected = findVisibleErrorElement(doc);
+    expect(detected).toContain('Enter valid amount(numeric value).');
+
+    const dismissed = await dismissVisibleErrorPopup(doc);
+    expect(dismissed).toBe(true);
+    expect(doc.querySelector('.swal-modal')).toBeNull();
+  });
+
+  it('closeProcessTransactionDrawer clicks standalone green Close X button', async () => {
+    const doc = createMockEgPaymentDoc();
+    const drawer = doc.createElement('div');
+    drawer.innerHTML = `
+      <div class="header">
+        <span>Process Transaction</span>
+        <button class="btn btn-sm btn-success">Close X</button>
+      </div>
+      <button id="payBtn">Pay ₹ 195 to proceed</button>
+    `;
+    const closeBtn = drawer.querySelector('.btn-success') as HTMLButtonElement;
+    closeBtn.addEventListener('click', () => {
+      drawer.remove();
+    });
+    doc.body.appendChild(drawer);
+
+    const { closeProcessTransactionDrawer } = await import('./rechargeRunner');
+    const closed = await closeProcessTransactionDrawer(doc);
+    expect(closed).toBe(true);
+    expect(drawer.isConnected).toBe(false);
+  });
 });
