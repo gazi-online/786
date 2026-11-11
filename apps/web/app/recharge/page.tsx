@@ -1261,15 +1261,10 @@ export default function RechargePage() {
         <div
           role="dialog"
           aria-modal="true"
-          onClick={() => {
-            setShowEgReviewModal(false);
-            setEgMPin('');
-          }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200 cursor-pointer"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200"
         >
           <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden text-zinc-900 dark:text-zinc-100 cursor-default space-y-5"
+            className="w-full max-w-sm max-h-[90vh] overflow-y-auto bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-2xl relative text-zinc-900 dark:text-zinc-100 space-y-5"
           >
             <div className="text-center pb-2 border-b border-zinc-100 dark:border-zinc-800">
               <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-50 tracking-tight">
