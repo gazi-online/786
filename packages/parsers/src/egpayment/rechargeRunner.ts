@@ -1390,7 +1390,7 @@ export async function executeEgPaymentRecharge(
   if (outcomeResult && outcomeResult.type === 'qr_required' && outcomeResult.button) {
     const btnText = outcomeResult.button.textContent || '';
     const btnAmtMatch = btnText.match(/pay\s*₹?\s*([\d,.]+)/i);
-    const payableRupees = btnAmtMatch
+    const payableRupees = (btnAmtMatch && btnAmtMatch[1])
       ? parseFloat(btnAmtMatch[1].replace(/,/g, ''))
       : expectedRupees;
 
