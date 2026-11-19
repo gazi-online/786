@@ -89,13 +89,30 @@ export function findMobileInput(doc: Document): HTMLInputElement | null {
 }
 
 function findAmountInput(doc: Document): HTMLInputElement | null {
-  const byPlaceholder = doc.querySelector<HTMLInputElement>(
-    'input[placeholder*="Enter Amount" i], input[placeholder*="Amount" i]',
-  );
-  if (byPlaceholder) return byPlaceholder;
+  const byId = doc.getElementById('amount') as HTMLInputElement | null;
+  if (byId && isElementVisible(byId)) return byId;
 
-  return ((doc.getElementById('amount') as HTMLInputElement | null) ||
-    doc.querySelector<HTMLInputElement>('input[name="amount"], input[name*="amount" i]')) || null;
+  const byName = doc.querySelector<HTMLInputElement>('input[name="amount"]');
+  if (byName && isElementVisible(byName)) return byName;
+
+  const byExactPlaceholder = doc.querySelector<HTMLInputElement>(
+    'input[placeholder="Enter Amount" i], input[placeholder="Enter Amount " i], input[placeholder*="Enter Amount" i]',
+  );
+  if (byExactPlaceholder && isElementVisible(byExactPlaceholder)) return byExactPlaceholder;
+
+  const allAmountInputs = Array.from(
+    doc.querySelectorAll<HTMLInputElement>('input#amount, input[name*="amount" i], input[id*="amount" i], input[placeholder*="amount" i]'),
+  ).filter((el) => {
+    const p = (el.placeholder || '').toLowerCase();
+    const id = (el.id || '').toLowerCase();
+    const name = (el.name || '').toLowerCase();
+    if (p.includes('search') || p.includes('filter') || id.includes('search') || name.includes('search')) {
+      return false;
+    }
+    return isElementVisible(el);
+  });
+
+  return allAmountInputs[0] || byId || byName || null;
 }
 
 function findSubmitButton(doc: Document): HTMLElement | null {
@@ -539,10 +556,22 @@ export function findVisibleErrorElement(doc: Document): string | null {
  * by finding and clicking its OK or Confirm button.
  */
 export async function dismissVisibleErrorPopup(doc: Document): Promise<boolean> {
+  // Direct check for SweetAlert buttons
+  const directButtons = Array.from(
+    doc.querySelectorAll<HTMLElement>('.swal-button, .swal-button--confirm, .swal2-confirm, button.confirm, button.swal-button'),
+  );
+  for (const btn of directButtons) {
+    if (isElementVisible(btn)) {
+      safeClickElement(btn);
+      return true;
+    }
+  }
+
   const allNodes = getAllNodes(doc);
   const errorContainer = allNodes.find((el) => {
     const isModalOrAlert =
       el.classList.contains('swal-modal') ||
+      el.classList.contains('swal-overlay') ||
       el.classList.contains('swal2-modal') ||
       el.classList.contains('modal') ||
       el.classList.contains('alert-danger') ||
@@ -1159,8 +1188,25 @@ export async function executeEgPaymentRecharge(
     // ignore
   }
 
-  // Brief pause for AJAX auto-detection of Operator & Circle
-  await new Promise((resolve) => setTimeout(resolve, 400));
+  // Wait for portal's AJAX operator & circle auto-fetch to settle
+  const isTest = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+  if (!isTest) {
+    const pollStart = Date.now();
+    while (Date.now() - pollStart < 2000) {
+      const opSelect = doc.querySelector<HTMLSelectElement>('select#operator, select[name="operator"], select[name*="operator" i]');
+      const opInput = doc.querySelector<HTMLInputElement>('input#operator, input[name="operator"], input[name*="operator" i]');
+      const hasOp = (opSelect && opSelect.value && !/select\s*operator/i.test(opSelect.value)) ||
+                    (opInput && opInput.value.trim().length > 0);
+      if (hasOp) {
+        console.log('[EG Payment Automation] Operator auto-detected by portal:', opSelect?.value || opInput?.value);
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  } else {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 
   // 5. Enforce target operator (if merchant corrected or confirmed an operator on our platform)
   const operatorSelect = doc.querySelector<HTMLSelectElement>(
@@ -1228,8 +1274,75 @@ export async function executeEgPaymentRecharge(
     circleInput.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  // Wait for operator/circle change event cascades to settle before filling amount
+  if (!isTest) {
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+
   // 6. Locate & Fill Amount input
-  const amountInput = await waitForElement(() => findAmountInput(doc), 3000, 100);
+  const rupees = Math.round(order.amountPaise / 100).toString();
+  const fillAmountToDom = async (): Promise<HTMLInputElement | null> => {
+    const amtInput = await waitForElement(() => findAmountInput(doc), 3000, 100);
+    if (!amtInput) return null;
+
+    const targets = [amtInput];
+    const byId = doc.getElementById('amount') as HTMLInputElement | null;
+    if (byId && !targets.includes(byId)) targets.push(byId);
+
+    for (const inp of targets) {
+      inp.focus();
+      try {
+        inp.select();
+      } catch {}
+      inp.value = '';
+
+      try {
+        const nativeSetter = Object.getOwnPropertyDescriptor(
+          doc.defaultView?.HTMLInputElement?.prototype || Object.getPrototypeOf(inp),
+          'value',
+        )?.set;
+        if (nativeSetter) {
+          nativeSetter.call(inp, rupees);
+        } else {
+          inp.value = rupees;
+        }
+      } catch {
+        inp.value = rupees;
+      }
+
+      try {
+        inp.setAttribute('value', rupees);
+      } catch {}
+
+      try {
+        inp.dispatchEvent(new InputEvent('input', { data: rupees, inputType: 'insertText', bubbles: true, composed: true, cancelable: true }));
+      } catch {
+        inp.dispatchEvent(new Event('input', { bubbles: true, composed: true, cancelable: true }));
+      }
+      inp.dispatchEvent(new Event('input', { bubbles: true, composed: true, cancelable: true }));
+
+      for (const char of rupees) {
+        const code = `Digit${char}`;
+        const keyCode = 48 + parseInt(char, 10);
+        inp.dispatchEvent(new KeyboardEvent('keydown', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
+        inp.dispatchEvent(new KeyboardEvent('keypress', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
+        inp.dispatchEvent(new KeyboardEvent('keyup', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
+      }
+      inp.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+      inp.dispatchEvent(new Event('blur', { bubbles: true, composed: true }));
+
+      try {
+        const win = doc.defaultView as any;
+        const $ = win?.$ || win?.jQuery;
+        if ($) {
+          $(inp).val(rupees).trigger('input').trigger('change').trigger('keyup');
+        }
+      } catch {}
+    }
+    return amtInput;
+  };
+
+  const amountInput = await fillAmountToDom();
   if (!amountInput) {
     return {
       ok: false,
@@ -1239,42 +1352,14 @@ export async function executeEgPaymentRecharge(
     };
   }
 
-  const rupees = Math.round(order.amountPaise / 100).toString();
-  amountInput.focus();
-
-  try {
-    const nativeSetter = Object.getOwnPropertyDescriptor(
-      doc.defaultView?.HTMLInputElement?.prototype || Object.getPrototypeOf(amountInput),
-      'value',
-    )?.set;
-    if (nativeSetter) {
-      nativeSetter.call(amountInput, rupees);
-    } else {
-      amountInput.value = rupees;
+  if (!isTest) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Verify amount did not get wiped by an in-flight AJAX callback
+    if (amountInput.value !== rupees) {
+      console.log('[EG Payment Automation] Amount field was cleared by portal script, re-filling:', rupees);
+      await fillAmountToDom();
+      await new Promise((resolve) => setTimeout(resolve, 150));
     }
-  } catch {
-    amountInput.value = rupees;
-  }
-
-  amountInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-  for (const char of rupees) {
-    const code = `Digit${char}`;
-    const keyCode = 48 + parseInt(char, 10);
-    amountInput.dispatchEvent(new KeyboardEvent('keydown', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
-    amountInput.dispatchEvent(new KeyboardEvent('keypress', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
-    amountInput.dispatchEvent(new KeyboardEvent('keyup', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
-  }
-  amountInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-  amountInput.dispatchEvent(new Event('blur', { bubbles: true, composed: true }));
-
-  try {
-    const win = doc.defaultView as any;
-    const $ = win?.$ || win?.jQuery;
-    if ($) {
-      $(amountInput).val(rupees).trigger('input').trigger('change').trigger('keyup');
-    }
-  } catch {
-    // ignore
   }
 
   // 7. Verify inputs
@@ -1309,6 +1394,31 @@ export async function executeEgPaymentRecharge(
   }
 
   safeClickElement(submitButton);
+
+  // 8.1 Auto-recovery: If portal shows "Enter valid amount(numeric value)." SweetAlert, dismiss and retry!
+  if (!isTest) {
+    const swalStart = Date.now();
+    while (Date.now() - swalStart < 1500) {
+      const errText = findVisibleErrorElement(doc);
+      if (errText && (errText.toLowerCase().includes('valid amount') || errText.toLowerCase().includes('numeric value'))) {
+        console.warn('[EG Payment Automation] Detected "Enter valid amount" SweetAlert popup! Auto-dismissing and retrying amount fill...');
+        await dismissVisibleErrorPopup(doc);
+        await new Promise((r) => setTimeout(r, 400));
+        await fillAmountToDom();
+        await new Promise((r) => setTimeout(r, 250));
+        const retrySubmit = findSubmitButton(doc);
+        if (retrySubmit) {
+          console.log('[EG Payment Automation] Re-clicking Submit after refilling amount...');
+          safeClickElement(retrySubmit);
+        }
+        break;
+      }
+      if (findMPinModal(doc) || findProcessTransactionPayButton(doc)) {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
 
   // 9. Handle "Confirm Number & Amount" Modal (M-Pin Input)
   const mPinModal = await waitForElement(() => findMPinModal(doc), 5000, 200);
