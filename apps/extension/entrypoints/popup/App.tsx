@@ -91,7 +91,11 @@ export default function App() {
   async function loadData() {
     const storage = await getStorage();
     setData(storage);
-    if (storage.apiUrl) {
+    if (storage.apiUrl === 'https://walletsync-seven.vercel.app' || !storage.apiUrl) {
+      const liveUrl = 'https://gonline.dpdns.org';
+      await setStorage({ apiUrl: liveUrl });
+      setPairingApiUrl(liveUrl);
+    } else {
       setPairingApiUrl(storage.apiUrl);
     }
   }
@@ -399,13 +403,22 @@ export default function App() {
             <div className="mt-2.5 space-y-1.5">
               <div className="flex justify-between items-center text-[10px]">
                 <span className="text-zinc-400">Dashboard API Endpoint:</span>
-                <button
-                  type="button"
-                  onClick={() => setPairingApiUrl('http://localhost:3000')}
-                  className="text-blue-400 hover:underline"
-                >
-                  localhost:3000
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPairingApiUrl('https://gonline.dpdns.org')}
+                    className="text-emerald-400 hover:underline font-bold"
+                  >
+                    gonline.dpdns.org
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPairingApiUrl('http://localhost:3000')}
+                    className="text-blue-400 hover:underline"
+                  >
+                    localhost:3000
+                  </button>
+                </div>
               </div>
               <input
                 type="text"
@@ -1238,13 +1251,22 @@ export default function App() {
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
                     Backend API URL
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => setPairingApiUrl('http://localhost:3000')}
-                    className="text-[9px] text-blue-400 hover:underline"
-                  >
-                    localhost:3000
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPairingApiUrl('https://gonline.dpdns.org')}
+                      className="text-[9px] text-emerald-400 hover:underline font-bold"
+                    >
+                      gonline.dpdns.org
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPairingApiUrl('http://localhost:3000')}
+                      className="text-[9px] text-blue-400 hover:underline"
+                    >
+                      localhost:3000
+                    </button>
+                  </div>
                 </div>
                 <input
                   type="text"
