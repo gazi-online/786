@@ -83,6 +83,7 @@ export function isAllowedWebAppUrl(rawUrl?: string | null): boolean {
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
     const hostname = parsed.hostname.toLowerCase();
     return (
+      hostname === 'gonline.dpdns.org' ||
       hostname === 'walletsync-seven.vercel.app' ||
       hostname.endsWith('.vercel.app') ||
       hostname === 'localhost' ||

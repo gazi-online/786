@@ -2,6 +2,7 @@ import { defineContentScript } from 'wxt/sandbox';
 
 export default defineContentScript({
   matches: [
+    'https://gonline.dpdns.org/*',
     'https://walletsync-seven.vercel.app/*',
     'http://localhost:3000/*',
   ],
