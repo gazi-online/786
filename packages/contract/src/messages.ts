@@ -299,8 +299,8 @@ export function validateBackgroundMessage(
     return { ok: true, message: msg, source: 'content' };
   }
 
-  // Web app bridge messages for live telecom query
-  if (msg.type === 'LOOKUP_OPERATOR_ON_PORTAL') {
+  // Web app bridge messages for live telecom query and immediate recharge dispatch
+  if (msg.type === 'LOOKUP_OPERATOR_ON_PORTAL' || msg.type === 'DISPATCH_RECHARGE_NOW') {
     if (!sender.tab || !sender.tab.url) {
       return { ok: false, reason: 'missing_tab_url' };
     }

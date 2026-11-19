@@ -38,6 +38,12 @@ export default defineContentScript({
         return;
       }
 
+      if (data.type === 'WALLETSYNC_DISPATCH_RECHARGE_NOW') {
+        console.log('[WalletSync Web Bridge] Triggering instant background recharge dispatch cycle...');
+        chrome.runtime.sendMessage({ type: 'DISPATCH_RECHARGE_NOW' }).catch(() => {});
+        return;
+      }
+
       if (data.type === 'WALLETSYNC_QUERY_PORTAL_OPERATOR') {
         const { mobile, portal, requestId } = data;
         console.log(`[WalletSync Web Bridge] Forwarding operator lookup for ${mobile} on ${portal}...`);

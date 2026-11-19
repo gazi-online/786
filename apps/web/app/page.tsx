@@ -393,6 +393,9 @@ export default function DashboardPage() {
       }
 
       setRechargeSuccess(`Order queued successfully! ID: ${data.order?.id?.slice(0, 8)}...`);
+      if (typeof window !== 'undefined') {
+        window.postMessage({ type: 'WALLETSYNC_DISPATCH_RECHARGE_NOW' }, '*');
+      }
       if (data.order) {
         setRechargeOrdersList((prev) => [
           data.order,

@@ -64,7 +64,7 @@ export const DEFAULT_STORAGE: StorageData = {
   apiUrl:
     typeof __BUILD_API_URL__ !== 'undefined' && __BUILD_API_URL__
       ? __BUILD_API_URL__
-      : 'https://api.walletsync.example.com',
+      : 'https://gonline.dpdns.org',
   portalUrl: 'https://simplewallet.in/web/MyTrans.aspx?ST=1&mID=824&PID=821',
   status: 'ok',
   lastSyncTime: null,

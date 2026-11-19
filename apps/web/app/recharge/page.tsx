@@ -418,6 +418,10 @@ export default function RechargePage() {
       }
 
       setSuccessMessage(`Recharge order queued successfully! ID: ${data.order?.id?.slice(0, 8)}...`);
+      // Immediately notify extension to dispatch without waiting for background interval
+      if (typeof window !== 'undefined') {
+        window.postMessage({ type: 'WALLETSYNC_DISPATCH_RECHARGE_NOW' }, '*');
+      }
       if (data.order) {
         setOrders((prev) => [
           data.order,

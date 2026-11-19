@@ -914,16 +914,27 @@ export default defineBackground(() => {
         }
       } else {
         const egTabs = (await chrome.tabs.query({ url: 'https://egpayment.com/*' }).catch(() => [])) as chrome.tabs.Tab[];
-        const rechargeTab = egTabs.find((t) => isEgPaymentRechargeUrl(t.url));
-        if (rechargeTab && rechargeTab.id) {
-          tabId = rechargeTab.id;
-          console.log(`[WalletSync Recharge Dispatcher] Using existing EG Payment recharge tab ${tabId} (URL: ${rechargeTab.url})`);
+        const existingTab = egTabs.find((t) => isEgPaymentRechargeUrl(t.url)) || egTabs[0];
+        if (existingTab && existingTab.id) {
+          tabId = existingTab.id;
+          const curUrl = (existingTab.url || '').toLowerCase();
+          if (curUrl.includes('/users/recharge') && !curUrl.includes('recharge_history')) {
+            console.log(`[WalletSync Recharge Dispatcher] Reloading existing EG Payment recharge tab ${tabId} for clean form state`);
+            await chrome.tabs.reload(tabId);
+            await waitForTabComplete(tabId);
+          } else {
+            console.log(`[WalletSync Recharge Dispatcher] Navigating existing EG Payment tab ${tabId} to ${targetUrl}`);
+            await chrome.tabs.update(tabId, { url: targetUrl });
+            await waitForTabComplete(tabId);
+          }
+          await new Promise((r) => setTimeout(r, 600));
         } else {
           console.log(`[WalletSync Recharge Dispatcher] Opening new EG Payment background tab: ${targetUrl}`);
           const newTab = await chrome.tabs.create({ url: targetUrl, active: false });
           if (!newTab.id) throw new Error('Failed to create EG tab');
           tabId = newTab.id;
           await waitForTabComplete(tabId);
+          await new Promise((r) => setTimeout(r, 600));
         }
       }
 

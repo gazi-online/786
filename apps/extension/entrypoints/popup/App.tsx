@@ -91,12 +91,13 @@ export default function App() {
   async function loadData() {
     const storage = await getStorage();
     setData(storage);
-    if (storage.apiUrl === 'https://walletsync-seven.vercel.app' || !storage.apiUrl) {
+    const currentApi = (storage.apiUrl || '').trim().replace(/\/+$/, '');
+    if (!currentApi || currentApi.includes('walletsync-seven.vercel.app') || currentApi.includes('example.com')) {
       const liveUrl = 'https://gonline.dpdns.org';
       await setStorage({ apiUrl: liveUrl });
       setPairingApiUrl(liveUrl);
     } else {
-      setPairingApiUrl(storage.apiUrl);
+      setPairingApiUrl(currentApi);
     }
   }
 
