@@ -504,7 +504,7 @@ export function safeClickElement(el: HTMLElement): void {
     bubbles: true,
     cancelable: true,
     composed: true,
-    view: win || undefined,
+    view: win,
     clientX,
     clientY,
     buttons: 1,
