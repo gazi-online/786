@@ -191,64 +191,44 @@ export function getAllNodes(doc: Document): HTMLElement[] {
 }
 
 export function findProcessTransactionPayButton(doc: Document): HTMLElement | null {
+  // 1. Search all clickable button elements directly
+  const buttons = Array.from(
+    doc.querySelectorAll<HTMLElement>(
+      'button, ion-button, a, [role="button"], .btn, input[type="button"], div.button, span.button'
+    ),
+  );
+
+  const payRegex = /pay\s*₹?\s*[\d,.]+\s*to\s*proceed/i;
+
+  for (const b of buttons) {
+    const text = (b.textContent || (b as HTMLInputElement).value || '').trim();
+    if (/close/i.test(text) || /payment\s*processing/i.test(text) || /^submit$/i.test(text)) continue;
+
+    if (payRegex.test(text) || (/pay/i.test(text) && /proceed/i.test(text))) {
+      if (isElementVisible(b)) return b;
+    }
+  }
+
+  // 2. Search leaf/near-leaf elements with text "Pay ... proceed"
   const allNodes = getAllNodes(doc);
-
-  // Strategy 1: Look inside any container titled / containing "Process Transaction"
   for (const el of allNodes) {
-    const text = (el.textContent || '').trim().toLowerCase();
-    if (text.includes('process transaction') && (text.includes('pay') || text.includes('proceed') || /₹|\d+/.test(text))) {
-      // Look for real buttons or links inside the container
-      const directButtons = Array.from(
-        el.querySelectorAll<HTMLElement>('button, ion-button, a, [role="button"], .btn, input[type="button"]'),
-      );
-      const payBtn = directButtons.find((c) => {
-        const cText = (c.textContent || (c as HTMLInputElement).value || '').trim().toLowerCase();
-        return cText.includes('pay') && !cText.includes('close');
-      });
-      if (payBtn) {
-        return payBtn;
-      }
+    // Only check elements with few children to avoid matching body or full containers
+    if (el.children.length > 2) continue;
+    const text = (el.textContent || '').trim();
+    if (/close/i.test(text) || /payment\s*processing/i.test(text) || /^submit$/i.test(text)) continue;
+
+    if (payRegex.test(text) || (/pay/i.test(text) && /proceed/i.test(text))) {
+      const btn = el.closest<HTMLElement>('button, ion-button, a, [role="button"], .btn') || el;
+      if (isElementVisible(btn)) return btn;
     }
   }
 
-  // Strategy 2: Search any button/ion-button with text matching /pay\s*₹?\s*[\d,.]+/i
-  const payRegex = /pay\s*₹?\s*[\d,.]+/i;
-  for (const el of allNodes) {
-    const isClickable =
-      el.tagName === 'BUTTON' ||
-      el.tagName === 'ION-BUTTON' ||
-      el.tagName === 'A' ||
-      el.getAttribute('role') === 'button' ||
-      el.classList.contains('btn');
-    if (isClickable) {
-      const text = (el.textContent || (el as HTMLInputElement).value || '').trim().replace(/\s+/g, ' ');
-      const containerText = (el.closest('.modal, .swal-modal, .swal2-modal, div')?.textContent || '').toLowerCase();
-      // Do NOT mistake a button inside the active QR modal ("Payment Processing.") for a Process Transaction drawer button
-      if (containerText.includes('payment processing')) continue;
-
-      if (payRegex.test(text) && !text.toLowerCase().includes('close') && !text.toLowerCase().includes('process transaction')) {
-        return el;
-      }
-    }
-  }
-
-  // Strategy 3: Any element matching payRegex that has a clickable parent or child
-  for (const el of allNodes) {
-    const text = (el.textContent || (el as HTMLInputElement).value || '').trim().replace(/\s+/g, ' ');
-    const containerText = (el.closest('.modal, .swal-modal, .swal2-modal, div')?.textContent || '').toLowerCase();
-    if (containerText.includes('payment processing')) continue;
-
-    if (
-      payRegex.test(text) &&
-      !text.toLowerCase().includes('close') &&
-      !text.toLowerCase().includes('process transaction') &&
-      text.length < 50
-    ) {
-      const btn =
-        el.closest<HTMLElement>('button, ion-button, a, [role="button"], .btn') ||
-        el.querySelector<HTMLElement>('button, ion-button, a, [role="button"], .btn') ||
-        el;
-      return btn;
+  // 3. Fallback: Any button with /pay\s*₹?\s*[\d,.]+/i (excluding submit and close)
+  for (const b of buttons) {
+    const text = (b.textContent || (b as HTMLInputElement).value || '').trim();
+    if (/close/i.test(text) || /payment\s*processing/i.test(text) || /^submit$/i.test(text)) continue;
+    if (/pay\s*₹?\s*[\d,.]+/i.test(text)) {
+      if (isElementVisible(b)) return b;
     }
   }
 
@@ -506,10 +486,69 @@ export function findVisibleSuccessElement(doc: Document): HTMLElement | null {
 }
 
 export function safeClickElement(el: HTMLElement): void {
+  if (!el) return;
+  try {
+    el.focus();
+  } catch {}
+
+  const win = el.ownerDocument?.defaultView || (typeof window !== 'undefined' ? window : null);
+  let clientX = 0;
+  let clientY = 0;
+  try {
+    const rect = el.getBoundingClientRect();
+    clientX = rect.left + rect.width / 2;
+    clientY = rect.top + rect.height / 2;
+  } catch {}
+
+  const opts: MouseEventInit & PointerEventInit = {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    view: win || undefined,
+    clientX,
+    clientY,
+    buttons: 1,
+  };
+
+  try {
+    if (typeof PointerEvent !== 'undefined') {
+      el.dispatchEvent(new PointerEvent('pointerover', opts));
+      el.dispatchEvent(new PointerEvent('pointerenter', opts));
+      el.dispatchEvent(new PointerEvent('pointerdown', opts));
+      el.dispatchEvent(new PointerEvent('pointerup', opts));
+    }
+  } catch {}
+
+  try {
+    el.dispatchEvent(new MouseEvent('mousedown', opts));
+    el.dispatchEvent(new MouseEvent('mouseup', opts));
+    el.dispatchEvent(new MouseEvent('click', opts));
+  } catch {}
+
   try {
     el.click();
   } catch {
-    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    try {
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    } catch {}
+  }
+
+  // If element has shadowRoot, click inner button/target
+  if ((el as any).shadowRoot) {
+    const inner = (el as any).shadowRoot.querySelector('button, [role="button"], a');
+    if (inner) {
+      try {
+        inner.click();
+      } catch {}
+    }
+  }
+
+  // If element has child button/link, click it
+  const child = el.querySelector<HTMLElement>('button, a, [role="button"], .btn');
+  if (child && child !== el) {
+    try {
+      child.click();
+    } catch {}
   }
 }
 
@@ -1433,14 +1472,41 @@ export async function executeEgPaymentRecharge(
     }
 
     mPinModal.pinInput.focus();
-    mPinModal.pinInput.value = order.mPin;
-    mPinModal.pinInput.dispatchEvent(new Event('input', { bubbles: true }));
-    mPinModal.pinInput.dispatchEvent(new Event('change', { bubbles: true }));
+    mPinModal.pinInput.value = '';
+    try {
+      const nativeSetter = Object.getOwnPropertyDescriptor(
+        doc.defaultView?.HTMLInputElement?.prototype || Object.getPrototypeOf(mPinModal.pinInput),
+        'value',
+      )?.set;
+      if (nativeSetter) {
+        nativeSetter.call(mPinModal.pinInput, order.mPin);
+      } else {
+        mPinModal.pinInput.value = order.mPin;
+      }
+    } catch {
+      mPinModal.pinInput.value = order.mPin;
+    }
 
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    try {
+      mPinModal.pinInput.setAttribute('value', order.mPin);
+    } catch {}
 
-    // Single click only on CONFIRM to avoid submitting empty/reset form
+    mPinModal.pinInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    for (const char of order.mPin) {
+      const code = `Digit${char}`;
+      const keyCode = 48 + parseInt(char, 10);
+      mPinModal.pinInput.dispatchEvent(new KeyboardEvent('keydown', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
+      mPinModal.pinInput.dispatchEvent(new KeyboardEvent('keypress', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
+      mPinModal.pinInput.dispatchEvent(new KeyboardEvent('keyup', { key: char, code, keyCode, which: keyCode, bubbles: true, composed: true }));
+    }
+    mPinModal.pinInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // Click CONFIRM on M-Pin modal
+    console.log('[EG Payment Automation] Clicking CONFIRM on M-Pin modal');
     safeClickElement(mPinModal.confirmBtn);
+    await new Promise((resolve) => setTimeout(resolve, 350));
   }
 
   // 10. Check Outcome: Insufficient Balance (Process Transaction / QR) vs Success vs Error
@@ -1448,11 +1514,10 @@ export async function executeEgPaymentRecharge(
   const outcomeWaitTimeout = isTestEnv ? 400 : 8000;
 
   let outcomeResult = await waitForElement(() => {
-    // Priority 1: Check for insufficient balance "Process Transaction" button (Image 1)
+    // Priority 1: Check for "Process Transaction" pay button (Image 1)
     const payProceedBtn = findProcessTransactionPayButton(doc);
     if (payProceedBtn) {
       const vis = isElementVisible(payProceedBtn);
-      // If pay button is found, return it
       if (vis) {
         return { type: 'qr_required', button: payProceedBtn };
       }
@@ -1505,12 +1570,30 @@ export async function executeEgPaymentRecharge(
       : expectedRupees;
 
     console.log('[EG Payment Automation] Process Transaction step: Clicking Pay button:', btnText.trim(), 'Payable amount:', payableRupees);
-    outcomeResult.button.focus();
     safeClickElement(outcomeResult.button);
-    // If it has shadowRoot, click inner button
-    if ((outcomeResult.button as any).shadowRoot) {
-      const inner = (outcomeResult.button as any).shadowRoot.querySelector('button');
-      if (inner) safeClickElement(inner);
+    await new Promise((r) => setTimeout(r, 400));
+
+    // Robust retry: If Pay button is still visible and neither QR nor success has appeared, re-click
+    if (!isTestEnv) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const qrData = findQRCodeDetails(doc, payableRupees);
+        const successEl = findVisibleSuccessElement(doc);
+        if (qrData || successEl) break;
+
+        const stillBtn = findProcessTransactionPayButton(doc);
+        if (stillBtn && isElementVisible(stillBtn)) {
+          console.log(`[EG Payment Automation] Pay button still present, re-clicking (attempt ${attempt + 2})...`);
+          const stillMPin = findMPinModal(doc);
+          if (stillMPin) {
+            safeClickElement(stillMPin.confirmBtn);
+            await new Promise((r) => setTimeout(r, 200));
+          }
+          safeClickElement(stillBtn);
+          await new Promise((r) => setTimeout(r, 500));
+        } else {
+          break;
+        }
+      }
     }
 
     // Wait for outcome after clicking "Pay ₹ ... to proceed":
