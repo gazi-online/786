@@ -24,12 +24,12 @@ export interface SimpleWalletRechargeOrderParams {
 export type RechargeExecutionResult =
   | {
     ok: true;
-    status: 'submitted';
+    status: 'submitted' | 'form_filled';
     portalTrnId?: string;
   }
   | {
     ok: false;
-    status: 'failed' | 'needs_manual_action';
+    status: 'failed' | 'needs_manual_action' | 'needs_review';
     failureCode: string;
     failureDetail: string;
   };

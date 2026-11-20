@@ -49,15 +49,23 @@ export const txnStatusEnum = pgEnum('txn_status', [
 ]);
 export const txnSourceEnum = pgEnum('txn_source', ['simplewallet', 'egpayment']);
 export const rechargeOrderStatusEnum = pgEnum('recharge_order_status', [
+  'draft',
+  'awaiting_confirm',
   'queued',
   'claimed',
+  'form_filled',
+  'awaiting_payment',
+  'payment_submitted',
   'submitting',
   'submitted',
+  'pending',
   'success',
   'failed',
   'unknown',
   'needs_manual_action',
+  'needs_review',
   'cancelled',
+  'expired',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -271,6 +279,8 @@ export const tenantRechargeSettings = pgTable(
     dailyMaxPaise: integer('daily_max_paise').notNull().default(500000),
     /** Rate limit: maximum recharge orders created per minute (default 5) */
     maxOrdersPerMinute: integer('max_orders_per_minute').notNull().default(5),
+    /** Maximum allowed recharge orders per UTC day (default 50) */
+    dailyMaxCount: integer('daily_max_count').notNull().default(50),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -292,6 +302,7 @@ export const rechargeOrders = pgTable(
     source: txnSourceEnum('source').notNull(),
     service: text('service').notNull().default('Prepaid'),
     operator: text('operator').notNull(),
+    circle: text('circle'),
     /** AES-256-GCM encrypted customer mobile number */
     customerNoEnc: text('customer_no_enc').notNull(),
     /** HMAC-SHA256 hash for exact lookup and duplicate checks */
@@ -299,6 +310,14 @@ export const rechargeOrders = pgTable(
     /** Plaintext last 4 digits for UI display/search */
     customerLast4: text('customer_last4').notNull(),
     amountPaise: integer('amount_paise').notNull(),
+    expectedPayablePaise: integer('expected_payable_paise'),
+    actualPayablePaise: integer('actual_payable_paise'),
+    qrImageUrl: text('qr_image_url'),
+    qrExpiresAt: timestamp('qr_expires_at', { withTimezone: true }),
+    portalTxnRef: text('portal_txn_ref'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    statusReason: text('status_reason'),
+    dryRun: boolean('dry_run').notNull().default(false),
     status: rechargeOrderStatusEnum('status').notNull().default('queued'),
     claimedByDeviceId: uuid('claimed_by_device_id').references(() => devices.id, {
       onDelete: 'set null',
@@ -320,6 +339,31 @@ export const rechargeOrders = pgTable(
     index('recharge_orders_tenant_status_idx').on(t.tenantId, t.status),
     index('recharge_orders_customer_hash_idx').on(t.tenantId, t.customerNoHash),
     index('recharge_orders_matched_txn_idx').on(t.tenantId, t.matchedTransactionId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// recharge_order_events  (Milestone R1: Audit table for all state transitions)
+// ---------------------------------------------------------------------------
+
+export const rechargeOrderEvents = pgTable(
+  'recharge_order_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => rechargeOrders.id, { onDelete: 'cascade' }),
+    fromStatus: text('from_status').notNull(),
+    toStatus: text('to_status').notNull(),
+    actor: text('actor').notNull(), // 'web' | 'extension' | 'system'
+    detail: jsonb('detail'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('recharge_order_events_order_idx').on(t.tenantId, t.orderId, t.createdAt),
   ],
 );
 

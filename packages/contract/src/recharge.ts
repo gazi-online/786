@@ -1,15 +1,23 @@
 import { z } from 'zod';
 
 export const RECHARGE_ORDER_STATUSES = [
+  'draft',
+  'awaiting_confirm',
   'queued',
   'claimed',
+  'form_filled',
+  'awaiting_payment',
+  'payment_submitted',
   'submitting',
   'submitted',
+  'pending',
   'success',
   'failed',
   'unknown',
   'needs_manual_action',
+  'needs_review',
   'cancelled',
+  'expired',
 ] as const;
 
 export type RechargeOrderStatus = (typeof RECHARGE_ORDER_STATUSES)[number];
@@ -19,23 +27,36 @@ export const RechargeOrderStatusSchema = z.enum(RECHARGE_ORDER_STATUSES);
 /**
  * Valid state transitions for a recharge order.
  *
- * Rules (Milestone R1):
+ * Rules (Antigravity Guide M8: R1-R5):
+ * - draft -> awaiting_confirm | cancelled
+ * - awaiting_confirm -> queued | cancelled
  * - queued -> claimed | cancelled
- * - claimed -> queued (lease expired BEFORE submitting only) | submitting | needs_manual_action | failed | cancelled
- * - submitting -> submitted | failed | unknown | needs_manual_action.
- *   NEVER back to queued or claimed. Once an order reaches submitting it must never be submitted again automatically.
- * - submitted -> success | failed | unknown
- * - unknown -> success | failed (only via reconciliation or an explicit human decision recorded in audit_log)
- * - success, failed, cancelled are terminal.
- * All other transitions are invalid.
+ * - claimed -> queued (lease expired) | form_filled | submitting | needs_review | needs_manual_action | failed | cancelled
+ * - form_filled -> awaiting_payment | payment_submitted | submitted | needs_review | needs_manual_action | failed | cancelled
+ * - awaiting_payment -> payment_submitted | submitted | pending | needs_review | needs_manual_action | failed | cancelled | expired
+ * - payment_submitted -> pending | submitted | success | failed | needs_review | needs_manual_action
+ * - submitting -> submitted | payment_submitted | failed | unknown | needs_manual_action | needs_review
+ * - submitted -> pending | success | failed | unknown
+ * - pending -> success | failed | needs_review | unknown
+ * - unknown -> success | failed (via reconciliation or audit decision)
+ * - needs_manual_action / needs_review -> queued | submitted | success | failed | unknown | cancelled
+ * - success, failed, cancelled, expired are terminal.
  */
 const VALID_RECHARGE_TRANSITIONS: Record<RechargeOrderStatus, readonly RechargeOrderStatus[]> = {
+  draft: ['awaiting_confirm', 'cancelled'],
+  awaiting_confirm: ['queued', 'cancelled'],
   queued: ['claimed', 'cancelled'],
-  claimed: ['queued', 'submitting', 'needs_manual_action', 'failed', 'cancelled'],
-  submitting: ['submitted', 'failed', 'unknown', 'needs_manual_action'],
-  submitted: ['success', 'failed', 'unknown'],
+  claimed: ['queued', 'form_filled', 'submitting', 'needs_review', 'needs_manual_action', 'failed', 'cancelled'],
+  form_filled: ['awaiting_payment', 'payment_submitted', 'submitted', 'needs_review', 'needs_manual_action', 'failed', 'cancelled'],
+  awaiting_payment: ['payment_submitted', 'submitted', 'pending', 'needs_review', 'needs_manual_action', 'failed', 'cancelled', 'expired'],
+  payment_submitted: ['pending', 'submitted', 'success', 'failed', 'needs_review', 'needs_manual_action'],
+  submitting: ['submitted', 'payment_submitted', 'failed', 'unknown', 'needs_manual_action', 'needs_review'],
+  submitted: ['pending', 'success', 'failed', 'unknown'],
+  pending: ['success', 'failed', 'needs_review', 'unknown'],
   unknown: ['success', 'failed'],
   needs_manual_action: ['submitted', 'success', 'failed', 'unknown', 'cancelled'],
+  needs_review: ['queued', 'submitted', 'success', 'failed', 'unknown', 'cancelled'],
+  expired: [],
   success: [],
   failed: [],
   cancelled: [],
@@ -64,6 +85,8 @@ export const CreateRechargeOrderRequestSchema = z.object({
     .trim()
     .regex(/^[5-9]\d{9}$/, 'Must be a valid 10-digit mobile number'),
   amountPaise: z.number().int().positive('Amount in paise must be positive integer'),
+  expectedPayablePaise: z.number().int().positive().optional(),
+  dryRun: z.boolean().optional(),
   confirmDuplicate: z.boolean().optional(),
   mPin: z.string().trim().regex(/^\d{4}$/, 'Must be a 4-digit M-Pin').optional(),
 });
@@ -74,6 +97,7 @@ export const UpdateRechargeSettingsRequestSchema = z.object({
   perOrderMaxPaise: z.number().int().positive().optional(),
   dailyMaxPaise: z.number().int().positive().optional(),
   maxOrdersPerMinute: z.number().int().positive().optional(),
+  dailyMaxCount: z.number().int().positive().optional(),
   cancelQueuedOnDisable: z.boolean().optional(),
 });
 export type UpdateRechargeSettingsRequest = z.infer<typeof UpdateRechargeSettingsRequestSchema>;
@@ -106,6 +130,8 @@ export const ClaimedRechargeOrderSchema = z.object({
   circle: z.string().optional(),
   customerNo: z.string().regex(/^[5-9]\d{9}$/, 'Must be a valid 10-digit mobile number'),
   amountPaise: z.number().int().positive(),
+  expectedPayablePaise: z.number().int().positive().optional(),
+  dryRun: z.boolean().optional(),
   status: z.literal('claimed'),
   mPin: z.string().regex(/^\d{4}$/).optional(),
   claimedAt: z.string(),
@@ -120,7 +146,7 @@ export const ClaimRechargeOrderResponseSchema = z.object({
 export type ClaimRechargeOrderResponse = z.infer<typeof ClaimRechargeOrderResponseSchema>;
 
 export const UpdateOrderStatusRequestSchema = z.object({
-  status: z.enum(['submitting', 'submitted', 'failed', 'needs_manual_action']),
+  status: RechargeOrderStatusSchema,
   failureCode: z.string().trim().max(64).optional(),
   failureDetail: z
     .string()
@@ -134,8 +160,25 @@ export const UpdateOrderStatusRequestSchema = z.object({
   qrDataUrl: z.string().max(100000).optional(),
   qrAmount: z.string().max(64).optional(),
   qrTimer: z.string().max(64).optional(),
+  portalTxnRef: z.string().trim().max(128).optional(),
 });
 export type UpdateOrderStatusRequest = z.infer<typeof UpdateOrderStatusRequestSchema>;
+
+export const ReportJobEventRequestSchema = z.object({
+  fromStatus: z.string(),
+  toStatus: RechargeOrderStatusSchema,
+  actor: z.enum(['web', 'extension', 'system']).default('extension'),
+  detail: z.record(z.any()).optional(),
+});
+export type ReportJobEventRequest = z.infer<typeof ReportJobEventRequestSchema>;
+
+export const UploadJobQrRequestSchema = z.object({
+  qrImageUrl: z.string().min(1).max(500000),
+  actualPayablePaise: z.number().int().positive().optional(),
+  qrExpiresAt: z.string().optional(),
+  qrTimer: z.string().max(64).optional(),
+});
+export type UploadJobQrRequest = z.infer<typeof UploadJobQrRequestSchema>;
 
 
 

@@ -288,6 +288,8 @@ export default defineContentScript({
                     circle: order.circle,
                     amountPaise: order.amountPaise,
                     mPin: order.mPin,
+                    expectedPayablePaise: (order as any).expectedPayablePaise,
+                    dryRun: (order as any).dryRun,
                     waitForPaymentCompletion: true,
                     onQrCodeDetected: (qrData) => {
                       chrome.storage.local.get(['activeRechargeOrder']).then((res) => {

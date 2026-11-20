@@ -67,6 +67,7 @@ async function runMigrations() {
     await runFile('0003_sync_events_fix.sql', 'apps/web/drizzle/0003_sync_events_fix.sql');
     await runFile('0004_transactions_parser_version.sql', 'apps/web/drizzle/0004_transactions_parser_version.sql');
     await runFile('0005_recharge_orders.sql', 'apps/web/drizzle/0005_recharge_orders.sql');
+    await runFile('0006_recharge_jobs_alignment.sql', 'apps/web/drizzle/0006_recharge_jobs_alignment.sql');
 
     console.log('✓ All migrations applied successfully.');
   } catch (err) {

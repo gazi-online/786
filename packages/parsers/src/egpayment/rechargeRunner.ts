@@ -18,7 +18,10 @@ export interface EgPaymentRechargeOrderParams {
   operator: string;
   circle?: string | undefined;
   amountPaise: number;
+  expectedPayablePaise?: number | undefined;
+  dryRun?: boolean | undefined;
   mPin?: string;
+  onFormFilled?: (fields: { mobile: string; operator: string; circle?: string; amount: string }) => void;
   onQrCodeDetected?: (qrData: { qrDataUrl: string; amountText?: string | undefined; timerText?: string | undefined }) => void;
   waitForPaymentCompletion?: boolean;
   paymentWaitTimeoutMs?: number;
@@ -135,10 +138,13 @@ function findMPinModal(doc: Document): { pinInput: HTMLInputElement; confirmBtn:
   for (const dlg of dialogs) {
     const text = dlg.textContent || '';
     if (text.includes('Confirm Number & Amount') || text.includes('M Pin') || text.includes('Digit M Pin')) {
-      const pinInput = dlg.querySelector<HTMLInputElement>(
+      let pinInput = dlg.querySelector<HTMLInputElement>(
         'input[placeholder*="M Pin" i], input[placeholder*="Pin" i], input[type="password"], input[name*="pin" i], input[id*="pin" i]',
       );
-      const btns = Array.from(dlg.querySelectorAll<HTMLElement>('button, a, input[type="button"], [role="button"]'));
+      if (!pinInput) {
+        pinInput = dlg.querySelector<HTMLInputElement>('input');
+      }
+      const btns = Array.from(dlg.querySelectorAll<HTMLElement>('button, a, input[type="button"], input[type="submit"], [role="button"], div, span'));
       const confirmBtn = btns.find((b) => {
         const bText = (b.textContent || (b as HTMLInputElement).value || '').trim().toUpperCase();
         return bText === 'CONFIRM' || bText.includes('CONFIRM');
@@ -154,8 +160,8 @@ function findMPinModal(doc: Document): { pinInput: HTMLInputElement; confirmBtn:
   const pinInput = doc.querySelector<HTMLInputElement>(
     'input[placeholder*="M Pin" i], input[placeholder*="Digit M Pin" i]',
   );
-  const confirmBtn = Array.from(doc.querySelectorAll<HTMLElement>('button, a, input[type="button"]')).find((b) =>
-    (b.textContent || '').trim().toUpperCase() === 'CONFIRM',
+  const confirmBtn = Array.from(doc.querySelectorAll<HTMLElement>('button, a, input[type="button"], input[type="submit"]')).find((b) =>
+    (b.textContent || (b as HTMLInputElement).value || '').trim().toUpperCase() === 'CONFIRM',
   );
 
   if (pinInput && confirmBtn) {
@@ -460,6 +466,27 @@ export function findQRCodeDetails(
   };
 }
 
+export function findReceiptDetails(doc: Document): {
+  orderId?: string;
+  debitedAmount?: string;
+  discount?: string;
+} | null {
+  const text = doc.body?.textContent || '';
+  const orderIdMatch = text.match(/order\s*id\s*[:#-]?\s*([A-Za-z0-9_-]+)/i) ||
+    (doc.defaultView?.location?.pathname || '').match(/transaction_receipt\/([A-Za-z0-9_-]+)/i);
+
+  if (!orderIdMatch) return null;
+
+  const debitedMatch = text.match(/amount\s*debited\s*[:#-]?\s*₹?\s*([\d,.]+)/i);
+  const discountMatch = text.match(/discount\s*[:#-]?\s*₹?\s*([\d,.]+)/i);
+
+  return {
+    ...(orderIdMatch[1] ? { orderId: orderIdMatch[1] } : {}),
+    ...(debitedMatch && debitedMatch[1] ? { debitedAmount: debitedMatch[1] } : {}),
+    ...(discountMatch && discountMatch[1] ? { discount: discountMatch[1] } : {}),
+  };
+}
+
 export function findVisibleSuccessElement(doc: Document): HTMLElement | null {
   const allNodes = getAllNodes(doc);
   for (const el of allNodes) {
@@ -476,7 +503,10 @@ export function findVisibleSuccessElement(doc: Document): HTMLElement | null {
         t.includes('recharge successful') ||
         t.includes('recharge submitted') ||
         t.includes('transaction accepted') ||
-        t.includes('request has been accepted')
+        t.includes('transaction success') ||
+        t.includes('request accepted') ||
+        t.includes('request has been accepted') ||
+        t.includes('order id')
       ) {
         return el;
       }
@@ -489,7 +519,7 @@ export function safeClickElement(el: HTMLElement): void {
   if (!el) return;
   try {
     el.focus();
-  } catch {}
+  } catch { }
 
   const win = el.ownerDocument?.defaultView || (typeof window !== 'undefined' ? window : null);
   let clientX = 0;
@@ -498,13 +528,13 @@ export function safeClickElement(el: HTMLElement): void {
     const rect = el.getBoundingClientRect();
     clientX = rect.left + rect.width / 2;
     clientY = rect.top + rect.height / 2;
-  } catch {}
+  } catch { }
 
   const opts: MouseEventInit & PointerEventInit = {
     bubbles: true,
     cancelable: true,
     composed: true,
-    view: win,
+    view: win || null,
     clientX,
     clientY,
     buttons: 1,
@@ -517,20 +547,20 @@ export function safeClickElement(el: HTMLElement): void {
       el.dispatchEvent(new PointerEvent('pointerdown', opts));
       el.dispatchEvent(new PointerEvent('pointerup', opts));
     }
-  } catch {}
+  } catch { }
 
   try {
     el.dispatchEvent(new MouseEvent('mousedown', opts));
     el.dispatchEvent(new MouseEvent('mouseup', opts));
     el.dispatchEvent(new MouseEvent('click', opts));
-  } catch {}
+  } catch { }
 
   try {
     el.click();
   } catch {
     try {
       el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    } catch {}
+    } catch { }
   }
 
   // If element has shadowRoot, click inner button/target
@@ -539,7 +569,7 @@ export function safeClickElement(el: HTMLElement): void {
     if (inner) {
       try {
         inner.click();
-      } catch {}
+      } catch { }
     }
   }
 
@@ -548,7 +578,7 @@ export function safeClickElement(el: HTMLElement): void {
   if (child && child !== el) {
     try {
       child.click();
-    } catch {}
+    } catch { }
   }
 }
 
@@ -828,7 +858,7 @@ export function resetPrepaidRechargeForm(doc: Document): void {
       const win = doc.defaultView as any;
       const $ = win?.$ || win?.jQuery;
       if ($) $(mobileInput).val('').trigger('input').trigger('change');
-    } catch {}
+    } catch { }
   }
 
   const amountInput = findAmountInput(doc);
@@ -851,7 +881,7 @@ export function resetPrepaidRechargeForm(doc: Document): void {
       const win = doc.defaultView as any;
       const $ = win?.$ || win?.jQuery;
       if ($) $(amountInput).val('').trigger('input').trigger('change');
-    } catch {}
+    } catch { }
   }
 }
 
@@ -1235,7 +1265,7 @@ export async function executeEgPaymentRecharge(
       const opSelect = doc.querySelector<HTMLSelectElement>('select#operator, select[name="operator"], select[name*="operator" i]');
       const opInput = doc.querySelector<HTMLInputElement>('input#operator, input[name="operator"], input[name*="operator" i]');
       const hasOp = (opSelect && opSelect.value && !/select\s*operator/i.test(opSelect.value)) ||
-                    (opInput && opInput.value.trim().length > 0);
+        (opInput && opInput.value.trim().length > 0);
       if (hasOp) {
         console.log('[EG Payment Automation] Operator auto-detected by portal:', opSelect?.value || opInput?.value);
         break;
@@ -1245,6 +1275,22 @@ export async function executeEgPaymentRecharge(
     await new Promise((resolve) => setTimeout(resolve, 300));
   } else {
     await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  // 4.1 Verify auto-detected Operator & Circle against job (Section 6 step 3)
+  const autoDetails = extractPortalOperatorAndCircle(doc);
+  if (order.operator && autoDetails.operator && !/select\s*operator/i.test(autoDetails.operator)) {
+    const normOrderOp = order.operator.toLowerCase().replace(/\s+/g, '');
+    const normAutoOp = autoDetails.operator.toLowerCase().replace(/\s+/g, '');
+    if (!normAutoOp.includes(normOrderOp) && !normOrderOp.includes(normAutoOp)) {
+      console.warn(`[EG Payment Automation] Portal auto-detected "${autoDetails.operator}", but order requested "${order.operator}". Stopping for review.`);
+      return {
+        ok: false,
+        status: 'needs_review',
+        failureCode: 'operator_mismatch',
+        failureDetail: `Operator mismatch: portal auto-detected "${autoDetails.operator}" but order requested "${order.operator}"`,
+      };
+    }
   }
 
   // 5. Enforce target operator (if merchant corrected or confirmed an operator on our platform)
@@ -1332,7 +1378,7 @@ export async function executeEgPaymentRecharge(
       inp.focus();
       try {
         inp.select();
-      } catch {}
+      } catch { }
       inp.value = '';
 
       try {
@@ -1351,7 +1397,7 @@ export async function executeEgPaymentRecharge(
 
       try {
         inp.setAttribute('value', rupees);
-      } catch {}
+      } catch { }
 
       try {
         inp.dispatchEvent(new InputEvent('input', { data: rupees, inputType: 'insertText', bubbles: true, composed: true, cancelable: true }));
@@ -1376,7 +1422,7 @@ export async function executeEgPaymentRecharge(
         if ($) {
           $(inp).val(rupees).trigger('input').trigger('change').trigger('keyup');
         }
-      } catch {}
+      } catch { }
     }
     return amtInput;
   };
@@ -1401,23 +1447,61 @@ export async function executeEgPaymentRecharge(
     }
   }
 
-  // 7. Verify inputs
-  if (mobileInput.value !== order.customerNo) {
+  // 7. Re-read all four fields back from DOM and compare to the order (Milestone R3)
+  const domMobile = (mobileInput.value || '').trim();
+  const domAmount = parseFloat(amountInput.value || '0');
+  const opDetails = extractPortalOperatorAndCircle(doc);
+  const domOperator = opDetails.operator || '';
+  const domCircle = opDetails.circle || '';
+
+  if (domMobile !== order.customerNo) {
     return {
       ok: false,
-      status: 'failed',
+      status: 'needs_review',
       failureCode: 'verification_failed',
-      failureDetail: 'Mobile input verification failed before submission',
+      failureDetail: `Mobile mismatch: DOM had "${domMobile}", expected "${order.customerNo}"`,
     };
   }
 
-  const parsedAmount = parseFloat(amountInput.value);
-  if (isNaN(parsedAmount) || Math.round(parsedAmount * 100) !== order.amountPaise) {
+  if (isNaN(domAmount) || Math.round(domAmount * 100) !== order.amountPaise) {
     return {
       ok: false,
-      status: 'failed',
+      status: 'needs_review',
       failureCode: 'verification_failed',
-      failureDetail: 'Amount input verification failed before submission',
+      failureDetail: `Amount mismatch: DOM had "${amountInput.value}", expected ₹${order.amountPaise / 100}`,
+    };
+  }
+
+  // Operator verification (if order specified an operator):
+  if (order.operator && domOperator && !/select\s*operator/i.test(domOperator)) {
+    const normOrderOp = order.operator.toLowerCase().replace(/\s+/g, '');
+    const normDomOp = domOperator.toLowerCase().replace(/\s+/g, '');
+    if (!normDomOp.includes(normOrderOp) && !normOrderOp.includes(normDomOp)) {
+      return {
+        ok: false,
+        status: 'needs_review',
+        failureCode: 'operator_mismatch',
+        failureDetail: `Operator mismatch: portal auto-detected "${domOperator}" but order requested "${order.operator}"`,
+      };
+    }
+  }
+
+  if (order.onFormFilled) {
+    order.onFormFilled({
+      mobile: domMobile,
+      operator: domOperator,
+      circle: domCircle,
+      amount: amountInput.value,
+    });
+  }
+
+  // Dry-run mode guard (Antigravity Guide Milestone R3):
+  // Fills the form completely, verifies read-back, but NEVER clicks Submit!
+  if (order.dryRun) {
+    console.log('[EG Payment Automation] Dry-run mode active: form filled & verified successfully. Submit click withheld.');
+    return {
+      ok: true,
+      status: 'form_filled',
     };
   }
 
@@ -1489,7 +1573,7 @@ export async function executeEgPaymentRecharge(
 
     try {
       mPinModal.pinInput.setAttribute('value', order.mPin);
-    } catch {}
+    } catch { }
 
     mPinModal.pinInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
     for (const char of order.mPin) {
@@ -1568,6 +1652,17 @@ export async function executeEgPaymentRecharge(
     const payableRupees = (btnAmtMatch && btnAmtMatch[1])
       ? parseFloat(btnAmtMatch[1].replace(/,/g, ''))
       : expectedRupees;
+
+    // Safety check: Section 7 Payable check (non-negotiable)
+    if (order.expectedPayablePaise && Math.round(payableRupees * 100) > order.expectedPayablePaise) {
+      console.warn(`[EG Payment Automation] Payable check failed: payable ₹${payableRupees} exceeds expected ₹${order.expectedPayablePaise / 100}`);
+      return {
+        ok: false,
+        status: 'needs_review',
+        failureCode: 'payable_mismatch',
+        failureDetail: `Payable amount ₹${payableRupees} exceeds expected payable ₹${order.expectedPayablePaise / 100}`,
+      };
+    }
 
     console.log('[EG Payment Automation] Process Transaction step: Clicking Pay button:', btnText.trim(), 'Payable amount:', payableRupees);
     safeClickElement(outcomeResult.button);

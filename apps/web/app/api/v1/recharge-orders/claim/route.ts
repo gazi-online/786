@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withTenantContext } from '@/lib/db';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { decryptCustomerNo } from '@/lib/crypto';
-import { rechargeOrders, auditLog } from '@/drizzle/schema';
+import { rechargeOrders, rechargeOrderEvents, auditLog } from '@/drizzle/schema';
 import {
   DEFAULT_CLAIM_LEASE_SECONDS,
   type ClaimRechargeOrderResponse,
@@ -131,6 +131,20 @@ export async function POST(req: NextRequest) {
       }
 
       // Write audit log entry
+      await tx.insert(rechargeOrderEvents).values({
+        tenantId: device.tenantId,
+        orderId: order.id,
+        fromStatus: order.status,
+        toStatus: 'claimed',
+        actor: 'extension',
+        detail: {
+          deviceId: device.id,
+          claimExpiresAt: claimExpiresAt.toISOString(),
+          leaseSeconds: DEFAULT_CLAIM_LEASE_SECONDS,
+        },
+        createdAt: now,
+      });
+
       await tx.insert(auditLog).values({
         tenantId: device.tenantId,
         actorId: device.id,
@@ -160,6 +174,8 @@ export async function POST(req: NextRequest) {
           ...(circle ? { circle } : {}),
           customerNo,
           amountPaise: order.amountPaise,
+          ...(order.expectedPayablePaise ? { expectedPayablePaise: order.expectedPayablePaise } : {}),
+          ...(order.dryRun ? { dryRun: true } : {}),
           status: 'claimed',
           claimedAt: now.toISOString(),
           claimExpiresAt: claimExpiresAt.toISOString(),

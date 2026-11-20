@@ -78,8 +78,39 @@ describe('isValidRechargeTransition state machine', () => {
     expect(isValidRechargeTransition('unknown', 'needs_manual_action')).toBe(false);
   });
 
-  it('treats success, failed, and cancelled as strictly terminal', () => {
-    const terminalStatuses: RechargeOrderStatus[] = ['success', 'failed', 'cancelled'];
+  it('allows valid transitions for Antigravity Guide flow: draft -> awaiting_confirm -> queued', () => {
+    expect(isValidRechargeTransition('draft', 'awaiting_confirm')).toBe(true);
+    expect(isValidRechargeTransition('draft', 'cancelled')).toBe(true);
+    expect(isValidRechargeTransition('draft', 'queued')).toBe(false);
+
+    expect(isValidRechargeTransition('awaiting_confirm', 'queued')).toBe(true);
+    expect(isValidRechargeTransition('awaiting_confirm', 'cancelled')).toBe(true);
+    expect(isValidRechargeTransition('awaiting_confirm', 'claimed')).toBe(false);
+  });
+
+  it('allows valid transitions through form_filled, awaiting_payment, payment_submitted and pending', () => {
+    expect(isValidRechargeTransition('claimed', 'form_filled')).toBe(true);
+    expect(isValidRechargeTransition('claimed', 'needs_review')).toBe(true);
+
+    expect(isValidRechargeTransition('form_filled', 'awaiting_payment')).toBe(true);
+    expect(isValidRechargeTransition('form_filled', 'payment_submitted')).toBe(true);
+    expect(isValidRechargeTransition('form_filled', 'needs_review')).toBe(true);
+
+    expect(isValidRechargeTransition('awaiting_payment', 'payment_submitted')).toBe(true);
+    expect(isValidRechargeTransition('awaiting_payment', 'pending')).toBe(true);
+    expect(isValidRechargeTransition('awaiting_payment', 'expired')).toBe(true);
+    expect(isValidRechargeTransition('awaiting_payment', 'needs_review')).toBe(true);
+
+    expect(isValidRechargeTransition('payment_submitted', 'pending')).toBe(true);
+    expect(isValidRechargeTransition('payment_submitted', 'success')).toBe(true);
+
+    expect(isValidRechargeTransition('pending', 'success')).toBe(true);
+    expect(isValidRechargeTransition('pending', 'failed')).toBe(true);
+    expect(isValidRechargeTransition('pending', 'needs_review')).toBe(true);
+  });
+
+  it('treats success, failed, cancelled, and expired as strictly terminal', () => {
+    const terminalStatuses: RechargeOrderStatus[] = ['success', 'failed', 'cancelled', 'expired'];
 
     for (const status of terminalStatuses) {
       for (const next of RECHARGE_ORDER_STATUSES) {
@@ -88,7 +119,7 @@ describe('isValidRechargeTransition state machine', () => {
     }
   });
 
-  it('allows human-decision transitions from needs_manual_action and forbids returning to queued, claimed or submitting', () => {
+  it('allows human-decision transitions from needs_manual_action and needs_review', () => {
     // Allowed human-decision outcomes
     expect(isValidRechargeTransition('needs_manual_action', 'cancelled')).toBe(true);
     expect(isValidRechargeTransition('needs_manual_action', 'failed')).toBe(true);
@@ -96,7 +127,12 @@ describe('isValidRechargeTransition state machine', () => {
     expect(isValidRechargeTransition('needs_manual_action', 'success')).toBe(true);
     expect(isValidRechargeTransition('needs_manual_action', 'submitted')).toBe(true);
 
-    // Strictly forbidden to return to automated queue / initial claim!
+    expect(isValidRechargeTransition('needs_review', 'queued')).toBe(true);
+    expect(isValidRechargeTransition('needs_review', 'submitted')).toBe(true);
+    expect(isValidRechargeTransition('needs_review', 'cancelled')).toBe(true);
+    expect(isValidRechargeTransition('needs_review', 'failed')).toBe(true);
+
+    // Strictly forbidden to return to automated initial claim!
     expect(isValidRechargeTransition('needs_manual_action', 'queued')).toBe(false);
     expect(isValidRechargeTransition('needs_manual_action', 'claimed')).toBe(false);
     expect(isValidRechargeTransition('needs_manual_action', 'submitting')).toBe(false);

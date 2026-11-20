@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withTenantContext } from '@/lib/db';
-import { rechargeOrders, auditLog } from '@/drizzle/schema';
+import { rechargeOrders, rechargeOrderEvents, auditLog } from '@/drizzle/schema';
 import {
   UpdateOrderStatusRequestSchema,
   isValidRechargeTransition,
@@ -136,6 +136,20 @@ export async function POST(req: NextRequest, context: RouteContext) {
         .update(rechargeOrders)
         .set(updateFields)
         .where(eq(rechargeOrders.id, order.id));
+
+      await tx.insert(rechargeOrderEvents).values({
+        tenantId: device.tenantId,
+        orderId: order.id,
+        fromStatus: order.status,
+        toStatus: nextStatus,
+        actor: 'extension',
+        detail: {
+          failureCode: failureCode || null,
+          failureDetail: failureDetail || null,
+          qrAmount: qrAmount || null,
+        },
+        createdAt: now,
+      });
 
       // Record audit log entry for the transition
       await tx.insert(auditLog).values({

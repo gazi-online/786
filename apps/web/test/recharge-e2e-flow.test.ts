@@ -106,7 +106,7 @@ describe('Recharge From Web App: Full End-to-End Lifecycle Simulation', () => {
         }),
         insert: vi.fn().mockReturnValue({
           values: vi.fn().mockImplementation((val) => {
-            if (val.action) {
+            if (val.action || val.fromStatus) {
               auditEvents.push(val);
               return Promise.resolve();
             }

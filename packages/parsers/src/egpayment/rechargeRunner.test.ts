@@ -507,4 +507,98 @@ describe('EG Payment Recharge Form Automation Runner (Milestone R5)', () => {
     // Must fall back to 299, NOT 1.25 or 50.00!
     expect(qrDetails?.amountText).toBe('₹299');
   });
+
+  it('executes dry-run mode up to form_filled and NEVER clicks Submit (Antigravity Guide Milestone R3)', async () => {
+    const doc = createMockEgPaymentDoc();
+    const submitBtn = doc.getElementById('btnSubmit') as HTMLButtonElement;
+    const clickSpy = vi.spyOn(submitBtn, 'click');
+
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'AIRTEL',
+      amountPaise: 19900,
+      dryRun: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe('form_filled');
+    // In dry-run mode, Submit must NEVER be clicked!
+    expect(clickSpy).not.toHaveBeenCalled();
+  });
+
+  it('stops and reports needs_review if portal auto-detected operator mismatches order', async () => {
+    const doc = createMockEgPaymentDoc();
+    // Portal has Jio option selected
+    const opSelect = doc.getElementById('operator') as HTMLSelectElement;
+    opSelect.value = 'JIO';
+    const opt = doc.createElement('option');
+    opt.value = 'JIO';
+    opt.text = 'Jio';
+    opSelect.appendChild(opt);
+    opSelect.selectedIndex = opSelect.options.length - 1;
+
+    // Order requested Airtel
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'AIRTEL',
+      amountPaise: 19900,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe('needs_review');
+      expect(result.failureCode).toBe('operator_mismatch');
+    }
+  });
+
+  it('stops and reports needs_review when payable amount exceeds expected_payable (Section 7 Safety Rule 1)', async () => {
+    const doc = createMockEgPaymentDoc({ withProcessTransaction: true });
+    // Process transaction drawer shows Pay ₹ 347 to proceed
+    const payBtn = doc.querySelector('#btnPayProceed') as HTMLElement;
+    expect(payBtn).not.toBeNull();
+    payBtn.textContent = 'Pay ₹ 347 to proceed';
+
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'AIRTEL',
+      amountPaise: 19900,
+      expectedPayablePaise: 19500, // Expected ₹195, but drawer requested ₹347
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe('needs_review');
+      expect(result.failureCode).toBe('payable_mismatch');
+    }
+  });
+
+  it('correctly parses receipt details from transaction_receipt page', async () => {
+    const doc = new DOMParser().parseFromString(`
+      <!DOCTYPE html>
+      <html>
+        <body>
+          <div class="header">Receipt/Inovice</div>
+          <div class="banner">Transaction Success</div>
+          <div class="content">
+            <p>Jio</p>
+            <p>9734636629</p>
+            <p>Order ID: 2632446720533</p>
+            <p>Date Time: 11/20/2026, 06:26 PM</p>
+            <p>Payment Mode: UPI</p>
+            <p>Transaction Amount : ₹349</p>
+            <p>Amount Debited : ₹346.906</p>
+            <p>Discount : ₹2.094</p>
+          </div>
+        </body>
+      </html>
+    `, 'text/html');
+
+    const { findReceiptDetails } = await import('./rechargeRunner');
+    const details = findReceiptDetails(doc);
+
+    expect(details).not.toBeNull();
+    expect(details?.orderId).toBe('2632446720533');
+    expect(details?.debitedAmount).toBe('346.906');
+    expect(details?.discount).toBe('2.094');
+  });
 });

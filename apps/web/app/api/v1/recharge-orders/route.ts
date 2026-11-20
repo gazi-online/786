@@ -9,6 +9,7 @@ import {
 } from '@/lib/crypto';
 import {
   rechargeOrders,
+  rechargeOrderEvents,
   auditLog,
 } from '@/drizzle/schema';
 import {
@@ -65,8 +66,18 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { source, service, operator, circle, customerNo, amountPaise, confirmDuplicate, mPin } =
-    parsed.data;
+  const {
+    source,
+    service,
+    operator,
+    circle,
+    customerNo,
+    amountPaise,
+    expectedPayablePaise,
+    dryRun,
+    confirmDuplicate,
+    mPin,
+  } = parsed.data;
 
   // DB-only operation inside tenant context
   try {
@@ -214,10 +225,13 @@ export async function POST(req: NextRequest) {
             source,
             service,
             operator,
+            circle: circle || null,
             customerNoEnc,
             customerNoHash,
             customerLast4,
             amountPaise,
+            expectedPayablePaise: expectedPayablePaise || null,
+            dryRun: Boolean(dryRun),
             status: 'queued',
             createdAt: now,
             updatedAt: now,
@@ -292,7 +306,22 @@ export async function POST(req: NextRequest) {
         throw new Error('Failed to insert recharge order');
       }
 
-      // 8. Write audit log (CRITICAL: zero plain phone number in metadata)
+      await tx.insert(rechargeOrderEvents).values({
+        tenantId: session.tenant.id,
+        orderId: newOrder.id,
+        fromStatus: 'draft',
+        toStatus: 'queued',
+        actor: 'web',
+        detail: {
+          source,
+          operator,
+          circle: circle || null,
+          amountPaise,
+          expectedPayablePaise: expectedPayablePaise || null,
+          dryRun: Boolean(dryRun),
+        },
+        createdAt: now,
+      });
       await tx.insert(auditLog).values({
         tenantId: session.tenant.id,
         actorId: session.user.id,
