@@ -236,6 +236,34 @@ describe('EG Payment Recharge Form Automation Runner (Milestone R5)', () => {
     );
   });
 
+  it('detects sufficient balance: clicks Pay Proceed, drawer closes, and transitions immediately to submitted without QR', async () => {
+    const doc = createMockEgPaymentDoc();
+    const payModal = doc.createElement('div');
+    payModal.id = 'processTransactionDrawer';
+    payModal.innerHTML = `
+      <div>Process Transaction</div>
+      <button id="btnPayProceed">Pay ₹ 347 to proceed</button>
+    `;
+    const btn = payModal.querySelector('button');
+    btn?.addEventListener('click', () => {
+      // Simulate sufficient balance: drawer simply closes and transaction succeeds
+      payModal.remove();
+    });
+    doc.body.appendChild(payModal);
+
+    const qrCallback = vi.fn();
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'JIO',
+      amountPaise: 34900,
+      onQrCodeDetected: qrCallback,
+    });
+
+    expect(qrCallback).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe('submitted');
+  });
+
   it('detects insufficient balance, captures dynamic QR, and waits until payment is confirmed on portal to transition to submitted', async () => {
     const doc = createMockEgPaymentDoc({ withProcessTransaction: true });
     const qrCallback = vi.fn(() => {

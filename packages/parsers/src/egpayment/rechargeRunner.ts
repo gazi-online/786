@@ -1496,7 +1496,7 @@ export async function executeEgPaymentRecharge(
     }
   }
 
-  // If QR code payment is needed (insufficient wallet balance):
+  // If Process Transaction drawer with "Pay ₹ ... to proceed" is present:
   if (outcomeResult && outcomeResult.type === 'qr_required' && outcomeResult.button) {
     const btnText = outcomeResult.button.textContent || '';
     const btnAmtMatch = btnText.match(/pay\s*₹?\s*([\d,.]+)/i);
@@ -1504,7 +1504,7 @@ export async function executeEgPaymentRecharge(
       ? parseFloat(btnAmtMatch[1].replace(/,/g, ''))
       : expectedRupees;
 
-    console.log('[EG Payment Automation] Insufficient balance detected! Clicking Process Transaction Pay button:', btnText.trim(), 'Payable amount:', payableRupees);
+    console.log('[EG Payment Automation] Process Transaction step: Clicking Pay button:', btnText.trim(), 'Payable amount:', payableRupees);
     outcomeResult.button.focus();
     safeClickElement(outcomeResult.button);
     // If it has shadowRoot, click inner button
@@ -1513,11 +1513,44 @@ export async function executeEgPaymentRecharge(
       if (inner) safeClickElement(inner);
     }
 
-    // Wait for "Payment Processing." modal with dynamic QR code
-    const qrWaitTimeout = isTestEnv ? 1000 : 15000;
-    const qrData = await waitForElement(() => findQRCodeDetails(doc, payableRupees), qrWaitTimeout, 50);
-    if (qrData) {
-      console.log('[EG Payment Automation] Dynamic QR code captured:', qrData.amountText, qrData.timerText);
+    // Wait for outcome after clicking "Pay ₹ ... to proceed":
+    // 1) Insufficient balance: "Payment Processing." modal with dynamic QR code appears
+    // 2) Sufficient balance: Process Transaction drawer closes or success message appears
+    // 3) Error modal
+    const qrWaitTimeout = isTestEnv ? 1000 : 8000;
+    const postPayOutcome = await waitForElement(() => {
+      // (a) Insufficient balance: Dynamic QR code modal appears
+      const qrData = findQRCodeDetails(doc, payableRupees);
+      if (qrData) {
+        return { type: 'qr', qrData };
+      }
+
+      // (b) Sufficient balance: Visible portal success element appears
+      const successEl = findVisibleSuccessElement(doc);
+      if (successEl) {
+        return { type: 'success' };
+      }
+
+      // (c) Sufficient balance: Process Transaction drawer has closed and no error is visible
+      const activePayBtn = findProcessTransactionPayButton(doc);
+      if (!activePayBtn) {
+        const err = findVisibleErrorElement(doc);
+        if (err) return { type: 'error', message: err };
+        return { type: 'success' };
+      }
+
+      // (d) Portal error alert
+      const errEl = findVisibleErrorElement(doc);
+      if (errEl) {
+        return { type: 'error', message: errEl };
+      }
+
+      return null;
+    }, qrWaitTimeout, 80);
+
+    if (postPayOutcome?.type === 'qr' && postPayOutcome.qrData) {
+      const qrData = postPayOutcome.qrData;
+      console.log('[EG Payment Automation] Insufficient wallet balance: Dynamic QR code captured:', qrData.amountText, qrData.timerText);
       if (order.onQrCodeDetected) {
         order.onQrCodeDetected(qrData);
       }
@@ -1531,6 +1564,25 @@ export async function executeEgPaymentRecharge(
         status: 'needs_manual_action',
         failureCode: 'qr_payment_required',
         failureDetail: `Dynamic UPI QR code generated (${qrData.amountText || 'UPI'}). Please scan and pay from web app to complete.`,
+      };
+    }
+
+    if (postPayOutcome?.type === 'success') {
+      console.log('[EG Payment Automation] Sufficient wallet balance: recharge processed directly without QR!');
+      return {
+        ok: true,
+        status: 'submitted',
+      };
+    }
+
+    if (postPayOutcome?.type === 'error') {
+      await dismissVisibleErrorPopup(doc);
+      await cleanupStaleEgPaymentModals(doc);
+      return {
+        ok: false,
+        status: 'failed',
+        failureCode: 'portal_error',
+        failureDetail: postPayOutcome.message || 'Official portal error occurred during payment',
       };
     }
   }
