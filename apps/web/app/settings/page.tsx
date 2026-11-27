@@ -12,6 +12,8 @@ import {
   Check,
   AlertCircle,
   RefreshCw,
+  MessageSquare,
+  Send,
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -21,10 +23,20 @@ export default function SettingsPage() {
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   // Settings form state
-  const [storeName, setStoreName] = useState('Gazi Telecom & Cyber Cafe');
+  const [storeName, setStoreName] = useState('Demo Store & Cyber Cafe');
   const [retentionMonths, setRetentionMonths] = useState(24);
   const [maskNumbers, setMaskNumbers] = useState(true);
   const [offlineAlert, setOfflineAlert] = useState(true);
+
+  // WhatsApp API state
+  const [waEnabled, setWaEnabled] = useState(false);
+  const [waApiUrl, setWaApiUrl] = useState('');
+  const [waApiKey, setWaApiKey] = useState('');
+  const [waNotifyNumber, setWaNotifyNumber] = useState('');
+  const [waTesting, setWaTesting] = useState(false);
+  const [waTestFeedback, setWaTestFeedback] = useState<{ ok: boolean; message: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     loadSettings();
@@ -39,6 +51,11 @@ export default function SettingsPage() {
         const json = await res.json();
         if (json.storeName) setStoreName(json.storeName);
         if (json.retentionMonths) setRetentionMonths(json.retentionMonths);
+        if (json.whatsapp) {
+          setWaEnabled(Boolean(json.whatsapp.enabled));
+          setWaApiUrl(json.whatsapp.apiUrl || '');
+          setWaNotifyNumber(json.whatsapp.notifyNumber || '');
+        }
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error loading settings');
@@ -53,7 +70,16 @@ export default function SettingsPage() {
       const res = await fetch('/api/v1/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storeName, retentionMonths }),
+        body: JSON.stringify({
+          storeName,
+          retentionMonths,
+          whatsapp: {
+            enabled: waEnabled,
+            apiUrl: waApiUrl,
+            apiKey: waApiKey || undefined,
+            notifyNumber: waNotifyNumber,
+          },
+        }),
       });
       if (res.ok) {
         setSavedSuccess(true);
@@ -61,6 +87,48 @@ export default function SettingsPage() {
       }
     } catch {
       alert('Failed to save settings');
+    }
+  }
+
+  async function handleTestWhatsApp() {
+    if (!waApiUrl) {
+      setWaTestFeedback({ ok: false, message: 'Please enter a WhatsApp API / Webhook URL first.' });
+      return;
+    }
+    setWaTesting(true);
+    setWaTestFeedback(null);
+    try {
+      const res = await fetch('/api/v1/settings/whatsapp/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          whatsapp: {
+            enabled: true,
+            apiUrl: waApiUrl,
+            apiKey: waApiKey,
+            notifyNumber: waNotifyNumber,
+          },
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && json.ok) {
+        setWaTestFeedback({
+          ok: true,
+          message: 'Test alert sent successfully to your WhatsApp API!',
+        });
+      } else {
+        setWaTestFeedback({
+          ok: false,
+          message: json.error || 'Failed to dispatch test WhatsApp alert.',
+        });
+      }
+    } catch (err: unknown) {
+      setWaTestFeedback({
+        ok: false,
+        message: err instanceof Error ? err.message : 'Network error testing WhatsApp API.',
+      });
+    } finally {
+      setWaTesting(false);
     }
   }
 
@@ -222,6 +290,114 @@ export default function SettingsPage() {
                 className="w-4 h-4 rounded text-blue-600 cursor-pointer"
               />
             </div>
+          </div>
+
+          {/* WhatsApp / OpenWA API Notifications */}
+          <div className="p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 flex items-center justify-center text-emerald-600">
+                  <MessageSquare className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                    OpenWA / WhatsApp Cloud Gateway
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 font-semibold">
+                      API v1
+                    </span>
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Receive automated WhatsApp alerts via OpenWA Developer Hub or custom webhook whenever transactions are synced
+                  </p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={waEnabled}
+                onChange={(e) => setWaEnabled(e.target.checked)}
+                className="w-4 h-4 rounded text-emerald-600 cursor-pointer"
+              />
+            </div>
+
+            {waEnabled && (
+              <div className="pt-2 space-y-3 border-t border-zinc-100 dark:border-zinc-800">
+                <div>
+                  <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
+                    OpenWA / WhatsApp Send Endpoint URL
+                  </label>
+                  <input
+                    type="url"
+                    value={waApiUrl}
+                    onChange={(e) => setWaApiUrl(e.target.value)}
+                    placeholder="https://openwa-integration-service.vercel.app/api/send"
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 outline-hidden focus:ring-1 focus:ring-emerald-500"
+                  />
+                  <span className="text-[11px] text-zinc-500 mt-0.5 block">
+                    Full endpoint URL from OpenWA Developer Hub: <code className="text-[10px] bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">https://openwa-integration-service.vercel.app/api/send</code>
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
+                      X-API-Key (OpenWA Secret Admin Key)
+                    </label>
+                    <input
+                      type="password"
+                      value={waApiKey}
+                      onChange={(e) => setWaApiKey(e.target.value)}
+                      placeholder="e.g. gazi_secret_wa_2026_xyz9733"
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 outline-hidden focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
+                      Recipient WhatsApp Phone Number
+                    </label>
+                    <input
+                      type="text"
+                      value={waNotifyNumber}
+                      onChange={(e) => setWaNotifyNumber(e.target.value)}
+                      placeholder="e.g. 919733671894 (with country code)"
+                      className="w-full px-3 py-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 outline-hidden focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {waTestFeedback && (
+                  <div
+                    className={`p-3 rounded-lg text-xs flex items-center gap-2 ${
+                      waTestFeedback.ok
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                        : 'bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300'
+                    }`}
+                  >
+                    {waTestFeedback.ok ? (
+                      <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                    )}
+                    <span>{waTestFeedback.message}</span>
+                  </div>
+                )}
+
+                <div className="pt-1 flex items-center justify-between">
+                  <span className="text-[11px] text-zinc-500">
+                    Always preserves customer privacy: Mobile numbers are masked (••••••1234).
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleTestWhatsApp}
+                    disabled={waTesting || !waApiUrl}
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    {waTesting ? 'Sending test...' : 'Send Test Alert'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Language Selection */}

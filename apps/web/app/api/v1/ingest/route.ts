@@ -25,6 +25,7 @@ import {
   findMemoryDeviceByTokenHash,
   addMemoryTransactions,
 } from '@/lib/memory-store';
+import { dispatchWhatsAppTransactionAlerts } from '@/lib/whatsapp';
 
 /**
  * Validates allowed status transitions according to GUIDE.md §3:
@@ -301,6 +302,11 @@ export async function POST(req: NextRequest) {
       updated: response.updated,
       serverTime: response.serverTime,
       rows: data.rows,
+    });
+
+    // Dispatch WhatsApp transaction alerts (fail-safe)
+    dispatchWhatsAppTransactionAlerts(device.tenantId, data.rows).catch((err) => {
+      console.warn('[Ingest] WhatsApp alert dispatch warning:', err);
     });
   }
 

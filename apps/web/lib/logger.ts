@@ -13,8 +13,8 @@ const REDACTION_PATTERNS = [
   { regex: /Bearer\s+([A-Za-z0-9_\-.]{10,})/gi, replacement: 'Bearer [REDACTED_TOKEN]' },
   { regex: /ws_dev_[0-9a-f]{32,}/gi, replacement: '[REDACTED_DEVICE_TOKEN]' },
   { regex: /[0-9a-f]{64}/gi, replacement: '[REDACTED_64HEX]' },
-  // Indian 10-digit mobile numbers: starts with 6, 7, 8, or 9
-  { regex: /(?:\b|[^\d])([6-9]\d{9})(?:\b|[^\d])/g, replacement: (match: string, p1: string) => match.replace(p1, '[REDACTED_PHONE]') },
+  // 10-digit mobile or synthetic customer numbers: starts with 5, 6, 7, 8, or 9
+  { regex: /(?:\b|[^\d])([5-9]\d{9})(?:\b|[^\d])/g, replacement: (match: string, p1: string) => match.replace(p1, '[REDACTED_PHONE]') },
   // Cookie headers: redact entire cookie string following cookie: or set-cookie:
   { regex: /(?:cookie|set-cookie):\s*[^\r\n]+/gi, replacement: 'cookie: [REDACTED_COOKIE]' },
   // Password or secret fields in JSON / query

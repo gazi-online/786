@@ -26,11 +26,19 @@ export interface MemoryDevice {
   createdAt: Date;
 }
 
+export interface MemoryWhatsAppSettings {
+  enabled: boolean;
+  apiUrl: string;
+  apiKey: string;
+  notifyNumber: string;
+}
+
 // Global singletons across hot-reloads
 declare global {
   var __memoryPairingCodes: Map<string, MemoryPairingCode> | undefined;
   var __memoryDevices: Map<string, MemoryDevice> | undefined;
   var __memoryTransactions: ApiTransaction[] | undefined;
+  var __memoryWhatsAppSettings: Map<string, MemoryWhatsAppSettings> | undefined;
 }
 
 const pairingCodesMap = globalThis.__memoryPairingCodes ?? new Map<string, MemoryPairingCode>();
@@ -41,6 +49,10 @@ globalThis.__memoryDevices = devicesMap;
 
 const transactionsList = globalThis.__memoryTransactions ?? [];
 globalThis.__memoryTransactions = transactionsList;
+
+const whatsappSettingsMap =
+  globalThis.__memoryWhatsAppSettings ?? new Map<string, MemoryWhatsAppSettings>();
+globalThis.__memoryWhatsAppSettings = whatsappSettingsMap;
 
 export function saveMemoryPairingCode(code: string, codeHash: string, expiresAt: Date) {
   pairingCodesMap.set(code.toUpperCase(), {
@@ -149,5 +161,29 @@ export function addMemoryTransactions(txns: ApiTransaction[]) {
 
 export function getMemoryTransactions(): ApiTransaction[] {
   return transactionsList;
+}
+
+export function getMemoryWhatsAppSettings(tenantId: string): MemoryWhatsAppSettings | null {
+  return whatsappSettingsMap.get(tenantId) || null;
+}
+
+export function setMemoryWhatsAppSettings(
+  tenantId: string,
+  settings: Partial<MemoryWhatsAppSettings>,
+): MemoryWhatsAppSettings {
+  const current = whatsappSettingsMap.get(tenantId) || {
+    enabled: false,
+    apiUrl: '',
+    apiKey: '',
+    notifyNumber: '',
+  };
+
+  const updated: MemoryWhatsAppSettings = {
+    ...current,
+    ...settings,
+  };
+
+  whatsappSettingsMap.set(tenantId, updated);
+  return updated;
 }
 

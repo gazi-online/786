@@ -12,7 +12,7 @@ import {
 
 describe('crypto utilities (PII minimization & token security)', () => {
   it('encrypts and decrypts with format version:iv:tag:ciphertext and tenant AAD binding', () => {
-    const mobile = '9990003210';
+    const mobile = '5000003210';
     const tenantId = '00000000-0000-0000-0000-000000000001';
     const encrypted = encryptCustomerNo(mobile, tenantId);
 
@@ -35,7 +35,7 @@ describe('crypto utilities (PII minimization & token security)', () => {
 
   it('supports backward compatibility for legacy 3-part ciphertext without AAD', () => {
     // legacy format: iv:tag:ciphertext
-    const mobile = '9990003210';
+    const mobile = '5000003210';
     const encrypted = encryptCustomerNo(mobile); // without tenant AAD
     const parts = encrypted.split(':');
     const legacyEncrypted = `${parts[1]}:${parts[2]}:${parts[3]}`;
@@ -45,7 +45,7 @@ describe('crypto utilities (PII minimization & token security)', () => {
   });
 
   it('generates unique random 96-bit IVs for each encryption', () => {
-    const mobile = '9990003210';
+    const mobile = '5000003210';
     const enc1 = encryptCustomerNo(mobile);
     const enc2 = encryptCustomerNo(mobile);
 
@@ -56,16 +56,16 @@ describe('crypto utilities (PII minimization & token security)', () => {
   });
 
   it('extracts exactly 4 digits for customerLast4', () => {
-    expect(extractCustomerLast4('9990003210')).toBe('3210');
+    expect(extractCustomerLast4('5000003210')).toBe('3210');
     expect(extractCustomerLast4('+91 98765 43210')).toBe('3210');
     expect(extractCustomerLast4('12')).toBe('0012');
   });
 
   it('produces deterministic HMAC-SHA256 for exact lookups without decryption', () => {
-    const mobile = '9990000000';
+    const mobile = '5000000000';
     const hash1 = hashCustomerNo(mobile);
     const hash2 = hashCustomerNo(mobile);
-    const hashDiff = hashCustomerNo('9990000001');
+    const hashDiff = hashCustomerNo('5000000001');
 
     expect(hash1).toBe(hash2);
     expect(hash1).not.toBe(hashDiff);

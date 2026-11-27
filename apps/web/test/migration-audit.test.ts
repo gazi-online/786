@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { migrateRecordInMemory, runCustomerHashMigration } from '@/scripts/migrate-customer-hash';
+import { migrateRecordInMemory } from '@/scripts/migrate-customer-hash';
 import {
   encryptCustomerNo,
   decryptCustomerNo,
@@ -12,11 +12,11 @@ describe('Step A9 Hardening: Migration Script Verification on Copy of Data', () 
   it('runs on a copy of seeded data, migrates rows, leaves second run with 0 changes, and emits zero plaintext', () => {
     // 1. Create a copy of test seeded records with legacy 3-part encryption (without version or AAD)
     const originalPhones = [
-      '9990000001',
-      '9990000002',
-      '9990000003',
-      '9990000004',
-      '9990000005',
+      '5000000001',
+      '5000000002',
+      '5000000003',
+      '5000000004',
+      '5000000005',
     ];
     const tenantId = '00000000-0000-0000-0000-000000000001';
 
@@ -102,3 +102,4 @@ describe('Step A9 Hardening: Migration Script Verification on Copy of Data', () 
     consoleErrorSpy.mockRestore();
   });
 });
+

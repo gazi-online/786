@@ -1,7 +1,13 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { addSseSubscriber } from '@/lib/sse';
+import { getTenantSession } from '@/lib/auth';
 
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
+  const session = await getTenantSession(req);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized: Authentication required' }, { status: 401 });
+  }
+
   const encoder = new TextEncoder();
   let heartbeatTimer: NodeJS.Timeout | null = null;
   let unsubscribe: (() => void) | null = null;
@@ -20,7 +26,7 @@ export async function GET(_req: NextRequest) {
         }
       }, 20000);
 
-      // 3. Register active subscriber
+      // 3. Register active subscriber (filtered by tenant)
       unsubscribe = addSseSubscriber(({ event, payload, id }) => {
         try {
           const message = `id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;

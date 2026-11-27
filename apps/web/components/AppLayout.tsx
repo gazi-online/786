@@ -3,8 +3,10 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useI18n } from '@/lib/i18n-context';
 import { CommandPalette } from '@/components/CommandPalette';
+import { handleSignOut } from '@/lib/supabase-client';
 import {
   ShieldCheck,
   LayoutDashboard,
@@ -14,9 +16,11 @@ import {
   Settings,
   Search,
   Languages,
+  LogOut,
 } from 'lucide-react';
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const pathname = usePathname();
   const { locale, setLocale, t } = useI18n();
 
@@ -102,6 +106,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 <span>{t.common.live}</span>
               </div>
+
+              {/* Sign Out Button (purges client cache & revokes session) */}
+              <button
+                onClick={() => handleSignOut(router)}
+                title="Sign Out"
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                aria-label="Sign Out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
             </div>
           </div>
 

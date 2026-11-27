@@ -19,7 +19,7 @@ export default function OnboardingPage() {
   const { t } = useI18n();
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [storeName, setStoreName] = useState('Gazi Telecom');
+  const [storeName, setStoreName] = useState('Demo Store');
   const [pairingCode, setPairingCode] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [firstSyncDetected, setFirstSyncDetected] = useState(false);

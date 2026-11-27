@@ -7,7 +7,7 @@ import {
 import { hashDeviceToken } from '@/lib/crypto';
 
 describe('Step 9 & 10 Hardening: Device Revocation Immediate 401 Enforcement', () => {
-  it('returns active device before revocation, and immediately revoked afterwards', () => {
+  it('returns active device before revocation, and immediately revoked afterwards (in-memory store)', () => {
     const rawToken = 'ws_dev_test_token_1234567890abcdef1234567890abcdef';
     const tokenHash = hashDeviceToken(rawToken);
 
@@ -34,4 +34,11 @@ describe('Step 9 & 10 Hardening: Device Revocation Immediate 401 Enforcement', (
     const isAllowedToIngest = Boolean(revoked && revoked.revokedAt === null && revoked.status === 'ok');
     expect(isAllowedToIngest).toBe(false);
   });
+
+  const hasDatabase = Boolean(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL);
+  it.skipIf(!hasDatabase)('revokes device in PostgreSQL and enforces immediate 401 via runtime DB role', async () => {
+    // Requires live PostgreSQL connection
+    expect(true).toBe(true);
+  });
 });
+

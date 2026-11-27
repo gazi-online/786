@@ -1,22 +1,16 @@
-# Documented Synthetic Number Generation Specification
+# Documented Synthetic Identifier Specification
 
-All test fixtures, mock data, and unit tests in WalletSync strictly use the **reserved non-routable synthetic prefix**:
-`999000xxxx` (e.g. `9990000001` through `9990009999`).
+Synthetic numbers start with 5 so they do not match the [6-9]\d{9} pattern this repository's scanner forbids.
 
-## 1. DoT / TRAI Numbering Plan Compliance
-Under the Indian National Numbering Plan, numbers beginning with `999000` are non-routable and strictly reserved for testing, documentation, and synthetic data fixtures. No personal or active subscriber number exists in this range.
+All test fixtures, mock data, and unit tests in WalletSync strictly use generated synthetic values from the reserved patterns below:
 
-## 2. Generator Implementation
-Implemented in [`packages/contract/src/synthetic-generator.ts`](../../packages/contract/src/synthetic-generator.ts):
-```typescript
-export function generateSyntheticPhone(index: number): string {
-  const padded = String(index).padStart(4, '0');
-  return `999000${padded}`;
-}
+1. **Customer Phone Numbers**: `5xxxxxxxxx` (`5000000001` - `5000009999`). Pattern: `/^5\d{9}$/`
+2. **Transaction IDs (SimpleWallet Trn No)**: `55xxxxxx` (`55000001` - `55999999`). Pattern: `/^55\d{6}$/`
+3. **Order IDs & Receipt IDs (EG Payment)**: `555xxxxxxxxxxx` (`55500000000001` - `55500000009999`). Pattern: `/^555\d{11}$/`
+4. **Operator References**: `OPRxxxxxxxxxx` (`OPR0000000001` - `OPR0000009999`). Pattern: `/^OPR\d{10}$/`
+5. **Retailer Codes**: `SYNRETxxxx` (`SYNRET0001` - `SYNRET9999`). Pattern: `/^SYNRET\d{4}$/`
+6. **Merchant / Retailer Names**: `Demo Merchant X`. Pattern: `/^Demo Merchant \d+$/`
 
-export const SYNTHETIC_PHONE_REGEX = /^999000\d{4}$/;
-```
-
-## 3. Scanner Enforcement
-The scanner strictly allows numbers matching `/^999000\d{4}$/`. Any other phone-like 10-digit number (`[6-9]\d{9}`) found anywhere in fixtures, code, or build outputs is classified as un-sanitized PII and immediately fails the CI build with exit code 1.
+## Scanner Enforcement
+The scanner strictly enforces that any phone number pattern, transaction number, operator reference, retailer code, or order ID found in `fixtures/` matches these synthetic generator patterns. Any detected value matching `[6-9]\d{9}` or other non-synthetic portal identifier formats immediately fails CI.
 Sensitive detected values are never printed to the logs.

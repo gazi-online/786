@@ -12,6 +12,7 @@ This folder holds HTML samples used by the parser tests.
 
 ## Rules
 - **Never commit real mobile numbers, transaction IDs, or session tokens.**
-- All synthetic files use the fake mobile number `9990000001` (clearly not a real customer).
-- When replacing a placeholder with a real fixture, run a search for 10-digit numbers and replace every mobile number with `98XXXXXXXX` before committing.
+- All synthetic files use the fake mobile number `5000000001` (clearly not a real customer).
+- Synthetic numbers start with 5 so they do not match the [6-9]\d{9} pattern this repository's scanner forbids.
+- When replacing a placeholder with a real fixture, replace every identifier with synthetic values from the generator before committing.
 

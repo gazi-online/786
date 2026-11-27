@@ -4,7 +4,7 @@
  * Vitest environment: happy-dom (provides DOMParser in Node — Amd-6).
  *
  * Acceptance tests from GUIDE.md §8 verified here against real simplewallet fixture:
- *   ✓ Golden row (TxnID 27752914)
+ *   ✓ Golden row (TxnID 55000005)
  *   ✓ Totals mismatch
  *   ✓ Layout drift
  *   ✓ Empty table (no rows, no delete)
@@ -100,8 +100,8 @@ describe('normal-day fixture (real simplewallet.in portal HTML)', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    // Find the golden row: TxnID 27752914
-    const golden = result.rows.find((r) => r.txnId === '27752914');
+    // Find the golden row: TxnID 55000005
+    const golden = result.rows.find((r) => r.txnId === '55000005');
     expect(golden).toBeDefined();
     if (!golden) return;
 
@@ -131,10 +131,10 @@ describe('normal-day fixture (real simplewallet.in portal HTML)', () => {
     expect(golden.serviceName).toBe('AIRTEL');
 
     // customerNo: extracted as plaintext
-    expect(golden.customerNo).toBe('9990000010');
+    expect(golden.customerNo).toBe('5000000010');
 
     // operatorRef: extracted from Operator ID column
-    expect(golden.operatorRef).toBe('1724183242');
+    expect(golden.operatorRef).toBe('OPR0000000005');
   });
 
   it('skips gridpagetotal and gridgrandtotal rows', () => {
@@ -169,14 +169,14 @@ describe('date parsing', () => {
   it('parses a PM time correctly', () => {
     const result = parse(fixture('normal-day.html'));
     if (!result.ok) return;
-    const row = result.rows.find((r) => r.txnId === '27754921');
+    const row = result.rows.find((r) => r.txnId === '55000001');
     expect(row?.occurredAt).toBe('2026-10-29T19:13:30+05:30');
   });
 
   it('parses noon PM time correctly (12:28:38 PM)', () => {
     const result = parse(fixture('normal-day.html'));
     if (!result.ok) return;
-    const golden = result.rows.find((r) => r.txnId === '27752914');
+    const golden = result.rows.find((r) => r.txnId === '55000005');
     expect(golden?.occurredAt).toBe('2026-10-29T12:28:38+05:30');
   });
 });
@@ -188,7 +188,7 @@ describe('status normalisation', () => {
   it('maps Success → success', () => {
     const result = parse(fixture('normal-day.html'));
     if (!result.ok) return;
-    const row = result.rows.find((r) => r.txnId === '27752914');
+    const row = result.rows.find((r) => r.txnId === '55000005');
     expect(row?.status).toBe('success');
   });
 });
@@ -200,14 +200,14 @@ describe('paise conversion', () => {
   it('converts 399.00 to 39900 paise', () => {
     const result = parse(fixture('normal-day.html'));
     if (!result.ok) return;
-    const row = result.rows.find((r) => r.txnId === '27752914');
+    const row = result.rows.find((r) => r.txnId === '55000005');
     expect(row?.amountPaise).toBe(39900);
   });
 
   it('converts 5.98 to 598 paise', () => {
     const result = parse(fixture('normal-day.html'));
     if (!result.ok) return;
-    const row = result.rows.find((r) => r.txnId === '27752914');
+    const row = result.rows.find((r) => r.txnId === '55000005');
     expect(row?.discountPaise).toBe(598);
   });
 });

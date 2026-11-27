@@ -18,6 +18,10 @@ out/
 
 # WXT
 .wxt/
+.output/
+
+# Test artifacts
+test-results.json
 
 # TypeScript
 *.tsbuildinfo

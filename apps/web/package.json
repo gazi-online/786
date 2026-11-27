@@ -6,9 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint app --no-warn-ignored",
+    "lint": "eslint app lib test --no-warn-ignored",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:ci": "vitest run --reporter=json --outputFile=test-results.json"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

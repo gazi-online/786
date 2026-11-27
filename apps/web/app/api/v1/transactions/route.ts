@@ -5,8 +5,14 @@ import { desc, and, eq, or, ilike, lt } from 'drizzle-orm';
 import type { ApiTransaction, TransactionStatus, TransactionSource } from '@walletsync/contract';
 import { getMemoryTransactions } from '@/lib/memory-store';
 import { computeTenantScopedETag } from '@/lib/etag';
+import { getTenantSession } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
+  const session = await getTenantSession(req);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized: Authentication required' }, { status: 401 });
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const limitParam = parseInt(searchParams.get('limit') || '50', 10);
@@ -18,7 +24,7 @@ export async function GET(req: NextRequest) {
     const operator = searchParams.get('operator');
     const search = searchParams.get('search');
 
-    const conditions = [];
+    const conditions = [eq(transactions.tenantId, session.tenant.id)];
 
     if (source && source !== 'all') {
       conditions.push(eq(transactions.source, source as TransactionSource));
@@ -34,12 +40,13 @@ export async function GET(req: NextRequest) {
     }
     if (search && search.trim()) {
       const q = search.trim();
-      conditions.push(
-        or(
-          ilike(transactions.txnId, `%${q}%`),
-          eq(transactions.customerLast4, q.slice(-4)),
-        ),
+      const searchClause = or(
+        ilike(transactions.txnId, `%${q}%`),
+        eq(transactions.customerLast4, q.slice(-4)),
       );
+      if (searchClause) {
+        conditions.push(searchClause);
+      }
     }
     if (cursor) {
       conditions.push(lt(transactions.occurredAt, new Date(cursor)));

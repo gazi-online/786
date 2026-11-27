@@ -102,6 +102,17 @@ export function parseEgPayment(html: string): ParseResult {
     const href = anchor.getAttribute('href') || '';
     const orderIdMatch = anchor.textContent?.match(/Order ID:\s*([0-9a-zA-Z]+)/i);
     const hrefMatch = href.match(/\/transaction_receipt\/([0-9a-zA-Z]+)/);
+
+    // Fail closed if both IDs exist but differ (prevent silent picking)
+    if (orderIdMatch && hrefMatch && orderIdMatch[1] !== hrefMatch[1]) {
+      return {
+        ok: false,
+        source: 'egpayment',
+        reason: 'layout_changed',
+        detail: `ID mismatch on card: Order ID "${orderIdMatch[1]}" does not match receipt link ID "${hrefMatch[1]}".`,
+      };
+    }
+
     const txnId = orderIdMatch?.[1] || hrefMatch?.[1];
     if (!txnId) continue;
 

@@ -26,3 +26,4 @@ describe('Step A8 Hardening: CI Environment Database Requirement', () => {
     }).toThrow(/FATAL: Live database connection required in CI environment/);
   });
 });
+

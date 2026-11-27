@@ -9,6 +9,10 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
     services:
       postgres:
         image: postgres:16-alpine
@@ -42,15 +46,19 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
 
       - name: Setup Database Roles & Migrations
         run: |
-          # 1. Run migrations as owner
-          psql "postgres://postgres:postgrespassword@localhost:5432/walletsync_test" -f apps/web/drizzle/0001_rls.sql
+          set -euo pipefail
           
-          # 2. Create non-owner runtime role without BYPASSRLS
-          psql "postgres://postgres:postgrespassword@localhost:5432/walletsync_test" -c "
+          # 1. Auth shim as owner
+          psql -v ON_ERROR_STOP=1 -X "$DATABASE_OWNER_URL" -f apps/web/drizzle/0000_auth_shim.sql
+          
+          # 2. Create non-owner runtime role BEFORE running schema and RLS migrations that grant privileges to it
+          psql -v ON_ERROR_STOP=1 -X "$DATABASE_OWNER_URL" -c "
             DO \$\$
             BEGIN
               IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'walletsync_app') THEN
@@ -60,23 +68,48 @@ jobs:
             \$\$;
             GRANT CONNECT ON DATABASE walletsync_test TO walletsync_app;
             GRANT USAGE ON SCHEMA public TO walletsync_app;
+          "
+          
+          # 3. Schema migration as owner
+          psql -v ON_ERROR_STOP=1 -X "$DATABASE_OWNER_URL" -f apps/web/drizzle/0000_schema.sql
+          
+          # 4. RLS and security functions migration as owner
+          psql -v ON_ERROR_STOP=1 -X "$DATABASE_OWNER_URL" -f apps/web/drizzle/0001_rls.sql
+          
+          # 5. Runtime table privileges for non-owner role
+          psql -v ON_ERROR_STOP=1 -X "$DATABASE_OWNER_URL" -c "
             GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO walletsync_app;
             ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO walletsync_app;
           "
 
       - name: Lint
-        run: pnpm run lint
+        run: |
+          set -euo pipefail
+          pnpm run lint
 
       - name: Type check
-        run: pnpm run typecheck
+        run: |
+          set -euo pipefail
+          pnpm run typecheck
 
       - name: Scan PII and Secrets
-        run: pnpm run scan:pii
-
-      - name: Build Extension (for Manifest Audit)
         run: |
-          cd apps/extension
+          set -euo pipefail
+          pnpm run scan:pii
+
+      - name: Build Monorepo (Web and Extension)
+        run: |
+          set -euo pipefail
           pnpm run build
 
-      - name: Test
-        run: pnpm run test
+      - name: Run Parser and Contract Tests
+        run: |
+          set -euo pipefail
+          pnpm --filter @walletsync/contract test
+          pnpm --filter @walletsync/parsers test
+
+      - name: Run Web & DB Tests with JSON Audit (Enforce 0 Skipped, 0 Failed)
+        run: |
+          set -euo pipefail
+          pnpm --filter @walletsync/web run test:ci
+          node scripts/check-ci-test-results.mjs apps/web/test-results.json

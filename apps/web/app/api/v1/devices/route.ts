@@ -1,19 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { devices, pairingCodes } from '@/drizzle/schema';
-import { desc } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { hashPairingCode } from '@/lib/crypto';
 import { generateUnambiguousPairingCode } from '@/lib/pairing-code';
+import { getTenantSession, canPerformAction } from '@/lib/auth';
 import {
   saveMemoryPairingCode,
   listMemoryDevices,
 } from '@/lib/memory-store';
 
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
+  const session = await getTenantSession(req);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized: Authentication required' }, { status: 401 });
+  }
+
   try {
     const rows = await db
       .select()
       .from(devices)
+      .where(eq(devices.tenantId, session.tenant.id))
       .orderBy(desc(devices.createdAt))
       .limit(50);
 
@@ -45,17 +52,7 @@ export async function GET(_req: NextRequest) {
     }
 
     return NextResponse.json({
-      devices: [
-        {
-          id: 'f81d4fae-7dec-11d0-a765-00a0c91e6bf6',
-          label: 'POS Counter 1 (Chrome)',
-          status: 'ok',
-          parserVersion: '1.0.0',
-          lastSeenAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
-          revokedAt: null,
-          createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-        },
-      ],
+      devices: [],
     });
   }
 }
@@ -63,8 +60,19 @@ export async function GET(_req: NextRequest) {
 /**
  * Generate a new single-use 8-character pairing code (TTL: 10 mins)
  */
-export async function POST(_req: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
+    const session = await getTenantSession(req);
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized: Authentication required' }, { status: 401 });
+    }
+    if (!canPerformAction(session.role, 'pairing:create')) {
+      return NextResponse.json(
+        { error: 'Forbidden: Viewers are not permitted to create pairing codes' },
+        { status: 403 },
+      );
+    }
+
     const { clean: rawCode, formatted } = generateUnambiguousPairingCode();
     const codeHash = hashPairingCode(rawCode);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
@@ -72,11 +80,9 @@ export async function POST(_req: NextRequest) {
     // Save in memory store so extension pairing works immediately
     saveMemoryPairingCode(rawCode, codeHash, expiresAt);
 
-    const dummyTenantId = '00000000-0000-0000-0000-000000000001';
-
     try {
       await db.insert(pairingCodes).values({
-        tenantId: dummyTenantId,
+        tenantId: session.tenant.id,
         codeHash,
         expiresAt,
       });

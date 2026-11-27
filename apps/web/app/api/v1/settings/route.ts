@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { tenants } from '@/drizzle/schema';
 import { eq } from 'drizzle-orm';
+import { getTenantSession, canPerformAction } from '@/lib/auth';
+import { getWhatsAppSettings, saveWhatsAppSettings } from '@/lib/whatsapp';
 
 const defaultSettings = {
-  storeName: 'Gazi Telecom & Cyber Cafe',
+  storeName: 'Demo Store & Cyber Cafe',
   plan: 'pro',
   status: 'active',
   retentionMonths: 24,
@@ -13,42 +15,79 @@ const defaultSettings = {
   language: 'en',
 };
 
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
+  const session = await getTenantSession(req);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized: Authentication required' }, { status: 401 });
+  }
+
+  const wa = getWhatsAppSettings(session.tenant.id);
+
   try {
-    const rows = await db.select().from(tenants).limit(1);
+    const rows = await db.select().from(tenants).where(eq(tenants.id, session.tenant.id)).limit(1);
     const tenant = rows[0];
 
     return NextResponse.json({
-      storeName: tenant?.name || defaultSettings.storeName,
-      plan: tenant?.plan || defaultSettings.plan,
+      storeName: tenant?.name || session.tenant.name || defaultSettings.storeName,
+      plan: tenant?.plan || session.tenant.plan || defaultSettings.plan,
       status: tenant?.status || defaultSettings.status,
       retentionMonths: tenant?.retentionMonths || defaultSettings.retentionMonths,
       maskCustomerNumbers: defaultSettings.maskCustomerNumbers,
       alertOfflineMinutes: defaultSettings.alertOfflineMinutes,
       language: defaultSettings.language,
+      whatsapp: {
+        enabled: wa.enabled,
+        apiUrl: wa.apiUrl,
+        notifyNumber: wa.notifyNumber,
+        apiKeyConfigured: Boolean(wa.apiKey),
+      },
     });
   } catch {
-    return NextResponse.json(defaultSettings);
+    return NextResponse.json({
+      ...defaultSettings,
+      storeName: session.tenant.name,
+      plan: session.tenant.plan,
+      whatsapp: {
+        enabled: wa.enabled,
+        apiUrl: wa.apiUrl,
+        notifyNumber: wa.notifyNumber,
+        apiKeyConfigured: Boolean(wa.apiKey),
+      },
+    });
   }
 }
 
 export async function PATCH(req: NextRequest) {
+  const session = await getTenantSession(req);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized: Authentication required' }, { status: 401 });
+  }
+
+  if (!canPerformAction(session.role, 'settings:modify')) {
+    return NextResponse.json(
+      { error: 'Forbidden: Viewers are not permitted to modify store settings' },
+      { status: 403 },
+    );
+  }
+
   try {
     const body = await req.json();
-    const { storeName, retentionMonths } = body;
+    const { storeName, retentionMonths, whatsapp } = body;
+
+    let updatedWa = getWhatsAppSettings(session.tenant.id);
+    if (whatsapp && typeof whatsapp === 'object') {
+      updatedWa = saveWhatsAppSettings(session.tenant.id, whatsapp);
+    }
 
     try {
-      const rows = await db.select().from(tenants).limit(1);
-      if (rows[0]) {
-        await db
-          .update(tenants)
-          .set({
-            name: storeName ?? rows[0].name,
-            retentionMonths: retentionMonths ?? rows[0].retentionMonths,
-            updatedAt: new Date(),
-          })
-          .where(eq(tenants.id, rows[0].id));
-      }
+      await db
+        .update(tenants)
+        .set({
+          name: storeName ?? undefined,
+          retentionMonths: retentionMonths ?? undefined,
+          updatedAt: new Date(),
+        })
+        .where(eq(tenants.id, session.tenant.id));
     } catch {
       // Continue if DB not connected
     }
@@ -56,8 +95,14 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       updated: {
-        storeName: storeName || defaultSettings.storeName,
+        storeName: storeName || session.tenant.name,
         retentionMonths: retentionMonths || defaultSettings.retentionMonths,
+        whatsapp: {
+          enabled: updatedWa.enabled,
+          apiUrl: updatedWa.apiUrl,
+          notifyNumber: updatedWa.notifyNumber,
+          apiKeyConfigured: Boolean(updatedWa.apiKey),
+        },
       },
     });
   } catch (err: unknown) {

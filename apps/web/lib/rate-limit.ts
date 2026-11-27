@@ -52,61 +52,80 @@ export async function checkRateLimit(
   }
 
   // 2. DB-backed counter (Amd-3 shared store fallback)
-  try {
-    const windowStart = new Date(now * 1000);
+  const hasDatabase = Boolean(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL);
+  if (hasDatabase) {
+    try {
+      const windowStart = new Date(now * 1000);
 
-    const record = await db
-      .insert(rateLimitCounters)
-      .values({
-        key,
-        count: 1,
-        windowStart,
-        active: true,
-      })
-      .onConflictDoUpdate({
-        target: rateLimitCounters.key,
-        set: {
-          count: sql`CASE 
-            WHEN ${rateLimitCounters.windowStart} <= NOW() - (${windowSeconds} || ' seconds')::interval 
-            THEN 1 
-            ELSE ${rateLimitCounters.count} + 1 
-          END`,
-          windowStart: sql`CASE 
-            WHEN ${rateLimitCounters.windowStart} <= NOW() - (${windowSeconds} || ' seconds')::interval 
-            THEN NOW() 
-            ELSE ${rateLimitCounters.windowStart} 
-          END`,
-        },
-      })
-      .returning();
+      const record = await db
+        .insert(rateLimitCounters)
+        .values({
+          key,
+          count: 1,
+          windowStart,
+          active: true,
+        })
+        .onConflictDoUpdate({
+          target: rateLimitCounters.key,
+          set: {
+            count: sql`CASE 
+              WHEN ${rateLimitCounters.windowStart} <= NOW() - (${windowSeconds} || ' seconds')::interval 
+              THEN 1 
+              ELSE ${rateLimitCounters.count} + 1 
+            END`,
+            windowStart: sql`CASE 
+              WHEN ${rateLimitCounters.windowStart} <= NOW() - (${windowSeconds} || ' seconds')::interval 
+              THEN NOW() 
+              ELSE ${rateLimitCounters.windowStart} 
+            END`,
+          },
+        })
+        .returning();
 
-    const currentCount = record[0]?.count ?? 1;
+      const currentCount = record[0]?.count ?? 1;
 
-    return {
-      success: currentCount <= limit,
-      limit,
-      remaining: Math.max(0, limit - currentCount),
-      reset,
-    };
-  } catch {
-    // If DB check is offline (local test environment without live DB), use accurate in-memory tracker
-    const existing = testRateLimitMap.get(key);
-    if (!existing || now >= existing.resetAt) {
-      testRateLimitMap.set(key, { count: 1, resetAt: reset });
       return {
-        success: 1 <= limit,
+        success: currentCount <= limit,
         limit,
-        remaining: Math.max(0, limit - 1),
+        remaining: Math.max(0, limit - currentCount),
         reset,
       };
+    } catch {
+      // Fallback to in-memory if DB call fails
     }
+  }
 
-    existing.count += 1;
+  // 3. In-memory tracker for offline dev/test environments
+  const existing = testRateLimitMap.get(key);
+  if (!existing || now >= existing.resetAt) {
+    testRateLimitMap.set(key, { count: 1, resetAt: reset });
     return {
-      success: existing.count <= limit,
+      success: 1 <= limit,
       limit,
-      remaining: Math.max(0, limit - existing.count),
-      reset: existing.resetAt,
+      remaining: Math.max(0, limit - 1),
+      reset,
     };
   }
+
+  existing.count += 1;
+  return {
+    success: existing.count <= limit,
+    limit,
+    remaining: Math.max(0, limit - existing.count),
+    reset: existing.resetAt,
+  };
 }
+
+/**
+ * Shared Postgres-backed rate limiter instance.
+ * Allows multiple distinct caller instances to operate on the same shared database table (or shared fallback).
+ */
+export class PostgresRateLimiter {
+  constructor(private prefix: string = '') {}
+
+  async check(key: string, limit: number = 30, windowSeconds: number = 60): Promise<RateLimitResult> {
+    const fullKey = this.prefix ? `${this.prefix}:${key}` : key;
+    return checkRateLimit(fullKey, limit, windowSeconds);
+  }
+}
+

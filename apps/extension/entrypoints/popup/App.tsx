@@ -22,10 +22,6 @@ import {
   Sliders,
   Shield,
   Activity,
-  Smartphone,
-  Tv,
-  Gift,
-  HelpCircle,
 } from 'lucide-react';
 
 const SIMPLEWALLET_URL = 'https://simplewallet.in/web/MyTrans.aspx?ST=1&mID=824&PID=821';
@@ -164,16 +160,16 @@ export default function App() {
         portalFilter === 'all'
           ? true
           : portalFilter === 'egpayment'
-          ? tx.source === 'egpayment'
-          : tx.source !== 'egpayment';
+            ? tx.source === 'egpayment'
+            : tx.source !== 'egpayment';
 
       const matchSearch =
         searchQuery.trim() === ''
           ? true
           : tx.customerMasked.includes(searchQuery) ||
-            tx.customerLast4.includes(searchQuery) ||
-            tx.txnId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            tx.serviceName.toLowerCase().includes(searchQuery.toLowerCase());
+          tx.customerLast4.includes(searchQuery) ||
+          tx.txnId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          tx.serviceName.toLowerCase().includes(searchQuery.toLowerCase());
 
       return matchPortal && matchSearch;
     });
@@ -377,11 +373,10 @@ export default function App() {
         <div className="grid grid-cols-3 gap-1 p-1 bg-white/[0.04] border border-white/[0.06] rounded-xl text-xs font-semibold">
           <button
             onClick={() => setActiveTab('overview')}
-            className={`py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-              activeTab === 'overview'
+            className={`py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${activeTab === 'overview'
                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
                 : 'text-zinc-400 hover:text-white'
-            }`}
+              }`}
           >
             <Activity className="w-3.5 h-3.5" />
             <span>Overview</span>
@@ -389,11 +384,10 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab('feed')}
-            className={`py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-              activeTab === 'feed'
+            className={`py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${activeTab === 'feed'
                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
                 : 'text-zinc-400 hover:text-white'
-            }`}
+              }`}
           >
             <Clock className="w-3.5 h-3.5" />
             <span>Feed ({data.recentTransactions?.length || 0})</span>
@@ -401,11 +395,10 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab('security')}
-            className={`py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-              activeTab === 'security'
+            className={`py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${activeTab === 'security'
                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
                 : 'text-zinc-400 hover:text-white'
-            }`}
+              }`}
           >
             <Shield className="w-3.5 h-3.5" />
             <span>Terminal</span>
@@ -566,11 +559,10 @@ export default function App() {
                 <div className="p-2.5 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2">
                     <span
-                      className={`px-1.5 py-0.5 rounded text-[9px] font-black ${
-                        data.recentTransactions[0]?.source === 'egpayment'
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-black ${data.recentTransactions[0]?.source === 'egpayment'
                           ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                           : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                      }`}
+                        }`}
                     >
                       {data.recentTransactions[0]?.source === 'egpayment' ? 'EG' : 'SW'}
                     </span>
@@ -615,31 +607,28 @@ export default function App() {
             <div className="flex gap-1.5">
               <button
                 onClick={() => setPortalFilter('all')}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                  portalFilter === 'all'
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${portalFilter === 'all'
                     ? 'bg-white text-black'
                     : 'bg-white/[0.04] text-zinc-400 hover:text-white border border-white/[0.06]'
-                }`}
+                  }`}
               >
                 All
               </button>
               <button
                 onClick={() => setPortalFilter('simplewallet')}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                  portalFilter === 'simplewallet'
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${portalFilter === 'simplewallet'
                     ? 'bg-blue-600 text-white shadow-sm'
                     : 'bg-blue-500/10 text-blue-300 hover:text-white border border-blue-500/20'
-                }`}
+                  }`}
               >
                 SimpleWallet
               </button>
               <button
                 onClick={() => setPortalFilter('egpayment')}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                  portalFilter === 'egpayment'
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${portalFilter === 'egpayment'
                     ? 'bg-amber-600 text-white shadow-sm'
                     : 'bg-amber-500/10 text-amber-300 hover:text-white border border-amber-500/20'
-                }`}
+                  }`}
               >
                 EG Payment
               </button>
@@ -656,11 +645,10 @@ export default function App() {
                     <div className="flex items-center gap-2.5">
                       {/* Source Badge */}
                       <span
-                        className={`w-6 h-6 rounded-lg flex items-center justify-center text-[9px] font-black shrink-0 ${
-                          tx.source === 'egpayment'
+                        className={`w-6 h-6 rounded-lg flex items-center justify-center text-[9px] font-black shrink-0 ${tx.source === 'egpayment'
                             ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                             : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                        }`}
+                          }`}
                       >
                         {tx.source === 'egpayment' ? 'EG' : 'SW'}
                       </span>

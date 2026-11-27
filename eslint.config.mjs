@@ -7,6 +7,21 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   prettierConfig,
   {
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        Buffer: 'readonly',
+        crypto: 'readonly',
+        fetch: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        URL: 'readonly',
+        EventSource: 'readonly',
+      },
+    },
     rules: {
       '@typescript-eslint/no-explicit-any': 'error',
       // Allow _prefixed parameters/variables as intentionally unused (TS convention)

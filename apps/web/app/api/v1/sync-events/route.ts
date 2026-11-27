@@ -1,34 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { syncEvents } from '@/drizzle/schema';
-import { desc } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
+import { getTenantSession } from '@/lib/auth';
 
-const fallbackSyncEvents = [
-  {
-    id: 'evt-1',
-    deviceId: 'f81d4fae-7dec-11d0-a765-00a0c91e6bf6',
-    capturedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
-    status: 'ok',
-    rowCounts: { accepted: 12, inserted: 2, updated: 0, rejected: 0 },
-    parserVersion: '1.0.0',
-    createdAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'evt-2',
-    deviceId: 'f81d4fae-7dec-11d0-a765-00a0c91e6bf6',
-    capturedAt: new Date(Date.now() - 4 * 60 * 1000).toISOString(),
-    status: 'ok',
-    rowCounts: { accepted: 10, inserted: 0, updated: 0, rejected: 0 },
-    parserVersion: '1.0.0',
-    createdAt: new Date(Date.now() - 4 * 60 * 1000).toISOString(),
-  },
-];
+export async function GET(req: NextRequest) {
+  const session = await getTenantSession(req);
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized: Authentication required' }, { status: 401 });
+  }
 
-export async function GET(_req: NextRequest) {
   try {
     const rows = await db
       .select()
       .from(syncEvents)
+      .where(eq(syncEvents.tenantId, session.tenant.id))
       .orderBy(desc(syncEvents.capturedAt))
       .limit(30);
 
@@ -45,7 +31,7 @@ export async function GET(_req: NextRequest) {
     });
   } catch {
     return NextResponse.json({
-      events: fallbackSyncEvents,
+      events: [],
     });
   }
 }

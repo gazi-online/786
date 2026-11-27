@@ -342,7 +342,7 @@ export const dictionaries: Record<Locale, Translations> = {
       step3Title: 'Pair & First Sync',
       step3Desc: 'Connect simplewallet.in to your live dashboard',
       storeName: 'Retailer Store Name',
-      storeNamePlaceholder: 'e.g. Gazi Telecom & Cyber Cafe',
+      storeNamePlaceholder: 'e.g. Demo Store & Cyber Cafe',
       downloadExtBtn: 'Download Chrome Extension (.zip)',
       downloadExtDesc: 'Load the unpacked extension in chrome://extensions with Developer Mode on.',
       pairingInstruction: 'Generate your one-time pairing code and enter it in the extension popup.',

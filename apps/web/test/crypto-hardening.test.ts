@@ -11,7 +11,7 @@ import { ApiTransactionSchema } from '@walletsync/contract';
 
 describe('Step 1 Hardening: Hash and Encryption & Public API Security', () => {
   it('encrypts as version:iv:tag:ciphertext with 96-bit IV and tenant binding', () => {
-    const rawNumber = '9990003210';
+    const rawNumber = '5000003210';
     const tenantId = '00000000-0000-0000-0000-000000000001';
 
     const enc1 = encryptCustomerNo(rawNumber, tenantId);
@@ -21,9 +21,9 @@ describe('Step 1 Hardening: Hash and Encryption & Public API Security', () => {
     expect(enc1).not.toBe(enc2);
     const [ver, iv, tag, ct] = enc1.split(':');
     expect(ver).toBe(CURRENT_ENCRYPTION_KEY_ID);
-    expect(iv.length).toBe(24); // 12 bytes = 96 bits
-    expect(tag.length).toBe(32); // 16 bytes = 128 bits
-    expect(ct.length).toBeGreaterThan(0);
+    expect(iv?.length).toBe(24); // 12 bytes = 96 bits
+    expect(tag?.length).toBe(32); // 16 bytes = 128 bits
+    expect(ct?.length).toBeGreaterThan(0);
 
     // Decrypt succeeds with correct tenantId
     expect(decryptCustomerNo(enc1, tenantId)).toBe(rawNumber);
@@ -33,7 +33,7 @@ describe('Step 1 Hardening: Hash and Encryption & Public API Security', () => {
   });
 
   it('migration script updates legacy row to new format and is idempotent/re-runnable', () => {
-    const rawNumber = '9990003210';
+    const rawNumber = '5000003210';
     const tenantId = '00000000-0000-0000-0000-000000000001';
 
     // Simulate legacy record without version prefix or AAD
@@ -81,7 +81,7 @@ describe('Step 1 Hardening: Hash and Encryption & Public API Security', () => {
       occurredAt: '2026-10-29T19:13:30+05:30',
       status: 'success' as const,
       statusRaw: 'Success',
-      operatorRef: '9990008980',
+      operatorRef: '5000008980',
       amountPaise: 29900,
       discountPct: 0.5,
       discountPaise: 149,
