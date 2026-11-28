@@ -17,6 +17,7 @@ import {
   Search,
   Languages,
   LogOut,
+  Zap,
 } from 'lucide-react';
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
@@ -26,6 +27,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const navLinks = [
     { label: t.nav.dashboard, href: '/', icon: LayoutDashboard },
+    { label: t.nav.recharge, href: '/recharge', icon: Zap },
     { label: t.nav.transactions, href: '/transactions', icon: ReceiptText },
     { label: t.nav.reports, href: '/reports', icon: BarChart3 },
     { label: t.nav.devices, href: '/devices', icon: Cpu },
@@ -85,8 +87,17 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               </button>
             </div>
 
-            {/* Right Controls: Language Selector */}
-            <div className="flex items-center gap-3">
+            {/* Right Controls: Recharge Quick Action & Language Selector */}
+            <div className="flex items-center gap-2.5">
+              <Link
+                href="/recharge"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-xs transition-all hover:shadow-indigo-500/20"
+                title={t.nav.recharge}
+              >
+                <Zap className="w-3.5 h-3.5 fill-white" />
+                <span>{t.nav.recharge}</span>
+              </Link>
+
               <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-lg border border-zinc-200/80 dark:border-zinc-700/60">
                 <Languages className="w-3.5 h-3.5 text-zinc-400 ml-1.5" />
                 <select

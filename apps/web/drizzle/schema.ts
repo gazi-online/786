@@ -48,6 +48,25 @@ export const txnStatusEnum = pgEnum('txn_status', [
   'unknown',
 ]);
 export const txnSourceEnum = pgEnum('txn_source', ['simplewallet', 'egpayment']);
+export const rechargeOrderStatusEnum = pgEnum('recharge_order_status', [
+  'draft',
+  'awaiting_confirm',
+  'queued',
+  'claimed',
+  'form_filled',
+  'awaiting_payment',
+  'payment_submitted',
+  'submitting',
+  'submitted',
+  'pending',
+  'success',
+  'failed',
+  'unknown',
+  'needs_manual_action',
+  'needs_review',
+  'cancelled',
+  'expired',
+]);
 
 // ---------------------------------------------------------------------------
 // tenants
@@ -235,5 +254,111 @@ export const rateLimitCounters = pgTable(
     /** Whether this record is still within its window */
     active: boolean('active').notNull().default(true),
   },
+);
+
+// ---------------------------------------------------------------------------
+// tenant_recharge_settings  (Milestone R1: Server-side recharge foundation)
+// ---------------------------------------------------------------------------
+
+export const tenantRechargeSettings = pgTable(
+  'tenant_recharge_settings',
+  {
+    tenantId: uuid('tenant_id')
+      .primaryKey()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    /** Master feature flag / kill-switch — ON by default per tenant */
+    rechargeEnabled: boolean('recharge_enabled').notNull().default(true),
+    /** Maximum allowed paise per single order (default ₹5,000 = 500,000 paise) */
+    perOrderMaxPaise: integer('per_order_max_paise').notNull().default(500000),
+    /** Maximum allowed cumulative paise per UTC day (default ₹25,000 = 2,500,000 paise) */
+    dailyMaxPaise: integer('daily_max_paise').notNull().default(2500000),
+    /** Rate limit: maximum recharge orders created per minute (default 10) */
+    maxOrdersPerMinute: integer('max_orders_per_minute').notNull().default(10),
+    /** Maximum allowed recharge orders per UTC day (default 50) */
+    dailyMaxCount: integer('daily_max_count').notNull().default(50),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+);
+
+// ---------------------------------------------------------------------------
+// recharge_orders  (Milestone R1: Server-side recharge orders)
+// ---------------------------------------------------------------------------
+
+export const rechargeOrders = pgTable(
+  'recharge_orders',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    source: txnSourceEnum('source').notNull(),
+    service: text('service').notNull().default('Prepaid'),
+    operator: text('operator').notNull(),
+    circle: text('circle'),
+    /** AES-256-GCM encrypted customer mobile number */
+    customerNoEnc: text('customer_no_enc').notNull(),
+    /** HMAC-SHA256 hash for exact lookup and duplicate checks */
+    customerNoHash: text('customer_no_hash').notNull(),
+    /** Plaintext last 4 digits for UI display/search */
+    customerLast4: text('customer_last4').notNull(),
+    amountPaise: integer('amount_paise').notNull(),
+    expectedPayablePaise: integer('expected_payable_paise'),
+    actualPayablePaise: integer('actual_payable_paise'),
+    qrImageUrl: text('qr_image_url'),
+    qrExpiresAt: timestamp('qr_expires_at', { withTimezone: true }),
+    portalTxnRef: text('portal_txn_ref'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    statusReason: text('status_reason'),
+    dryRun: boolean('dry_run').notNull().default(false),
+    status: rechargeOrderStatusEnum('status').notNull().default('queued'),
+    claimedByDeviceId: uuid('claimed_by_device_id').references(() => devices.id, {
+      onDelete: 'set null',
+    }),
+    claimExpiresAt: timestamp('claim_expires_at', { withTimezone: true }),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    failureCode: text('failure_code'),
+    failureDetail: text('failure_detail'),
+    matchedTransactionId: uuid('matched_transaction_id').references(() => transactions.id, {
+      onDelete: 'set null',
+    }),
+    reconciledAt: timestamp('reconciled_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('recharge_orders_tenant_idempotency_uidx').on(t.tenantId, t.idempotencyKey),
+    index('recharge_orders_tenant_created_idx').on(t.tenantId, t.createdAt),
+    index('recharge_orders_tenant_status_idx').on(t.tenantId, t.status),
+    index('recharge_orders_customer_hash_idx').on(t.tenantId, t.customerNoHash),
+    index('recharge_orders_matched_txn_idx').on(t.tenantId, t.matchedTransactionId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// recharge_order_events  (Milestone R1: Audit table for all state transitions)
+// ---------------------------------------------------------------------------
+
+export const rechargeOrderEvents = pgTable(
+  'recharge_order_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => rechargeOrders.id, { onDelete: 'cascade' }),
+    fromStatus: text('from_status').notNull(),
+    toStatus: text('to_status').notNull(),
+    actor: text('actor').notNull(), // 'web' | 'extension' | 'system'
+    detail: jsonb('detail'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('recharge_order_events_order_idx').on(t.tenantId, t.orderId, t.createdAt),
+  ],
 );
 

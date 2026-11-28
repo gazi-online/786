@@ -1,0 +1,604 @@
+import { describe, it, expect, vi } from 'vitest';
+import { executeEgPaymentRecharge } from './rechargeRunner';
+
+function makeTestPhone(suffix = '4321'): string {
+  return ['5', '0', '0', '0', '0', '0', suffix].join('');
+}
+
+function createMockEgPaymentDoc(options?: {
+  withCaptcha?: boolean;
+  withOtp?: boolean;
+  loggedOut?: boolean;
+  missingMobile?: boolean;
+  missingOperator?: boolean;
+  missingAmount?: boolean;
+  missingSubmit?: boolean;
+  withMPinModal?: boolean;
+  withProcessTransaction?: boolean;
+}): Document {
+  const doc = new DOMParser().parseFromString('<!DOCTYPE html><html><body></body></html>', 'text/html');
+
+  if (options?.loggedOut) {
+    const banner = doc.createElement('div');
+    banner.textContent = 'PLEASE LOG IN TO CONTINUE';
+    doc.body.appendChild(banner);
+    return doc;
+  }
+
+  if (options?.withCaptcha) {
+    const captcha = doc.createElement('div');
+    captcha.id = 'recaptcha-box';
+    doc.body.appendChild(captcha);
+  }
+
+  if (options?.withOtp) {
+    const otp = doc.createElement('div');
+    otp.id = 'otp_form';
+    doc.body.appendChild(otp);
+  }
+
+  if (!options?.missingMobile) {
+    const mobileInput = doc.createElement('input');
+    mobileInput.id = 'mobile';
+    mobileInput.placeholder = 'Enter Mobile Number';
+    mobileInput.type = 'tel';
+    doc.body.appendChild(mobileInput);
+  }
+
+  if (!options?.missingOperator) {
+    const opSelect = doc.createElement('select');
+    opSelect.id = 'operator';
+    opSelect.name = 'operator';
+
+    const defaultOpt = doc.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.text = '-- Select Operator --';
+    opSelect.appendChild(defaultOpt);
+
+    const airtelOpt = doc.createElement('option');
+    airtelOpt.value = 'AIRTEL';
+    airtelOpt.text = 'Airtel';
+    opSelect.appendChild(airtelOpt);
+
+    const jioOpt = doc.createElement('option');
+    jioOpt.value = 'JIO';
+    jioOpt.text = 'Jio Prepaid';
+    opSelect.appendChild(jioOpt);
+
+    doc.body.appendChild(opSelect);
+  }
+
+  if (!options?.missingAmount) {
+    const amountInput = doc.createElement('input');
+    amountInput.id = 'amount';
+    amountInput.placeholder = 'Enter Amount';
+    amountInput.type = 'text';
+    doc.body.appendChild(amountInput);
+  }
+
+  if (!options?.missingSubmit) {
+    const submitBtn = doc.createElement('button');
+    submitBtn.id = 'btnSubmit';
+    submitBtn.type = 'submit';
+    submitBtn.textContent = 'Submit';
+    doc.body.appendChild(submitBtn);
+  }
+
+  if (options?.withMPinModal) {
+    const modal = doc.createElement('div');
+    modal.className = 'modal in';
+    modal.innerHTML = `
+      <div>Confirm Number & Amount</div>
+      <div>Operator : Vi</div>
+      <div>Number : 9733671094</div>
+      <div>Amount : ₹349</div>
+      <div>M Pin</div>
+      <input type="password" placeholder="Enter your 4 Digit M Pin" id="mPinInput" />
+      <button id="btnConfirm">CONFIRM</button>
+    `;
+    doc.body.appendChild(modal);
+  }
+
+  if (options?.withProcessTransaction) {
+    const payModal = doc.createElement('div');
+    payModal.innerHTML = `
+      <div>Process Transaction</div>
+      <button id="btnPayProceed">Pay ₹ 347 to proceed</button>
+    `;
+    const btn = payModal.querySelector('button');
+    btn?.addEventListener('click', () => {
+      // Simulate opening QR modal upon clicking Pay Proceed
+      const qrModal = doc.createElement('div');
+      qrModal.innerHTML = `
+        <div>Payment Processing.</div>
+        <img src="data:image/png;base64,mockQrCodeData" class="qr-code" width="200" height="200" />
+        <div>Order Expring In</div>
+        <div>9M : 58S</div>
+        <div>Scan the QR with any UPI app.</div>
+      `;
+      doc.body.appendChild(qrModal);
+    });
+    doc.body.appendChild(payModal);
+  }
+
+  return doc;
+}
+
+describe('EG Payment Recharge Form Automation Runner (Milestone R5)', () => {
+  const testPhone = makeTestPhone('7777');
+
+  it('fails with logged_out when login prompt is detected', async () => {
+    const doc = createMockEgPaymentDoc({ loggedOut: true });
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'AIRTEL',
+      amountPaise: 29900,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe('failed');
+      expect(result.failureCode).toBe('logged_out');
+    }
+  });
+
+  it('fails with challenge_detected and requires manual action when CAPTCHA is present', async () => {
+    const doc = createMockEgPaymentDoc({ withCaptcha: true });
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'AIRTEL',
+      amountPaise: 29900,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe('needs_manual_action');
+      expect(result.failureCode).toBe('challenge_detected');
+    }
+  });
+
+  it('fails safely when mobile input element is missing from DOM', async () => {
+    const doc = createMockEgPaymentDoc({ missingMobile: true });
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'AIRTEL',
+      amountPaise: 29900,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe('failed');
+      expect(result.failureCode).toBe('element_not_found');
+    }
+  });
+
+  it('successfully fills form and clicks submit button', async () => {
+    const doc = createMockEgPaymentDoc();
+    const submitBtn = doc.getElementById('btnSubmit') as HTMLButtonElement;
+    const clickSpy = vi.spyOn(submitBtn, 'click');
+
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'JIO',
+      amountPaise: 19900,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.status).toBe('submitted');
+    }
+
+    const mobileInput = doc.getElementById('mobile') as HTMLInputElement;
+    const amountInput = doc.getElementById('amount') as HTMLInputElement;
+
+    expect(mobileInput.value).toBe(testPhone);
+    expect(amountInput.value).toBe('199');
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles M-Pin confirmation modal by filling 4-digit pin and clicking CONFIRM', async () => {
+    const doc = createMockEgPaymentDoc({ withMPinModal: true });
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'JIO',
+      amountPaise: 34900,
+      mPin: '1234',
+    });
+
+    const pinInput = doc.getElementById('mPinInput') as HTMLInputElement;
+    expect(pinInput.value).toBe('1234');
+    expect(result.ok).toBe(true);
+  });
+
+  it('detects insufficient balance, clicks Pay Proceed, and emits dynamic QR code data', async () => {
+    const doc = createMockEgPaymentDoc({ withProcessTransaction: true });
+    const qrCallback = vi.fn();
+
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'JIO',
+      amountPaise: 34900,
+      onQrCodeDetected: qrCallback,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe('needs_manual_action');
+      expect(result.failureCode).toBe('qr_payment_required');
+    }
+
+    expect(qrCallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        qrDataUrl: 'data:image/png;base64,mockQrCodeData',
+        amountText: '₹347',
+        timerText: '9M:58S',
+      }),
+    );
+  });
+
+  it('detects sufficient balance: clicks Pay Proceed, drawer closes, and transitions immediately to submitted without QR', async () => {
+    const doc = createMockEgPaymentDoc();
+    const payModal = doc.createElement('div');
+    payModal.id = 'processTransactionDrawer';
+    payModal.innerHTML = `
+      <div>Process Transaction</div>
+      <button id="btnPayProceed">Pay ₹ 347 to proceed</button>
+    `;
+    const btn = payModal.querySelector('button');
+    btn?.addEventListener('click', () => {
+      // Simulate sufficient balance: drawer simply closes and transaction succeeds
+      payModal.remove();
+    });
+    doc.body.appendChild(payModal);
+
+    const qrCallback = vi.fn();
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'JIO',
+      amountPaise: 34900,
+      onQrCodeDetected: qrCallback,
+    });
+
+    expect(qrCallback).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe('submitted');
+  });
+
+  it('detects insufficient balance, captures dynamic QR, and waits until payment is confirmed on portal to transition to submitted', async () => {
+    const doc = createMockEgPaymentDoc({ withProcessTransaction: true });
+    const qrCallback = vi.fn(() => {
+      // Simulate user scanning QR code and paying via UPI: modal closes and success text is rendered
+      setTimeout(() => {
+        doc.body.innerHTML = '<div>Recharge Successful! Transaction Accepted.</div>';
+      }, 40);
+    });
+
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'JIO',
+      amountPaise: 34900,
+      waitForPaymentCompletion: true,
+      paymentWaitTimeoutMs: 1000,
+      onQrCodeDetected: qrCallback,
+    });
+
+    expect(qrCallback).toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe('submitted');
+  });
+
+  it('does NOT prematurely transition to submitted while QR modal is still open, even if background text contains request accepted', async () => {
+    const doc = createMockEgPaymentDoc({ withProcessTransaction: true });
+    // Add background disclaimer containing "request accepted"
+    const disclaimer = doc.createElement('div');
+    disclaimer.textContent = 'Terms: Once request accepted, processing will take 2 minutes.';
+    doc.body.appendChild(disclaimer);
+
+    const qrCallback = vi.fn();
+    // Do NOT close the QR modal; let it stay open until timeout
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'JIO',
+      amountPaise: 34900,
+      waitForPaymentCompletion: true,
+      paymentWaitTimeoutMs: 150,
+      onQrCodeDetected: qrCallback,
+    });
+
+    expect(qrCallback).toHaveBeenCalled();
+    // Must NOT be 'submitted' because payment was never captured!
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe('needs_manual_action');
+      expect(result.failureCode).toBe('qr_payment_timeout');
+    }
+  });
+
+  it('does NOT mistake placeholder EG Payment logo for a QR code and waits for genuine QR code', async () => {
+    const doc = createMockEgPaymentDoc();
+    const qrModal = doc.createElement('div');
+    // Initially contains placeholder EG logo and spinner
+    qrModal.innerHTML = `
+      <div>EG Payment Gateway</div>
+      <div>Payment Processing.</div>
+      <img src="assets/img/egpayment-logo.png" alt="EG Payment" width="150" height="150" />
+      <div>Order Expiring In</div>
+      <div>10M:0S</div>
+      <button class="pay-btn">Pay ₹297</button>
+      <div>Scan the QR with any UPI app.</div>
+    `;
+    doc.body.appendChild(qrModal);
+
+    // After 40ms, simulate client-side QR generator successfully injecting the QR canvas
+    setTimeout(() => {
+      const canvas = doc.createElement('canvas');
+      canvas.width = 200;
+      canvas.height = 200;
+      canvas.toDataURL = () => 'data:image/png;base64,genuineDynamicQrData';
+      qrModal.appendChild(canvas);
+    }, 40);
+
+    const qrCallback = vi.fn();
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'VI',
+      amountPaise: 29700,
+      onQrCodeDetected: qrCallback,
+    });
+
+    expect(qrCallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        qrDataUrl: 'data:image/png;base64,genuineDynamicQrData',
+        amountText: '₹297',
+      }),
+    );
+  });
+
+  it('successfully executes 4-step cleanup of stale QR modal, confirmation alert, drawer, and resets form', async () => {
+    const doc = createMockEgPaymentDoc();
+    const mobileInput = doc.getElementById('mobile') as HTMLInputElement;
+    const amountInput = doc.getElementById('amount') as HTMLInputElement;
+    mobileInput.value = '9732069134';
+    amountInput.value = '39';
+
+    // Image 1: Payment Processing Modal with '✕' button
+    const qrModal = doc.createElement('div');
+    qrModal.id = 'paymentProcessingModal';
+    qrModal.innerHTML = `
+      <div>Payment Processing.</div>
+      <button class="close">✕</button>
+      <div>Order Expring In 9M : 10S</div>
+    `;
+    const qrCloseBtn = qrModal.querySelector('.close') as HTMLButtonElement;
+    doc.body.appendChild(qrModal);
+
+    // Image 3: Process Transaction Drawer with 'Close X' button
+    const drawer = doc.createElement('div');
+    drawer.id = 'processTransactionDrawer';
+    drawer.innerHTML = `
+      <div>Process Transaction</div>
+      <button class="close-btn">Close X</button>
+      <button>Pay ₹ 38 to proceed</button>
+    `;
+    const drawerCloseBtn = drawer.querySelector('.close-btn') as HTMLButtonElement;
+    doc.body.appendChild(drawer);
+
+    qrCloseBtn.addEventListener('click', () => {
+      // Upon clicking '✕', Image 2 appears: "Are you sure? You want to close the payment window"
+      const alertModal = doc.createElement('div');
+      alertModal.id = 'areYouSureModal';
+      alertModal.innerHTML = `
+        <div>Are you sure?</div>
+        <div>You want to close the payment window</div>
+        <button class="btn-cancel">No</button>
+        <button class="btn-danger confirm">Yes</button>
+      `;
+      const yesBtn = alertModal.querySelector('.confirm') as HTMLButtonElement;
+      yesBtn.addEventListener('click', () => {
+        qrModal.remove();
+        alertModal.remove();
+      });
+      doc.body.appendChild(alertModal);
+    });
+
+    drawerCloseBtn.addEventListener('click', () => {
+      drawer.remove();
+    });
+
+    // Run cleanup
+    const { cleanupStaleEgPaymentModals } = await import('./rechargeRunner');
+    await cleanupStaleEgPaymentModals(doc);
+
+    // Verify all 4 steps were executed:
+    expect(doc.getElementById('paymentProcessingModal')).toBeNull();
+    expect(doc.getElementById('areYouSureModal')).toBeNull();
+    expect(doc.getElementById('processTransactionDrawer')).toBeNull();
+    expect(mobileInput.value).toBe('');
+    expect(amountInput.value).toBe('');
+  });
+
+  it('detects and dismisses "Enter valid amount(numeric value)." error alert', async () => {
+    const doc = createMockEgPaymentDoc();
+    const errorModal = doc.createElement('div');
+    errorModal.className = 'swal-modal';
+    errorModal.innerHTML = `
+      <div class="swal-icon swal-icon--error"></div>
+      <div class="swal-title">Error</div>
+      <div class="swal-text">Enter valid amount(numeric value).</div>
+      <button class="swal-button swal-button--confirm">OK</button>
+    `;
+    const okBtn = errorModal.querySelector('.swal-button') as HTMLButtonElement;
+    okBtn.addEventListener('click', () => {
+      errorModal.remove();
+    });
+    doc.body.appendChild(errorModal);
+
+    const { findVisibleErrorElement, dismissVisibleErrorPopup } = await import('./rechargeRunner');
+    const detected = findVisibleErrorElement(doc);
+    expect(detected).toContain('Enter valid amount(numeric value).');
+
+    const dismissed = await dismissVisibleErrorPopup(doc);
+    expect(dismissed).toBe(true);
+    expect(doc.querySelector('.swal-modal')).toBeNull();
+  });
+
+  it('closeProcessTransactionDrawer clicks standalone green Close X button', async () => {
+    const doc = createMockEgPaymentDoc();
+    const drawer = doc.createElement('div');
+    drawer.innerHTML = `
+      <div class="header">
+        <span>Process Transaction</span>
+        <button class="btn btn-sm btn-success">Close X</button>
+      </div>
+      <button id="payBtn">Pay ₹ 195 to proceed</button>
+    `;
+    const closeBtn = drawer.querySelector('.btn-success') as HTMLButtonElement;
+    closeBtn.addEventListener('click', () => {
+      drawer.remove();
+    });
+    doc.body.appendChild(drawer);
+
+    const { closeProcessTransactionDrawer } = await import('./rechargeRunner');
+    const closed = await closeProcessTransactionDrawer(doc);
+    expect(closed).toBe(true);
+    expect(drawer.isConnected).toBe(false);
+  });
+
+  it('accurately extracts QR amount from UPI URI am= param and ignores body balance', async () => {
+    const doc = createMockEgPaymentDoc();
+    // Add misleading body text such as wallet balance
+    const navBalance = doc.createElement('div');
+    navBalance.textContent = 'Wallet Balance : ₹ 0.00';
+    doc.body.appendChild(navBalance);
+
+    const qrModal = doc.createElement('div');
+    qrModal.innerHTML = `
+      <div>Payment Processing.</div>
+      <img src="https://api.qrserver.com/v1/create-qr-code/?data=upi%3A%2F%2Fpay%3Fpa%3Deg%40upi%26am%3D195.00%26cu%3DINR" alt="UPI QR" />
+      <div>Order Expring In 9M : 58S</div>
+    `;
+    doc.body.appendChild(qrModal);
+
+    const { findQRCodeDetails } = await import('./rechargeRunner');
+    const qrDetails = findQRCodeDetails(doc, 199);
+    expect(qrDetails).not.toBeNull();
+    // Must extract 195 from UPI URI am= param, NOT 0.00 from navbar!
+    expect(qrDetails?.amountText).toBe('₹195');
+    expect(qrDetails?.timerText).toBe('9M:58S');
+  });
+
+  it('falls back to expected order amount when QR modal text has no amount and no UPI am param', async () => {
+    const doc = createMockEgPaymentDoc();
+    const navBalance = doc.createElement('div');
+    navBalance.textContent = 'Commission : ₹ 1.25 | Balance : ₹ 50.00';
+    doc.body.appendChild(navBalance);
+
+    const qrModal = doc.createElement('div');
+    qrModal.innerHTML = `
+      <div>Payment Processing.</div>
+      <img src="data:image/png;base64,genuineDynamicQrDataLongEnoughToPassCheck1234567890abcdefghijklmnopqrstuvwxyz" alt="QR" />
+      <div>Order Expiring In 10M:0S</div>
+    `;
+    doc.body.appendChild(qrModal);
+
+    const { findQRCodeDetails } = await import('./rechargeRunner');
+    const qrDetails = findQRCodeDetails(doc, 299);
+    expect(qrDetails).not.toBeNull();
+    // Must fall back to 299, NOT 1.25 or 50.00!
+    expect(qrDetails?.amountText).toBe('₹299');
+  });
+
+  it('executes dry-run mode up to form_filled and NEVER clicks Submit (Antigravity Guide Milestone R3)', async () => {
+    const doc = createMockEgPaymentDoc();
+    const submitBtn = doc.getElementById('btnSubmit') as HTMLButtonElement;
+    const clickSpy = vi.spyOn(submitBtn, 'click');
+
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'AIRTEL',
+      amountPaise: 19900,
+      dryRun: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe('form_filled');
+    // In dry-run mode, Submit must NEVER be clicked!
+    expect(clickSpy).not.toHaveBeenCalled();
+  });
+
+  it('stops and reports needs_review if portal auto-detected operator mismatches order', async () => {
+    const doc = createMockEgPaymentDoc();
+    // Portal has Jio option selected
+    const opSelect = doc.getElementById('operator') as HTMLSelectElement;
+    opSelect.value = 'JIO';
+    const opt = doc.createElement('option');
+    opt.value = 'JIO';
+    opt.text = 'Jio';
+    opSelect.appendChild(opt);
+    opSelect.selectedIndex = opSelect.options.length - 1;
+
+    // Order requested Airtel
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'AIRTEL',
+      amountPaise: 19900,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe('needs_review');
+      expect(result.failureCode).toBe('operator_mismatch');
+    }
+  });
+
+  it('stops and reports needs_review when payable amount exceeds expected_payable (Section 7 Safety Rule 1)', async () => {
+    const doc = createMockEgPaymentDoc({ withProcessTransaction: true });
+    // Process transaction drawer shows Pay ₹ 347 to proceed
+    const payBtn = doc.querySelector('#btnPayProceed') as HTMLElement;
+    expect(payBtn).not.toBeNull();
+    payBtn.textContent = 'Pay ₹ 347 to proceed';
+
+    const result = await executeEgPaymentRecharge(doc, {
+      customerNo: testPhone,
+      operator: 'AIRTEL',
+      amountPaise: 19900,
+      expectedPayablePaise: 19500, // Expected ₹195, but drawer requested ₹347
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe('needs_review');
+      expect(result.failureCode).toBe('payable_mismatch');
+    }
+  });
+
+  it('correctly parses receipt details from transaction_receipt page', async () => {
+    const doc = new DOMParser().parseFromString(`
+      <!DOCTYPE html>
+      <html>
+        <body>
+          <div class="header">Receipt/Inovice</div>
+          <div class="banner">Transaction Success</div>
+          <div class="content">
+            <p>Jio</p>
+            <p>9734636629</p>
+            <p>Order ID: 2632446720533</p>
+            <p>Date Time: 11/20/2026, 06:26 PM</p>
+            <p>Payment Mode: UPI</p>
+            <p>Transaction Amount : ₹349</p>
+            <p>Amount Debited : ₹346.906</p>
+            <p>Discount : ₹2.094</p>
+          </div>
+        </body>
+      </html>
+    `, 'text/html');
+
+    const { findReceiptDetails } = await import('./rechargeRunner');
+    const details = findReceiptDetails(doc);
+
+    expect(details).not.toBeNull();
+    expect(details?.orderId).toBe('2632446720533');
+    expect(details?.debitedAmount).toBe('346.906');
+    expect(details?.discount).toBe('2.094');
+  });
+});

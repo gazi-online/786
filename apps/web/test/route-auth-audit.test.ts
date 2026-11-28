@@ -55,11 +55,12 @@ describe('Round 7 Step 1: Route Auth Table & Automated Route Directory Audit', (
           content.includes('verifyDeviceToken');
         expect(hasPairingOrIngestProtection).toBe(true);
       } else {
-        // Every other route MUST invoke getTenantSession or signUpUser
+        // Every other route MUST invoke getTenantSession or signUpUser or verifyDeviceForRecharge
         const hasAuth =
           content.includes('getTenantSession') ||
           content.includes('signUpUser') ||
-          content.includes('verifyJwt');
+          content.includes('verifyJwt') ||
+          content.includes('verifyDeviceForRecharge');
         expect(hasAuth).toBe(true);
       }
     }
