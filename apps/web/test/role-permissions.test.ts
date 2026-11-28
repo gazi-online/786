@@ -252,6 +252,29 @@ describe('Authentication, Role Authorization & Hardening Suite', () => {
       expect(result.valid).toBe(false);
       expect(result.error).toContain('Invalid asymmetric JWT signature');
     });
+
+    it('verifies an asymmetric ES256 token signed with EC private key matching kid', async () => {
+      const ecKeyPair = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+      const ecJwk = ecKeyPair.publicKey.export({ format: 'jwk' });
+      const ecKeyMap = new Map<string, unknown>([['ec-key-2026', ecJwk]]);
+      const ecJwksVerifier = new JwksVerifier(ecKeyMap as Map<string, string>, TEST_ISSUER, TEST_AUDIENCE);
+
+      const header = Buffer.from(JSON.stringify({ alg: 'ES256', typ: 'JWT', kid: 'ec-key-2026' })).toString('base64url');
+      const now = Math.floor(Date.now() / 1000);
+      const payload = Buffer.from(
+        JSON.stringify({ sub: 'user-ec-5678', role: 'owner', iss: TEST_ISSUER, aud: TEST_AUDIENCE, exp: now + 3600 }),
+      ).toString('base64url');
+      const signingInput = `${header}.${payload}`;
+      const sig = crypto
+        .sign('SHA256', Buffer.from(signingInput), { key: ecKeyPair.privateKey, dsaEncoding: 'ieee-p1363' })
+        .toString('base64url');
+      const token = `${signingInput}.${sig}`;
+
+      const result = await ecJwksVerifier.verify(token);
+      expect(result.valid).toBe(true);
+      expect(result.payload?.sub).toBe('user-ec-5678');
+      expect(result.payload?.role).toBe('owner');
+    });
   });
 
   describe('4. Chunked Cookie Extraction (@supabase/ssr standard)', () => {

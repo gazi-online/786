@@ -103,15 +103,15 @@ export class HmacSha256Verifier implements JwtVerifier {
 /**
  * Asymmetric JWKS Verifier (Supabase projects using asymmetric RS256/ES256 signing keys)
  * Strict algorithm verification:
- * - Header alg must be exactly 'RS256'
+ * - Header alg must be 'RS256' or 'ES256'
  * - Rejects symmetric 'HS256' (prevents public key confusion attacks) and 'none'
  */
 export class JwksVerifier implements JwtVerifier {
-  private keyMap: Map<string, string>;
+  private keyMap: Map<string, unknown>;
   private expectedIssuer: string;
   private expectedAudience: string;
 
-  constructor(keyMap: Map<string, string>, expectedIssuer: string, expectedAudience: string) {
+  constructor(keyMap: Map<string, unknown>, expectedIssuer: string, expectedAudience: string) {
     this.keyMap = keyMap;
     this.expectedIssuer = expectedIssuer;
     this.expectedAudience = expectedAudience;
@@ -132,19 +132,47 @@ export class JwksVerifier implements JwtVerifier {
       return { valid: false, error: 'Malformed JWT header' };
     }
 
-    if (header.alg !== 'RS256') {
-      return { valid: false, error: `Unsupported asymmetric algorithm: ${header.alg}. Expected RS256.` };
+    if (header.alg !== 'RS256' && header.alg !== 'ES256') {
+      return { valid: false, error: `Unsupported asymmetric algorithm: ${header.alg}. Expected RS256 or ES256.` };
     }
 
-    const publicKeyPem = header.kid ? this.keyMap.get(header.kid) : undefined;
-    if (!publicKeyPem) {
+    const rawKey = header.kid ? this.keyMap.get(header.kid) : undefined;
+    if (!rawKey) {
       return { valid: false, error: `Signing key with kid "${header.kid}" not found in JWKS` };
     }
 
     const signingInput = `${encodedHeader}.${encodedPayload}`;
-    const verifier = crypto.createVerify('RSA-SHA256');
-    verifier.update(signingInput);
-    const valid = verifier.verify(publicKeyPem, signature, 'base64url');
+    let valid = false;
+
+    try {
+      if (header.alg === 'RS256') {
+        if (typeof rawKey === 'string' && rawKey.startsWith('-----BEGIN')) {
+          const verifier = crypto.createVerify('RSA-SHA256');
+          verifier.update(signingInput);
+          valid = verifier.verify(rawKey, signature, 'base64url');
+        } else {
+          const jwk = typeof rawKey === 'string' ? JSON.parse(rawKey) : rawKey;
+          const keyObj = crypto.createPublicKey({ key: jwk, format: 'jwk' });
+          valid = crypto.verify('RSA-SHA256', Buffer.from(signingInput), keyObj, Buffer.from(signature, 'base64url'));
+        }
+      } else if (header.alg === 'ES256') {
+        let keyObj: crypto.KeyObject;
+        if (typeof rawKey === 'string' && rawKey.startsWith('-----BEGIN')) {
+          keyObj = crypto.createPublicKey(rawKey);
+        } else {
+          const jwk = typeof rawKey === 'string' ? JSON.parse(rawKey) : rawKey;
+          keyObj = crypto.createPublicKey({ key: jwk, format: 'jwk' });
+        }
+        valid = crypto.verify(
+          'SHA256',
+          Buffer.from(signingInput),
+          { key: keyObj, dsaEncoding: 'ieee-p1363' },
+          Buffer.from(signature, 'base64url'),
+        );
+      }
+    } catch {
+      return { valid: false, error: 'Invalid asymmetric JWT signature' };
+    }
 
     if (!valid) {
       return { valid: false, error: 'Invalid asymmetric JWT signature' };
@@ -171,6 +199,43 @@ export class JwksVerifier implements JwtVerifier {
     }
 
     return { valid: true, payload: claims };
+  }
+}
+
+let cachedJwksVerifier: { verifier: JwksVerifier; expiresAt: number; url: string } | null = null;
+
+export async function getJwksVerifierFromUrl(
+  jwksUrl: string,
+  expectedIssuer: string,
+  expectedAudience: string,
+): Promise<JwksVerifier | null> {
+  const now = Date.now();
+  if (cachedJwksVerifier && cachedJwksVerifier.url === jwksUrl && cachedJwksVerifier.expiresAt > now) {
+    return cachedJwksVerifier.verifier;
+  }
+
+  try {
+    const res = await fetch(jwksUrl, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { keys?: Array<{ kid: string; [k: string]: unknown }> };
+    if (!body?.keys || !Array.isArray(body.keys)) return null;
+
+    const keyMap = new Map<string, unknown>();
+    for (const key of body.keys) {
+      if (key.kid) {
+        keyMap.set(key.kid, key);
+      }
+    }
+
+    const verifier = new JwksVerifier(keyMap, expectedIssuer, expectedAudience);
+    cachedJwksVerifier = {
+      verifier,
+      expiresAt: now + 10 * 60 * 1000,
+      url: jwksUrl,
+    };
+    return verifier;
+  } catch {
+    return null;
   }
 }
 
