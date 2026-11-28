@@ -9,6 +9,7 @@ export function middleware(req: NextRequest) {
 
   // Protected application routes
   const isProtectedRoute =
+    pathname === '/' ||
     pathname.startsWith('/transactions') ||
     pathname.startsWith('/devices') ||
     pathname.startsWith('/settings') ||
@@ -31,7 +32,9 @@ export function middleware(req: NextRequest) {
 
   if (!hasAuthToken) {
     const redirectUrl = new URL('/signin', req.url);
-    redirectUrl.searchParams.set('next', pathname);
+    if (pathname !== '/') {
+      redirectUrl.searchParams.set('next', pathname);
+    }
     return NextResponse.redirect(redirectUrl);
   }
 
@@ -40,6 +43,7 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
+    '/',
     '/transactions/:path*',
     '/devices/:path*',
     '/settings/:path*',
@@ -47,4 +51,3 @@ export const config = {
     '/onboarding/:path*',
   ],
 };
-

@@ -77,6 +77,10 @@ export default function DashboardPage() {
     try {
       const res = await fetch('/api/v1/transactions?limit=100');
       if (res.status === 304) return;
+      if (res.status === 401) {
+        window.location.href = '/signin';
+        return;
+      }
       if (!res.ok) throw new Error('Failed to load transactions');
       const data = await res.json();
       const items: ApiTransaction[] = data.items || [];

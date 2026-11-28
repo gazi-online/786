@@ -73,6 +73,10 @@ export default function TransactionsPage() {
         // Not modified — keep current data
         return;
       }
+      if (res.status === 401) {
+        window.location.href = '/signin?next=' + encodeURIComponent(window.location.pathname);
+        return;
+      }
       if (!res.ok) throw new Error('Failed to fetch transaction records');
       const data = await res.json();
       const newItems: ApiTransaction[] = data.items || [];
