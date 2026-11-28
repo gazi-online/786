@@ -77,6 +77,7 @@ export interface Translations {
     noRecentTxns: string;
     noRecentTxnsDesc: string;
     connectExtension: string;
+    extensionConnected: string;
   };
   transactions: {
     title: string;
@@ -252,6 +253,7 @@ export const dictionaries: Record<Locale, Translations> = {
       noRecentTxns: 'No transactions synced yet today',
       noRecentTxnsDesc: 'Open your simplewallet.in history page with the WalletSync extension installed.',
       connectExtension: 'Connect Extension',
+      extensionConnected: 'Extension Connected',
     },
     transactions: {
       title: 'Transaction History',
@@ -426,6 +428,7 @@ export const dictionaries: Record<Locale, Translations> = {
       noRecentTxns: 'আজ এখনও কোন ট্রানজ্যাকশন সিঙ্ক হয়নি',
       noRecentTxnsDesc: 'WalletSync এক্সটেনশন ইনস্টল করে আপনার simplewallet হিস্ট্রি পেজটি খুলুন।',
       connectExtension: 'এক্সটেনশন কানেক্ট করুন',
+      extensionConnected: 'এক্সটেনশন কানেক্টেড',
     },
     transactions: {
       title: 'ট্রানজ্যাকশন ইতিহাস',
@@ -600,6 +603,7 @@ export const dictionaries: Record<Locale, Translations> = {
       noRecentTxns: 'आज अभी तक कोई ट्रांजैक्शन सिंक नहीं हुआ',
       noRecentTxnsDesc: 'WalletSync एक्सटेंशन के साथ अपना simplewallet हिस्ट्री पेज खोलें।',
       connectExtension: 'एक्सटेंशन कनेक्ट करें',
+      extensionConnected: 'एक्सटेंशन कनेक्टेड',
     },
     transactions: {
       title: 'लेन-देन इतिहास',

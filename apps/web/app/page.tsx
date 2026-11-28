@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
+import Link from 'next/link';
 import type { ApiTransaction, IngestTransaction, TransactionSource } from '@walletsync/contract';
 import { AppLayout } from '@/components/AppLayout';
 import { PairDeviceModal } from '@/components/PairDeviceModal';
@@ -45,6 +46,7 @@ export default function DashboardPage() {
 
   // Device health state
   const [deviceStatus, setDeviceStatus] = useState<string>('ok');
+  const [activeDeviceCount, setActiveDeviceCount] = useState<number>(0);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
 
   // SSE & Fallback state (ADR-004)
@@ -64,7 +66,29 @@ export default function DashboardPage() {
       setLastSyncTime(cached[0]?.occurredAt || null);
     }
     fetchTransactions();
+    fetchDevices();
   }, []);
+
+  async function fetchDevices() {
+    try {
+      const res = await fetch('/api/v1/devices');
+      if (!res.ok) return;
+      const data = await res.json();
+      const active = (data.devices || []).filter(
+        (d: { revokedAt: string | null }) => !d.revokedAt,
+      );
+      setActiveDeviceCount(active.length);
+      if (active.length > 0) {
+        const latest = active[0];
+        setDeviceStatus(latest.status && latest.status !== 'ok' ? latest.status : 'ok');
+        if (latest.lastSeenAt) {
+          setLastSyncTime((prev) => prev || latest.lastSeenAt);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   async function fetchTransactions() {
     const cached = getClientCache<ApiTransaction[]>('dashboard_txns');
@@ -270,16 +294,32 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {activeDeviceCount > 0 ? (
+            <Link
+              href="/devices"
+              className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-xs transition-colors"
+            >
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>
+                {t.dashboard.extensionConnected}
+                {activeDeviceCount > 1 ? ` (${activeDeviceCount})` : ''}
+              </span>
+            </Link>
+          ) : (
+            <button
+              onClick={openPairingModal}
+              className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors cursor-pointer"
+            >
+              <Smartphone className="w-4 h-4" />
+              {t.dashboard.connectExtension}
+            </button>
+          )}
           <button
-            onClick={openPairingModal}
-            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors"
-          >
-            <Smartphone className="w-4 h-4" />
-            {t.dashboard.connectExtension}
-          </button>
-          <button
-            onClick={fetchTransactions}
-            className="p-2 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            onClick={() => {
+              fetchTransactions();
+              fetchDevices();
+            }}
+            className="p-2 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
             title={t.common.refresh}
           >
             <RefreshCw className="w-4 h-4" />
@@ -493,13 +533,23 @@ export default function DashboardPage() {
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-sm mx-auto">
                 {t.dashboard.noRecentTxnsDesc}
               </p>
-              <button
-                onClick={openPairingModal}
-                className="mt-4 px-4 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors inline-flex items-center gap-2"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                {t.dashboard.connectExtension}
-              </button>
+              {activeDeviceCount > 0 ? (
+                <Link
+                  href="/devices"
+                  className="mt-4 px-4 py-2 text-xs font-semibold rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 transition-colors inline-flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  {t.dashboard.extensionConnected}
+                </Link>
+              ) : (
+                <button
+                  onClick={openPairingModal}
+                  className="mt-4 px-4 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors inline-flex items-center gap-2 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {t.dashboard.connectExtension}
+                </button>
+              )}
             </div>
           ) : (
             <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden bg-white dark:bg-zinc-900 shadow-2xs">
@@ -624,6 +674,7 @@ export default function DashboardPage() {
         onClose={() => setShowPairModal(false)}
         onPaired={() => {
           setDeviceStatus('ok');
+          fetchDevices();
         }}
       />
     </AppLayout>
