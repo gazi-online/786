@@ -821,7 +821,7 @@ export async function executeSimpleWalletRecharge(
     return null;
   }, 10000, 250);
 
-  if (dialogResult && 'tableRow' in dialogResult) {
+  if (dialogResult && 'tableRow' in dialogResult && dialogResult.tableRow) {
     const row = dialogResult.tableRow;
     dismissAnyOpenModal(doc);
     if (row.status === 'failed') {
@@ -860,7 +860,7 @@ export async function executeSimpleWalletRecharge(
     }
 
     const detail =
-      dialogResult && 'error' in dialogResult
+      dialogResult && 'error' in dialogResult && dialogResult.error
         ? dialogResult.error
         : 'Official portal transaction confirmation dialog was not received';
     return {

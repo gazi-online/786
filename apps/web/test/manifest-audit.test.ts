@@ -23,7 +23,7 @@ describe('Step A11 Hardening: Built Chrome Extension Manifest Exact Array Auditi
     expect(permissions).not.toContain('<all_urls>');
 
     // Allowed minimal set
-    const allowedPermissions = new Set(['storage', 'alarms', 'notifications', 'tabs']);
+    const allowedPermissions = new Set(['storage', 'alarms', 'notifications', 'tabs', 'scripting']);
     for (const p of permissions) {
       expect(allowedPermissions.has(p)).toBe(true);
     }
@@ -67,6 +67,12 @@ describe('Step A11 Hardening: Built Chrome Extension Manifest Exact Array Auditi
     const exactAllowedMatches = new Set([
       'https://simplewallet.in/web/MyTrans.aspx*',
       'https://egpayment.com/users/recharge_history*',
+      'https://egpayment.com/users/recharge',
+      'https://egpayment.com/users/recharge/*',
+      'https://simplewallet.in/web/MobileRecharge.aspx*',
+      'http://localhost:3000/*',
+      'https://gonline.dpdns.org/*',
+      'https://walletsync-seven.vercel.app/*',
     ]);
 
     for (const cs of contentScripts) {

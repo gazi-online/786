@@ -165,7 +165,14 @@ export type TogglePauseMessage = z.infer<typeof TogglePauseMessageSchema>;
 export const PortalRechargeResultMessageSchema = z.object({
   type: z.literal('PORTAL_RECHARGE_RESULT'),
   orderId: z.string().uuid(),
-  status: z.enum(['submitting', 'submitted', 'failed', 'needs_manual_action']),
+  status: z.enum([
+    'submitting',
+    'submitted',
+    'failed',
+    'needs_manual_action',
+    'form_filled',
+    'needs_review',
+  ]),
   failureCode: z.string().trim().max(64).optional(),
   failureDetail: z
     .string()

@@ -4,6 +4,7 @@
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM"],
     "moduleResolution": "bundler",
+    "exactOptionalPropertyTypes": false,
     "types": ["chrome"]
   },
   "include": [".wxt/types/**/*.ts", "entrypoints/**/*.ts", "entrypoints/**/*.tsx", "lib/**/*.ts"]

@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   getStorage,
+  setStorage,
+  DEFAULT_STORAGE,
   type StorageData,
 } from '../../lib/storage';
 import {
@@ -22,6 +24,9 @@ import {
   Sliders,
   Shield,
   Activity,
+  X,
+  Unlink,
+  KeyRound,
 } from 'lucide-react';
 
 const SIMPLEWALLET_URL = 'https://simplewallet.in/web/MyTrans.aspx?ST=1&mID=824&PID=821';
@@ -39,14 +44,19 @@ export default function App() {
 
   // Pairing State
   const [pairingCode, setPairingCode] = useState('');
-  const [pairingApiUrl, setPairingApiUrl] = useState('http://localhost:3000');
+  const [pairingApiUrl, setPairingApiUrl] = useState(DEFAULT_STORAGE.apiUrl);
   const [showConfig, setShowConfig] = useState(false);
   const [isPairing, setIsPairing] = useState(false);
   const [pairError, setPairError] = useState<string | null>(null);
+  const [showPairModal, setShowPairModal] = useState(false);
 
   // Sync animation states
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncSuccessToast, setSyncSuccessToast] = useState(false);
+
+  // Dispatch state
+  const [isDispatching, setIsDispatching] = useState(false);
+  const [dispatchResultMsg, setDispatchResultMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Live browser tab states
   const [swTabOpen, setSwTabOpen] = useState(false);
@@ -64,10 +74,14 @@ export default function App() {
 
   async function checkOpenTabs() {
     try {
-      const swTabs = await chrome.tabs.query({ url: '*://*.simplewallet.in/*' });
+      const swTabs = await chrome.tabs.query({
+        url: ['https://simplewallet.in/*', 'https://*.simplewallet.in/*'],
+      });
       setSwTabOpen(swTabs.length > 0);
 
-      const egTabs = await chrome.tabs.query({ url: '*://*.egpayment.com/*' });
+      const egTabs = await chrome.tabs.query({
+        url: ['https://egpayment.com/*', 'https://*.egpayment.com/*'],
+      });
       setEgTabOpen(egTabs.length > 0);
     } catch {
       // Chrome tabs API fallback
@@ -77,23 +91,44 @@ export default function App() {
   async function loadData() {
     const storage = await getStorage();
     setData(storage);
-    if (storage.apiUrl) {
-      setPairingApiUrl(storage.apiUrl);
+    const currentApi = (storage.apiUrl || '').trim().replace(/\/+$/, '');
+    if (!currentApi || currentApi.includes('walletsync-seven.vercel.app') || currentApi.includes('example.com')) {
+      const liveUrl = 'https://gonline.dpdns.org';
+      await setStorage({ apiUrl: liveUrl });
+      setPairingApiUrl(liveUrl);
+    } else {
+      setPairingApiUrl(currentApi);
     }
   }
 
-  async function handlePair(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSaveApiUrl(newUrl: string) {
+    const clean = newUrl.trim().replace(/\/+$/, '');
+    setPairingApiUrl(clean);
+    await setStorage({ apiUrl: clean });
+    loadData();
+  }
+
+  async function handlePair(e?: React.FormEvent) {
+    if (e) e.preventDefault();
     if (!pairingCode.trim()) return;
 
+    const cleanCode = pairingCode.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (cleanCode.length !== 8) {
+      setPairError('Pairing code must be 8 characters (e.g. M4WH-PYTK)');
+      return;
+    }
+
+    const cleanUrl = pairingApiUrl.trim().replace(/\/+$/, '');
     setIsPairing(true);
     setPairError(null);
 
     chrome.runtime.sendMessage(
-      { type: 'PAIR_DEVICE', code: pairingCode, apiUrl: pairingApiUrl },
+      { type: 'PAIR_DEVICE', code: cleanCode, apiUrl: cleanUrl },
       (res: { success?: boolean; error?: string } | undefined) => {
         setIsPairing(false);
         if (res && res.success) {
+          setShowPairModal(false);
+          setPairingCode('');
           loadData();
           checkOpenTabs();
         } else {
@@ -101,6 +136,16 @@ export default function App() {
         }
       },
     );
+  }
+
+  async function handleUnpair() {
+    if (!confirm('Are you sure you want to disconnect this terminal from the dashboard?')) {
+      return;
+    }
+    chrome.runtime.sendMessage({ type: 'UNPAIR_DEVICE' }, () => {
+      loadData();
+      setShowPairModal(false);
+    });
   }
 
   async function handleSyncNow() {
@@ -116,14 +161,69 @@ export default function App() {
     });
   }
 
+  async function handleDispatchQueue() {
+    setIsDispatching(true);
+    setDispatchResultMsg(null);
+    chrome.runtime.sendMessage(
+      { type: 'DISPATCH_RECHARGE_NOW' },
+      (res: { success?: boolean; message?: string } | undefined) => {
+        setIsDispatching(false);
+        if (res) {
+          setDispatchResultMsg({ ok: !!res.success, text: res.message || 'Operation finished' });
+        } else {
+          setDispatchResultMsg({ ok: false, text: 'No reply from background service worker' });
+        }
+        loadData();
+        checkOpenTabs();
+      },
+    );
+  }
+
   async function handleTogglePause() {
     chrome.runtime.sendMessage({ type: 'TOGGLE_PAUSE' }, () => {
       loadData();
     });
   }
 
-  function handleOpenPortal(url: string) {
-    chrome.tabs.create({ url });
+  async function handleOpenPortal(url: string) {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.tabs) {
+        const isSimpleWallet = url.includes('simplewallet');
+        const queryPattern = isSimpleWallet
+          ? ['https://simplewallet.in/*', 'https://*.simplewallet.in/*']
+          : ['https://egpayment.com/*', 'https://*.egpayment.com/*'];
+
+        const existingTabs = await chrome.tabs.query({ url: queryPattern }).catch(() => []);
+        const targetTab = existingTabs?.[0];
+
+        if (targetTab && targetTab.id !== undefined) {
+          // Switch to existing open tab AND navigate it to the exact portal URL
+          await chrome.tabs.update(targetTab.id, { url, active: true });
+          if (targetTab.windowId !== undefined && typeof chrome.windows !== 'undefined' && chrome.windows.update) {
+            chrome.windows.update(targetTab.windowId, { focused: true }).catch(() => {});
+          }
+          if (isSimpleWallet) {
+            chrome.tabs.sendMessage(targetTab.id, {
+              type: 'TRIGGER_SHOW_CLICK',
+              refresh: true,
+            }).catch(() => {});
+          }
+          return;
+        }
+
+        // No existing tab open: create new active tab
+        chrome.tabs.create({ url, active: true });
+        return;
+      }
+    } catch (e) {
+      console.warn('[WalletSync] Falling back to direct chrome.tabs.create:', e);
+    }
+
+    if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
+      chrome.tabs.create({ url, active: true });
+    } else {
+      window.open(url, '_blank');
+    }
   }
 
   function handleOpenDashboard() {
@@ -256,7 +356,8 @@ export default function App() {
                   value={pairingCode}
                   onChange={(e) => setPairingCode(e.target.value.toUpperCase())}
                   disabled={isPairing}
-                  className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.12] hover:border-white/[0.22] focus:border-blue-500 rounded-2xl text-center tracking-[0.25em] font-mono text-xl uppercase font-bold text-white placeholder-zinc-700 focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition-all shadow-inner"
+                  style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+                  className="w-full px-4 py-3 border border-white/[0.12] hover:border-white/[0.22] focus:border-blue-500 rounded-2xl text-center tracking-[0.25em] font-mono text-xl uppercase font-bold text-white placeholder-zinc-600 focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition-all shadow-inner"
                 />
               </div>
             </div>
@@ -300,12 +401,32 @@ export default function App() {
           </button>
 
           {showConfig && (
-            <div className="mt-2.5">
+            <div className="mt-2.5 space-y-1.5">
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="text-zinc-400">Dashboard API Endpoint:</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPairingApiUrl('https://gonline.dpdns.org')}
+                    className="text-emerald-400 hover:underline font-bold"
+                  >
+                    gonline.dpdns.org
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPairingApiUrl('http://localhost:3000')}
+                    className="text-blue-400 hover:underline"
+                  >
+                    localhost:3000
+                  </button>
+                </div>
+              </div>
               <input
                 type="text"
                 value={pairingApiUrl}
                 onChange={(e) => setPairingApiUrl(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs bg-black/40 border border-white/10 rounded-xl text-zinc-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+                className="w-full px-3 py-1.5 text-xs border border-white/10 rounded-xl text-zinc-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
               />
             </div>
           )}
@@ -347,8 +468,33 @@ export default function App() {
             </div>
           </div>
 
-          {/* Overall Health Pill */}
+          {/* Action & Health Pills */}
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const targetUrl = data.apiUrl ? `${data.apiUrl.replace(/\/$/, '')}/recharge` : 'http://localhost:3000/recharge';
+                if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
+                  chrome.tabs.create({ url: targetUrl });
+                } else {
+                  window.open(targetUrl, '_blank');
+                }
+              }}
+              title="Open Recharge Automation Hub"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 transition-all cursor-pointer active:scale-95 shadow-sm shadow-indigo-500/10"
+            >
+              <Zap className="w-3 h-3 text-indigo-400 fill-current" />
+              <span>Recharge</span>
+            </button>
+
+            <button
+              onClick={() => setShowPairModal(true)}
+              title="Pair or update connection with Web Dashboard"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border border-blue-500/30 transition-all cursor-pointer active:scale-95 shadow-sm shadow-blue-500/10"
+            >
+              <LinkIcon className="w-3 h-3 text-blue-400" />
+              <span>Pair Code</span>
+            </button>
+
             {data.isPaused ? (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-zinc-800/80 text-zinc-300 border border-zinc-700">
                 <Pause className="w-3 h-3" /> Paused
@@ -374,8 +520,8 @@ export default function App() {
           <button
             onClick={() => setActiveTab('overview')}
             className={`py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${activeTab === 'overview'
-                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
-                : 'text-zinc-400 hover:text-white'
+              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
+              : 'text-zinc-400 hover:text-white'
               }`}
           >
             <Activity className="w-3.5 h-3.5" />
@@ -385,8 +531,8 @@ export default function App() {
           <button
             onClick={() => setActiveTab('feed')}
             className={`py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${activeTab === 'feed'
-                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
-                : 'text-zinc-400 hover:text-white'
+              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
+              : 'text-zinc-400 hover:text-white'
               }`}
           >
             <Clock className="w-3.5 h-3.5" />
@@ -396,8 +542,8 @@ export default function App() {
           <button
             onClick={() => setActiveTab('security')}
             className={`py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${activeTab === 'security'
-                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
-                : 'text-zinc-400 hover:text-white'
+              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30'
+              : 'text-zinc-400 hover:text-white'
               }`}
           >
             <Shield className="w-3.5 h-3.5" />
@@ -457,19 +603,38 @@ export default function App() {
                   <Layers className="w-3 h-3 text-blue-400" />
                   Live Portal Status
                 </span>
-                <span className="text-[10px] text-emerald-400 font-mono">Auto-Detector ON</span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const next = data?.autoClickEnabled === false ? true : false;
+                    await setStorage({ autoClickEnabled: next });
+                    loadData();
+                  }}
+                  className="text-[10px] font-mono cursor-pointer transition-opacity hover:opacity-80"
+                  title="Click to toggle auto-clicking the Show button"
+                >
+                  {data?.autoClickEnabled !== false ? (
+                    <span className="text-emerald-400">Auto-Detector ON</span>
+                  ) : (
+                    <span className="text-zinc-500">Auto-Detector OFF</span>
+                  )}
+                </button>
               </div>
 
               {/* CARD 1: SimpleWallet */}
-              <div className="p-3 rounded-2xl bg-[#0D1017] border border-white/[0.08] hover:border-blue-500/40 transition-all shadow-sm group">
+              <div
+                onClick={() => handleOpenPortal(SIMPLEWALLET_URL)}
+                className="p-3 rounded-2xl bg-[#0D1017] border border-white/[0.08] hover:border-blue-500/50 hover:bg-[#0E121B] transition-all shadow-sm group cursor-pointer"
+                title="Click to open or switch to SimpleWallet portal"
+              >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center font-black text-xs text-blue-400 shadow-inner">
+                    <div className="w-8 h-8 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center font-black text-xs text-blue-400 shadow-inner group-hover:scale-105 transition-transform">
                       SW
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-xs text-white">SimpleWallet</h3>
+                        <h3 className="font-bold text-xs text-white group-hover:text-blue-400 transition-colors">SimpleWallet</h3>
                         {swTabOpen ? (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -486,8 +651,11 @@ export default function App() {
                   </div>
 
                   <button
-                    onClick={() => handleOpenPortal(SIMPLEWALLET_URL)}
-                    className="px-2.5 py-1 rounded-xl bg-white/[0.05] hover:bg-blue-600 hover:text-white border border-white/[0.08] text-zinc-300 text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenPortal(SIMPLEWALLET_URL);
+                    }}
+                    className="px-2.5 py-1 rounded-xl bg-white/[0.05] hover:bg-blue-600 hover:text-white border border-white/[0.08] text-zinc-300 text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-xs"
                   >
                     <span>Launch</span>
                     <ArrowUpRight className="w-3 h-3" />
@@ -501,15 +669,19 @@ export default function App() {
               </div>
 
               {/* CARD 2: EG Payment */}
-              <div className="p-3 rounded-2xl bg-[#0D1017] border border-white/[0.08] hover:border-amber-500/40 transition-all shadow-sm group">
+              <div
+                onClick={() => handleOpenPortal(EGPAYMENT_URL)}
+                className="p-3 rounded-2xl bg-[#0D1017] border border-white/[0.08] hover:border-amber-500/50 hover:bg-[#121118] transition-all shadow-sm group cursor-pointer"
+                title="Click to open or switch to EG Payment portal"
+              >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center font-black text-xs text-amber-400 shadow-inner">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center font-black text-xs text-amber-400 shadow-inner group-hover:scale-105 transition-transform">
                       EG
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-xs text-white">EG Payment</h3>
+                        <h3 className="font-bold text-xs text-white group-hover:text-amber-400 transition-colors">EG Payment</h3>
                         {egTabOpen ? (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -526,8 +698,11 @@ export default function App() {
                   </div>
 
                   <button
-                    onClick={() => handleOpenPortal(EGPAYMENT_URL)}
-                    className="px-2.5 py-1 rounded-xl bg-white/[0.05] hover:bg-amber-600 hover:text-white border border-white/[0.08] text-zinc-300 text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenPortal(EGPAYMENT_URL);
+                    }}
+                    className="px-2.5 py-1 rounded-xl bg-white/[0.05] hover:bg-amber-600 hover:text-white border border-white/[0.08] text-zinc-300 text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-xs"
                   >
                     <span>Launch</span>
                     <ArrowUpRight className="w-3 h-3" />
@@ -539,6 +714,53 @@ export default function App() {
                   <span className="text-amber-400 font-medium">#{data.egpaymentCount || 50} records</span>
                 </div>
               </div>
+            </div>
+
+            {/* RECHARGE ENGINE DISPATCH HUB */}
+            <div className="p-3 rounded-2xl bg-gradient-to-r from-violet-950/40 via-indigo-950/30 to-purple-950/20 border border-violet-500/25 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-violet-600/20 border border-violet-500/30 flex items-center justify-center">
+                    <Zap className="w-3.5 h-3.5 text-violet-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-[11px]">Recharge Automation Engine</h3>
+                    <p className="text-[9px] text-zinc-400">Claims & executes web recharge queue</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDispatchQueue}
+                  disabled={isDispatching || data.isPaused}
+                  className="px-2.5 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-md shadow-violet-600/30 disabled:opacity-40"
+                  title="Click to process queued recharge orders immediately"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isDispatching ? 'animate-spin' : ''}`} />
+                  <span>{isDispatching ? 'Dispatching...' : 'Dispatch Queue'}</span>
+                </button>
+              </div>
+
+              {/* Live Dispatch Message */}
+              {(dispatchResultMsg || data.lastRechargeLog) && (
+                <div
+                  className={`mt-1 px-2.5 py-1.5 rounded-xl text-[10px] font-mono flex items-center justify-between border ${
+                    (dispatchResultMsg ? dispatchResultMsg.ok : data.lastRechargeLog?.ok)
+                      ? 'bg-emerald-950/30 border-emerald-500/25 text-emerald-300'
+                      : 'bg-rose-950/30 border-rose-500/25 text-rose-300'
+                  }`}
+                >
+                  <span className="truncate pr-2">
+                    {dispatchResultMsg ? dispatchResultMsg.text : data.lastRechargeLog?.message}
+                  </span>
+                  <span className="text-[8px] opacity-70 shrink-0">
+                    {dispatchResultMsg
+                      ? 'Just now'
+                      : data.lastRechargeLog?.time
+                        ? new Date(data.lastRechargeLog.time).toLocaleTimeString()
+                        : ''}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Quick Mini Feed Preview */}
@@ -560,8 +782,8 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <span
                       className={`px-1.5 py-0.5 rounded text-[9px] font-black ${data.recentTransactions[0]?.source === 'egpayment'
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                          : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                        : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                         }`}
                     >
                       {data.recentTransactions[0]?.source === 'egpayment' ? 'EG' : 'SW'}
@@ -599,7 +821,8 @@ export default function App() {
                 placeholder="Search phone last-4, operator, or Txn ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-white/[0.04] border border-white/[0.08] rounded-xl text-xs text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+                className="w-full pl-9 pr-3 py-2 border border-white/[0.08] rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
               />
             </div>
 
@@ -608,8 +831,8 @@ export default function App() {
               <button
                 onClick={() => setPortalFilter('all')}
                 className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${portalFilter === 'all'
-                    ? 'bg-white text-black'
-                    : 'bg-white/[0.04] text-zinc-400 hover:text-white border border-white/[0.06]'
+                  ? 'bg-white text-black'
+                  : 'bg-white/[0.04] text-zinc-400 hover:text-white border border-white/[0.06]'
                   }`}
               >
                 All
@@ -617,8 +840,8 @@ export default function App() {
               <button
                 onClick={() => setPortalFilter('simplewallet')}
                 className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${portalFilter === 'simplewallet'
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-blue-500/10 text-blue-300 hover:text-white border border-blue-500/20'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-blue-500/10 text-blue-300 hover:text-white border border-blue-500/20'
                   }`}
               >
                 SimpleWallet
@@ -626,8 +849,8 @@ export default function App() {
               <button
                 onClick={() => setPortalFilter('egpayment')}
                 className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${portalFilter === 'egpayment'
-                    ? 'bg-amber-600 text-white shadow-sm'
-                    : 'bg-amber-500/10 text-amber-300 hover:text-white border border-amber-500/20'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'bg-amber-500/10 text-amber-300 hover:text-white border border-amber-500/20'
                   }`}
               >
                 EG Payment
@@ -646,8 +869,8 @@ export default function App() {
                       {/* Source Badge */}
                       <span
                         className={`w-6 h-6 rounded-lg flex items-center justify-center text-[9px] font-black shrink-0 ${tx.source === 'egpayment'
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                            : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                          : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                           }`}
                       >
                         {tx.source === 'egpayment' ? 'EG' : 'SW'}
@@ -700,6 +923,141 @@ export default function App() {
         {/* ==================================================== */}
         {activeTab === 'security' && (
           <div className="space-y-3 animate-in fade-in duration-200 text-xs">
+            {/* Dashboard Pairing Connection Input Section */}
+            <div className="p-3.5 rounded-2xl bg-gradient-to-b from-blue-950/40 to-white/[0.02] border border-blue-500/25 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-blue-600/20 flex items-center justify-center">
+                    <LinkIcon className="w-3.5 h-3.5 text-blue-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-[11px]">Dashboard Terminal Pairing</h3>
+                    <p className="text-[10px] text-zinc-400">Connect extension with web account</p>
+                  </div>
+                </div>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${data.deviceId && data.deviceToken
+                      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                      : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                    }`}
+                >
+                  {data.deviceId && data.deviceToken ? 'Paired' : 'Not Paired'}
+                </span>
+              </div>
+
+              {/* Pairing Form */}
+              <form onSubmit={handlePair} className="space-y-2.5 pt-1">
+                {/* 1. Pairing Code Input */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
+                      Pairing Code (8 Characters)
+                    </label>
+                    <span className="text-[9px] text-zinc-400">From /devices modal</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      maxLength={12}
+                      placeholder="e.g. M4WH-PYTK"
+                      value={pairingCode}
+                      onChange={(e) => setPairingCode(e.target.value.toUpperCase())}
+                      style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+                      className="flex-1 px-3 py-2 border border-white/10 rounded-xl text-center text-xs font-mono tracking-widest text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase font-bold shadow-inner"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isPairing || !pairingCode.trim()}
+                      className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white rounded-xl text-[11px] font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-md shadow-blue-600/25 active:scale-95"
+                    >
+                      {isPairing ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                      <span>{data.deviceId ? 'Update' : 'Pair'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Backend API URL Field */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
+                      Web Dashboard API URL
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSaveApiUrl('http://localhost:3000')}
+                        className="text-[9px] text-blue-400 hover:text-blue-300 font-mono underline cursor-pointer"
+                      >
+                        localhost:3000
+                      </button>
+                      <span className="text-zinc-600">•</span>
+                      <button
+                        type="button"
+                        onClick={() => handleSaveApiUrl(DEFAULT_STORAGE.apiUrl)}
+                        className="text-[9px] text-zinc-400 hover:text-zinc-200 font-mono cursor-pointer"
+                      >
+                        default
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={pairingApiUrl}
+                      onChange={(e) => setPairingApiUrl(e.target.value)}
+                      onBlur={() => handleSaveApiUrl(pairingApiUrl)}
+                      placeholder="http://localhost:3000"
+                      style={{ backgroundColor: '#0d1017', color: '#f4f4f5', colorScheme: 'dark' }}
+                      className="flex-1 px-3 py-1.5 border border-white/10 rounded-xl text-[11px] font-mono text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-inner"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleSaveApiUrl(pairingApiUrl)}
+                      className="px-2.5 py-1.5 bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300 hover:text-white rounded-xl text-[10px] font-medium transition-colors cursor-pointer shrink-0"
+                    >
+                      Save URL
+                    </button>
+                  </div>
+                </div>
+
+                {/* Error Box with Troubleshooting Guidance */}
+                {pairError && (
+                  <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-[10px] text-red-300 space-y-1">
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                      <span>{pairError}</span>
+                    </div>
+                    {pairError.includes('Cannot reach backend') && (
+                      <p className="text-[9px] text-zinc-400 pl-5 leading-normal">
+                        Tip: Verify your Next.js dashboard is running (<span className="text-zinc-200 font-mono">pnpm dev</span> on <span className="text-blue-300 font-mono">http://localhost:3000</span>) or enter the correct web dashboard URL above.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Footer status / Disconnect */}
+                {data.deviceId && (
+                  <div className="flex justify-between items-center pt-1 border-t border-white/[0.06]">
+                    <span className="text-[10px] text-zinc-400">
+                      ID: <span className="font-mono text-zinc-300">{data.deviceId.slice(0, 16)}...</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleUnpair}
+                      className="text-[10px] text-red-400 hover:text-red-300 font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Unlink className="w-3 h-3" />
+                      <span>Disconnect Terminal</span>
+                    </button>
+                  </div>
+                )}
+              </form>
+            </div>
+
             {/* Terminal Card */}
             <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] space-y-2.5">
               <div className="flex items-center justify-between">
@@ -734,10 +1092,10 @@ export default function App() {
             <div className="p-3.5 rounded-2xl bg-gradient-to-br from-blue-950/30 to-indigo-950/20 border border-blue-500/20 space-y-2">
               <div className="flex items-center gap-2 text-blue-300 font-bold">
                 <ShieldCheck className="w-4 h-4 text-blue-400" />
-                <span>Strict Read-Only Guarantee</span>
+                <span>read-only except one search-button click, see ADR</span>
               </div>
               <p className="text-[11px] text-zinc-300 leading-relaxed">
-                This extension strictly reads transaction tables. It has zero capability to trigger
+                This extension is read-only except one search-button click, see ADR. It has zero capability to trigger
                 recharges, enter payments, or click action buttons on your portals.
               </p>
               <div className="flex items-center gap-3 pt-1 text-[10px] text-blue-300 font-medium">
@@ -783,7 +1141,7 @@ export default function App() {
             className="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold tracking-wide uppercase shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'Scanning Portals...' : 'Sync Both Portals'}</span>
+            <span>{isSyncing ? 'Syncing & Dispatching...' : 'Sync & Dispatch Portals'}</span>
           </button>
 
           {/* Pause / Resume Button */}
@@ -814,6 +1172,153 @@ export default function App() {
           <ExternalLink className="w-3 h-3" />
         </button>
       </div>
+
+      {/* ==================================================== */}
+      {/* PAIRING MODAL OVERLAY */}
+      {/* ==================================================== */}
+      {showPairModal && (
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowPairModal(false);
+          }}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(5, 7, 12, 0.88)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            zIndex: 9999,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'flex-end',
+          }}
+          className="animate-in fade-in duration-200"
+        >
+          <div
+            style={{
+              backgroundColor: '#0d1017',
+              borderTop: '1px solid rgba(255, 255, 255, 0.15)',
+              borderTopLeftRadius: '1.5rem',
+              borderTopRightRadius: '1.5rem',
+              boxShadow: '0 -25px 60px rgba(0, 0, 0, 0.98)',
+              padding: '1.25rem',
+              maxHeight: '92%',
+              overflowY: 'auto',
+            }}
+            className="space-y-3.5 custom-scrollbar"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-white/[0.08]">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+                  <KeyRound className="w-4 h-4 text-blue-400" />
+                </div>
+                <h2 className="text-sm font-bold text-white">Dashboard Terminal Pairing</h2>
+              </div>
+              <button
+                onClick={() => setShowPairModal(false)}
+                className="p-1 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-300 leading-relaxed">
+              Generate an 8-character pairing code in your web dashboard under <strong>Terminals / Devices</strong> and enter it below.
+            </p>
+
+            <form onSubmit={handlePair} className="space-y-3">
+              <div>
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1.5">
+                  Pairing Code (8 Characters)
+                </label>
+                <input
+                  type="text"
+                  maxLength={12}
+                  placeholder="e.g. M4WH-PYTK"
+                  value={pairingCode}
+                  onChange={(e) => setPairingCode(e.target.value.toUpperCase())}
+                  style={{ backgroundColor: '#07080c', color: '#f4f4f5', colorScheme: 'dark' }}
+                  className="w-full px-3 py-2.5 border border-white/15 rounded-xl text-center text-lg font-mono tracking-widest text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase font-black shadow-inner"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                    Backend API URL
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPairingApiUrl('https://gonline.dpdns.org')}
+                      className="text-[9px] text-emerald-400 hover:underline font-bold"
+                    >
+                      gonline.dpdns.org
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPairingApiUrl('http://localhost:3000')}
+                      className="text-[9px] text-blue-400 hover:underline"
+                    >
+                      localhost:3000
+                    </button>
+                  </div>
+                </div>
+                <input
+                  type="text"
+                  value={pairingApiUrl}
+                  onChange={(e) => setPairingApiUrl(e.target.value)}
+                  style={{ backgroundColor: '#07080c', color: '#f4f4f5', colorScheme: 'dark' }}
+                  className="w-full px-3 py-2 border border-white/10 rounded-xl text-xs font-mono text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-inner"
+                />
+              </div>
+
+              {pairError && (
+                <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span>{pairError}</span>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                {data.deviceId && (
+                  <button
+                    type="button"
+                    onClick={handleUnpair}
+                    className="py-2.5 px-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-300 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Unlink className="w-3.5 h-3.5" />
+                    <span>Disconnect</span>
+                  </button>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isPairing || !pairingCode.trim()}
+                  className="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold tracking-wide uppercase shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isPairing ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Pairing Terminal...
+                    </>
+                  ) : (
+                    <>
+                      <LinkIcon className="w-3.5 h-3.5" />
+                      Connect Terminal
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

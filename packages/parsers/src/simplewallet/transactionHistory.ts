@@ -27,6 +27,7 @@
  */
 
 import type { IngestTransaction, ParseResult, TransactionStatus } from '@walletsync/contract';
+import { parseSimpleWalletHeaderStats } from './rechargeRunner';
 
 /** Parser version — bumped independently of the extension version. */
 export const PARSER_VERSION = '1.0.0';
@@ -200,9 +201,11 @@ export function parse(html: string): ParseResult {
   }
 
   // -------------------------------------------------------------------------
-  // 6. Read wallet balance from page header when present.
+  // 6. Read wallet balance and commission from page header when present.
   // -------------------------------------------------------------------------
-  const balancePaise = readBalancePaise(doc);
+  const headerStats = parseSimpleWalletHeaderStats(doc);
+  const balancePaise = headerStats.regularBalancePaise ?? readBalancePaise(doc);
+  const commissionPaise = headerStats.commissionPaise;
 
   // -------------------------------------------------------------------------
   // 7. Return success.
@@ -213,6 +216,7 @@ export function parse(html: string): ParseResult {
     parserVersion: PARSER_VERSION,
     capturedAt: new Date().toISOString(),
     balancePaise,
+    commissionPaise,
     pageTotals: { amountPaise: grandTotalPaise ?? rowSumPaise },
     rows,
   };
@@ -315,21 +319,53 @@ function parsePaise(text: string): number | null {
 /**
  * Normalise raw status text to the canonical enum value.
  */
-function normalizeStatus(raw: string): TransactionStatus {
-  switch (raw.toLowerCase().trim()) {
-    case 'success':
-      return 'success';
-    case 'pending':
-      return 'pending';
-    case 'failed':
-    case 'failure':
-      return 'failed';
-    case 'refunded':
-    case 'refund':
-      return 'refunded';
-    default:
-      return 'unknown';
+export function normalizeStatus(raw: string): TransactionStatus {
+  const clean = (raw || '').toLowerCase().trim();
+  if (!clean) return 'unknown';
+
+  if (
+    clean.includes('success') ||
+    clean === 'done' ||
+    clean === 'completed' ||
+    clean === 'ok'
+  ) {
+    return 'success';
   }
+
+  if (
+    clean.includes('fail') ||
+    clean.includes('failure') ||
+    clean.includes('declin') ||
+    clean.includes('reject') ||
+    clean.includes('cancel') ||
+    clean.includes('error') ||
+    clean.includes('invalid') ||
+    clean.includes('dispute')
+  ) {
+    return 'failed';
+  }
+
+  if (
+    clean.includes('refund') ||
+    clean.includes('revers') ||
+    clean.includes('credit back')
+  ) {
+    return 'refunded';
+  }
+
+  if (
+    clean.includes('pend') ||
+    clean.includes('process') ||
+    clean.includes('queue') ||
+    clean.includes('wait') ||
+    clean.includes('submit') ||
+    clean.includes('initiat') ||
+    clean.includes('hold')
+  ) {
+    return 'pending';
+  }
+
+  return 'unknown';
 }
 
 /**

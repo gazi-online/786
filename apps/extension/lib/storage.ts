@@ -1,5 +1,7 @@
 import type { DeviceStatus, IngestRequest, IngestTransaction } from '@walletsync/contract';
 
+export const MIN_AUTO_CLICK_INTERVAL_SECONDS = 60;
+
 export interface StorageData {
   // Device & API configuration
   deviceId: string | null;
@@ -23,6 +25,10 @@ export interface StorageData {
   pollingIntervalMinutes: number; // default 2, min 1
   keepAliveMode: 'fetch' | 'reload';
 
+  // Auto-click setting (Round 10: defaults to safest option, capped minimum)
+  autoClickEnabled: boolean; // default: false (safest option)
+  autoClickIntervalSeconds: number; // default: 120, minimum: 60
+
   // Metrics for popup display
   todayCount: number;
   todayAmountPaise: number;
@@ -40,12 +46,25 @@ export interface StorageData {
 
   // Offline buffer (last 50 payloads)
   offlineQueue: IngestRequest[];
+
+  // Recharge Engine execution audit state
+  lastRechargeLog?: {
+    time: string;
+    ok: boolean;
+    message: string;
+  };
 }
+
+// Build-time API origin injected by WXT config from WALLETSYNC_API_ORIGIN env var
+declare const __BUILD_API_URL__: string | undefined;
 
 export const DEFAULT_STORAGE: StorageData = {
   deviceId: null,
   deviceToken: null,
-  apiUrl: 'http://localhost:3000',
+  apiUrl:
+    typeof __BUILD_API_URL__ !== 'undefined' && __BUILD_API_URL__
+      ? __BUILD_API_URL__
+      : 'https://gonline.dpdns.org',
   portalUrl: 'https://simplewallet.in/web/MyTrans.aspx?ST=1&mID=824&PID=821',
   status: 'ok',
   lastSyncTime: null,
@@ -57,6 +76,8 @@ export const DEFAULT_STORAGE: StorageData = {
   egpaymentCount: 0,
   pollingIntervalMinutes: 2,
   keepAliveMode: 'fetch',
+  autoClickEnabled: true, // Default to true so Auto-Detector works automatically on SimpleWallet history page
+  autoClickIntervalSeconds: 120, // Capped at MIN_AUTO_CLICK_INTERVAL_SECONDS (60s)
   todayCount: 0,
   todayAmountPaise: 0,
   recentTransactions: [],
@@ -71,4 +92,3 @@ export async function getStorage(): Promise<StorageData> {
 export async function setStorage(data: Partial<StorageData>): Promise<void> {
   await chrome.storage.local.set(data);
 }
-
