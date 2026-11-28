@@ -64,6 +64,7 @@ describe('M2 Ingest Rules & Status Transitions (GUIDE.md §3)', () => {
       parserVersion: '0.1.0',
       capturedAt: '2026-10-29T12:28:38+05:30',
       balancePaise: 125000,
+      commissionPaise: null,
       pageTotals: { amountPaise: 39900 },
       rows: [
         {

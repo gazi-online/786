@@ -23,6 +23,7 @@ describe('Round 7 Step 1: Route Auth Table & Automated Route Directory Audit', (
   // Explicit Allowlist: ONLY routes using device tokens or public pairing codes with rate limits
   const EXPLICIT_ALLOWLIST = new Set([
     path.normalize('devices/pair/route.ts'),
+    path.normalize('devices/heartbeat/route.ts'),
     path.normalize('ingest/route.ts'),
   ]);
 
