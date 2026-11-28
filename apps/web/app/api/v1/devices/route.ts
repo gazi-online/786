@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { devices, pairingCodes } from '@/drizzle/schema';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { hashPairingCode } from '@/lib/crypto';
 import { generateUnambiguousPairingCode } from '@/lib/pairing-code';
 import { getTenantSession, canPerformAction } from '@/lib/auth';
 import {
   saveMemoryPairingCode,
   listMemoryDevices,
+  isMemoryPairingCodeUsed,
 } from '@/lib/memory-store';
 
 export async function GET(req: NextRequest) {
@@ -16,7 +17,36 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized: Authentication required' }, { status: 401 });
   }
 
+  const checkCode = req.nextUrl.searchParams.get('checkCode');
+  let checkCodeClean = '';
+  let checkCodeHash = '';
+  if (checkCode) {
+    checkCodeClean = checkCode.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (checkCodeClean.length >= 6) {
+      checkCodeHash = hashPairingCode(checkCodeClean);
+    }
+  }
+
   try {
+    let paired = false;
+    if (checkCodeHash) {
+      const codeRows = await db
+        .select({ usedAt: pairingCodes.usedAt })
+        .from(pairingCodes)
+        .where(
+          and(
+            eq(pairingCodes.tenantId, session.tenant.id),
+            eq(pairingCodes.codeHash, checkCodeHash),
+          ),
+        )
+        .limit(1);
+      if (codeRows[0]?.usedAt) {
+        paired = true;
+      } else if (isMemoryPairingCodeUsed(checkCodeClean, checkCodeHash)) {
+        paired = true;
+      }
+    }
+
     const rows = await db
       .select()
       .from(devices)
@@ -25,6 +55,7 @@ export async function GET(req: NextRequest) {
       .limit(50);
 
     return NextResponse.json({
+      paired,
       devices: rows.map((d) => ({
         id: d.id,
         label: d.label || 'POS Terminal (Chrome)',
@@ -36,9 +67,13 @@ export async function GET(req: NextRequest) {
       })),
     });
   } catch {
+    const paired = checkCodeHash
+      ? isMemoryPairingCodeUsed(checkCodeClean, checkCodeHash)
+      : false;
     const memDevs = listMemoryDevices();
     if (memDevs.length > 0) {
       return NextResponse.json({
+        paired,
         devices: memDevs.map((d) => ({
           id: d.id,
           label: d.label,
@@ -52,6 +87,7 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({
+      paired,
       devices: [],
     });
   }

@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import type { ApiTransaction, IngestTransaction, TransactionSource } from '@walletsync/contract';
 import { AppLayout } from '@/components/AppLayout';
+import { PairDeviceModal } from '@/components/PairDeviceModal';
 import { useI18n } from '@/lib/i18n-context';
 import { formatPaise, formatKolkataDate } from '@/lib/i18n';
 import { getClientCache, setClientCache } from '@/lib/client-cache';
@@ -16,8 +17,6 @@ import {
   Eye,
   EyeOff,
   Smartphone,
-  Copy,
-  Check,
   RefreshCw,
   Sparkles,
 } from 'lucide-react';
@@ -55,7 +54,6 @@ export default function DashboardPage() {
   // Pairing Modal state
   const [showPairModal, setShowPairModal] = useState(false);
   const [pairingCode, setPairingCode] = useState('SYNC-7489');
-  const [copiedCode, setCopiedCode] = useState(false);
 
   // 1. Initial data fetch with instant 0ms client-side cache
   useEffect(() => {
@@ -620,52 +618,14 @@ export default function DashboardPage() {
       )}
 
       {/* Pairing Code Modal */}
-      {showPairModal && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
-        >
-          <div className="w-full max-w-md bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 shadow-xl">
-            <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-              {t.devices.modalTitle}
-            </h3>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-              {t.devices.modalDesc}
-            </p>
-
-            <div className="my-6 p-4 rounded-xl bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 flex items-center justify-between">
-              <span className="font-mono text-2xl font-bold tracking-widest text-blue-600 dark:text-blue-400">
-                {pairingCode}
-              </span>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(pairingCode);
-                  setCopiedCode(true);
-                  setTimeout(() => setCopiedCode(false), 2000);
-                }}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-zinc-700 border border-zinc-200 dark:border-zinc-600 hover:bg-zinc-50 flex items-center gap-1.5 shadow-2xs"
-              >
-                {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedCode ? t.common.copied : t.common.copy}</span>
-              </button>
-            </div>
-
-            <p className="text-[11px] text-zinc-400 mb-6">
-              {t.devices.extensionInstruction}
-            </p>
-
-            <div className="flex justify-end">
-              <button
-                onClick={() => setShowPairModal(false)}
-                className="px-4 py-2 text-xs font-medium rounded-lg bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors"
-              >
-                {t.common.close}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <PairDeviceModal
+        isOpen={showPairModal}
+        pairingCode={pairingCode}
+        onClose={() => setShowPairModal(false)}
+        onPaired={() => {
+          setDeviceStatus('ok');
+        }}
+      />
     </AppLayout>
   );
 }

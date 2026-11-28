@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { AppLayout } from '@/components/AppLayout';
+import { PairDeviceModal } from '@/components/PairDeviceModal';
 import { useI18n } from '@/lib/i18n-context';
 import { formatKolkataDate } from '@/lib/i18n';
 import {
@@ -12,8 +13,6 @@ import {
   Trash2,
   CheckCircle2,
   AlertTriangle,
-  Copy,
-  Check,
   RefreshCw,
   AlertCircle,
   Activity,
@@ -48,7 +47,6 @@ export default function DevicesPage() {
   // Pairing Modal state
   const [showPairModal, setShowPairModal] = useState(false);
   const [pairingCode, setPairingCode] = useState('');
-  const [copiedCode, setCopiedCode] = useState(false);
   const [generatingCode, setGeneratingCode] = useState(false);
 
   useEffect(() => {
@@ -344,52 +342,14 @@ export default function DevicesPage() {
       )}
 
       {/* Pairing Code Dialog */}
-      {showPairModal && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
-        >
-          <div className="w-full max-w-md bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 shadow-xl space-y-4">
-            <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-              {t.devices.modalTitle}
-            </h3>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              {t.devices.modalDesc}
-            </p>
-
-            <div className="p-4 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center justify-between">
-              <span className="font-mono text-2xl font-bold tracking-widest text-blue-600 dark:text-blue-400">
-                {pairingCode}
-              </span>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(pairingCode);
-                  setCopiedCode(true);
-                  setTimeout(() => setCopiedCode(false), 2000);
-                }}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-zinc-700 border border-zinc-200 dark:border-zinc-600 hover:bg-zinc-50 flex items-center gap-1.5 shadow-2xs"
-              >
-                {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedCode ? t.common.copied : t.common.copy}</span>
-              </button>
-            </div>
-
-            <p className="text-[11px] text-zinc-400">
-              {t.devices.extensionInstruction}
-            </p>
-
-            <div className="flex justify-end pt-2">
-              <button
-                onClick={() => setShowPairModal(false)}
-                className="px-4 py-2 text-xs font-semibold rounded-lg bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-300 dark:hover:bg-zinc-700"
-              >
-                {t.common.close}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <PairDeviceModal
+        isOpen={showPairModal}
+        pairingCode={pairingCode}
+        onClose={() => setShowPairModal(false)}
+        onPaired={() => {
+          loadData();
+        }}
+      />
     </AppLayout>
   );
 }

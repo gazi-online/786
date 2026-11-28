@@ -91,6 +91,20 @@ export function consumeMemoryPairingCode(code: string, codeHash: string): boolea
   return true;
 }
 
+export function isMemoryPairingCodeUsed(code: string, codeHash: string): boolean {
+  const upper = code.toUpperCase();
+  const entry = pairingCodesMap.get(upper);
+  if (entry) {
+    return entry.used;
+  }
+  for (const v of pairingCodesMap.values()) {
+    if (v.codeHash === codeHash) {
+      return v.used;
+    }
+  }
+  return false;
+}
+
 export function registerMemoryDevice(deviceToken: string, tokenHash: string, label?: string): MemoryDevice {
   const device: MemoryDevice = {
     id: crypto.randomUUID(),
